@@ -172,6 +172,21 @@ export function createRconChat(cfg) {
     ]);
   }
 
+  // Diplomacy voice: words cycle rainbow colors. Name keeps tag + team color.
+  const RAINBOW = ['red', 'gold', 'yellow', 'green', 'aqua', 'blue', 'light_purple'];
+  function sayRainbow(botName, teamColor, text) {
+    const parts = String(text).split(' ').map((word, i) => ({
+      text: word + ' ',
+      color: RAINBOW[i % RAINBOW.length],
+    }));
+    return tellraw([
+      { text: '<', color: 'dark_gray' },
+      { text: `[CAVE] ${botName}`, color: teamColor },
+      { text: '> ', color: 'dark_gray' },
+      ...parts,
+    ]);
+  }
+
   function close() {
     failAllPending(new Error('rcon closed'));
     return new Promise((resolve) => {
@@ -180,5 +195,5 @@ export function createRconChat(cfg) {
     });
   }
 
-  return { send, sayStatus, sayFancy, close };
+  return { send, sayStatus, sayFancy, sayRainbow, close };
 }
