@@ -101,6 +101,19 @@ async function tick(bot) {
 
   const running = st.currentTask && st.currentTask.state === 'running'
 
+  // CHOP QUARANTINE ENFORCER: /chop matches any oak_log as "tree" and has
+  // repeatedly harvested the house pillars. Any running chop within 60 blocks
+  // of camp gets killed on sight — code law, not inbox law.
+  if (running && st.currentTask.kind === 'chop' && st.pos) {
+    const dx = st.pos.x - 12, dz = st.pos.z - 56
+    if (Math.sqrt(dx * dx + dz * dz) < 60) {
+      log(`${bot.name} CHOP inside camp quarantine at (${Math.round(st.pos.x)},${Math.round(st.pos.z)}) -> stop`)
+      await api(bot.port, '/stop', {})
+      await grey(bot.name, bot.color, '(overseer) chop stopped — camp quarantine, trees only 60+ blocks out')
+      return
+    }
+  }
+
   // stuck detection: running goto but position frozen too long → NO TELEPORT
   // (user law: rcon world-touches = cheating). Stop the dead task, announce,
   // let /relog + driver self-rescue handle it; repeated = driver escalates.
