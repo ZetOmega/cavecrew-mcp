@@ -29,6 +29,7 @@ import * as skills from './skills.js';
 import * as movement from './movement.js';
 import { createRconChat } from './rconchat.js';
 import { tryStartWebInventory } from './webinv.js';
+import { postStatus, isConfigured as discordConfigured } from './discord.mjs';
 
 const { createBot } = mineflayer;
 const { goals } = pathfinderPkg;
@@ -74,8 +75,36 @@ const { name, port, host, mcport, engine: defaultEngine } = args;
 // to plain bot.chat.
 // ---------------------------------------------------------------------------
 
-const TEAM_COLORS = { Grog: 'green', UngaBunga: 'yellow', Zug: 'light_purple', Bonk: 'aqua', Thak: 'gold', Ook: 'red' };
+const TEAM_COLORS = {
+  Grog: 'green',
+  UngaBunga: 'yellow',
+  Zug: 'light_purple',
+  Bonk: 'aqua',
+  Thak: 'gold',
+  Ook: 'red',
+  Durk: 'blue',
+  Mog: 'dark_aqua',
+};
 const teamColor = TEAM_COLORS[name] || 'white';
+
+// local.json config — read once, lazily, cached. Same file rconchat.js reads
+// for its own [rcon] block; this reads the sibling [discord] block. Missing
+// file / bad JSON / missing block are all fine — just means Discord routing
+// is off and status narration falls back to tellraw grey, as before.
+let localConfigLoaded = false;
+let localConfig = null;
+function getLocalConfig() {
+  if (!localConfigLoaded) {
+    localConfigLoaded = true;
+    try {
+      const raw = fs.readFileSync(path.join(CAVE_DIR, 'local.json'), 'utf8');
+      localConfig = JSON.parse(raw);
+    } catch {
+      localConfig = null;
+    }
+  }
+  return localConfig;
+}
 
 let rconChatInstance = null;
 let rconChatInitTried = false;
@@ -97,6 +126,22 @@ function getRconChat() {
 // (no local.json, RCON down, a bad send) falls back to bot.chat with the
 // plain text, so a narration line never takes the runner down with it.
 async function announce(style, text) {
+  // STATUS + DISCORD ROUTING (user decree): routine status chatter belongs in
+  // a Discord channel, not game chat — game chat stays for real talk only.
+  // When cave/local.json has a configured discord.webhookUrl, 'status' lines
+  // go there INSTEAD of tellraw. Fancy/rainbow (and talk, handled by
+  // smartChat below) are unaffected — those are deliberate in-game moments,
+  // not routine narration. No webhook configured (current default state) ->
+  // falls straight through to the existing tellraw-grey path.
+  if (style === 'status') {
+    const cfg = getLocalConfig();
+    if (discordConfigured(cfg)) {
+      const ok = await postStatus({ botName: name, color: teamColor, text, webhookUrl: cfg.discord.webhookUrl });
+      if (ok) return;
+      logLine('warn', 'discord postStatus failed, falling back to tellraw grey');
+      // fall through to rcon/bot.chat below
+    }
+  }
   const rc = getRconChat();
   if (rc) {
     try {
@@ -742,6 +787,12 @@ function wireBot(b) {
     pushEvent('death', `${name} died at ${posStr}`);
     state.deathCount++;
     state.lastDeath = { pos, ts: new Date().toISOString() };
+    // IMPORTANT WHITE announcement — the '!' path (see smartChat above)
+    // strips the '!' and sends this as real, unmissed chat: every death is
+    // worth every bot/player noticing, unlike routine status narration.
+    smartChat(`!${name} died at (${posStr}) — deathCount ${state.deathCount}`).catch((err) =>
+      logLine('warn', `death announce failed: ${err?.message ?? err}`)
+    );
     // Grab the dying task's target BEFORE failing it (failActiveTask doesn't
     // touch task.targetPos, but read it first for clarity/safety) — that's
     // the spot that got the bot killed, so future skill runs should steer
@@ -854,7 +905,7 @@ movement
 // touched here — idle-guard is just another task from their point of view.
 // ---------------------------------------------------------------------------
 
-const IDLE_GUARD_THRESHOLD_MS = 15000; // was 60s — user wants near-zero visible idle
+const IDLE_GUARD_THRESHOLD_MS = 90000; // EMERGENCY REVERT: 15s machine-gunned the task mutex and locked out ALL driver tasks fleet-wide. Visible-idle answer = smarter filler, not faster trigger.
 const IDLE_GUARD_TICK_MS = 5000;
 // Depot chest A — must stay in sync with skills.js's own DEPOT_POS constant
 // (kept separate rather than exported/imported to avoid coupling this
@@ -1231,10 +1282,12 @@ const taskRoutes = {
     // deathPos comes from the runner's own state.lastDeath (set by the
     // b.on('death') handler above) — not the request body. skills.recoverKit
     // itself calls ctx.setTargetPos(deathPos) so a second death at the same
-    // recovery spot gets poisoned too.
+    // recovery spot gets poisoned too. deathTs is forwarded too so
+    // recoverKit's own despawn gate (skip if the death is >4min old) has
+    // something to check against.
     const deathPos = state.lastDeath?.pos;
     if (!deathPos) throw new Error('/recover: no recorded death position (bot has not died this session)');
-    return skills.recoverKit(b, { deathPos, timeBudgetMs: body.timeBudgetMs }, ctx);
+    return skills.recoverKit(b, { deathPos, deathTs: state.lastDeath?.ts, timeBudgetMs: body.timeBudgetMs }, ctx);
   }),
   '/staircase': taskEndpoint('staircase', async (b, body, ctx) => {
     requireNumber(body, 'toY');
