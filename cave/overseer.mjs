@@ -98,15 +98,17 @@ async function tick(bot) {
 
   const running = st.currentTask && st.currentTask.state === 'running'
 
-  // stuck detection: running goto but position frozen too long → tp home
+  // stuck detection: running goto but position frozen too long → NO TELEPORT
+  // (user law: rcon world-touches = cheating). Stop the dead task, announce,
+  // let /relog + driver self-rescue handle it; repeated = driver escalates.
   if (running && st.pos) {
     const key = `${Math.round(st.pos.x)},${Math.round(st.pos.y)},${Math.round(st.pos.z)}`
     if (s.lastPos === key) {
       if (now - s.posSince > STUCK_MS && st.currentTask.kind === 'goto') {
-        log(`${bot.name} stuck at ${key} -> tp camp + stop`)
+        log(`${bot.name} stuck at ${key} -> stop + relog (no-tp law)`)
         await api(bot.port, '/stop', {})
-        await rconCmd(`tp ${bot.name} ${CAMP.x} ${CAMP.y} ${CAMP.z}`)
-        await grey(bot.name, bot.color, '(overseer) unstuck, teleported home')
+        await api(bot.port, '/relog', {})
+        await grey(bot.name, bot.color, '(overseer) stuck — stopped + relogged, driver check needed')
         s.posSince = now
       }
     } else { s.lastPos = key; s.posSince = now }
@@ -159,11 +161,9 @@ log(`overseer up, watching ${BOTS.length} bots (idle ${IDLE_MS / 1000}s, poll ${
 let lastPhantomPurge = 0
 for (;;) {
   for (const b of BOTS) await tick(b).catch((e) => log(`${b.name} tick error: ${e.message}`))
-  // phantom purge (user decree; gamerule doInsomnia rejected by this server build)
-  if (Date.now() - lastPhantomPurge > 10 * 60_000) {
-    lastPhantomPurge = Date.now()
-    const r = await rconCmd('kill @e[type=phantom]')
-    if (r && !/No entity was found/i.test(r)) log(`phantom purge: ${r}`)
-  }
+  // phantom purge REMOVED (user law: no rcon world-touches ever — /kill = cheat).
+  // Phantoms handled by defense skills once shipped (bows/melee) or by sleeping
+  // mechanics if beds become viable.
+  void lastPhantomPurge
   await new Promise((r) => setTimeout(r, POLL_MS))
 }
