@@ -369,17 +369,57 @@ export async function mineBlocks(bot, opts = {}, ctx = {}) {
 
 export async function collectDrops(bot, opts = {}, ctx = {}) {
   const radius = opts.radius ?? 16;
-  const drops = Object.values(bot.entities).filter(
-    (e) => e.name === 'item' && e.position && bot.entity.position.distanceTo(e.position) <= radius
-  );
-  if (drops.length === 0) return { collected: [] };
+  const maxIterations = opts.maxIterations ?? 24;
+
+  // Verified against this repo's installed mineflayer (4.35.0 + minecraft-data
+  // entities.json): dropped-item entities always report e.name === 'item' —
+  // do not gate on e.type/objectType, those aren't set that way here.
+  const isDrop = (e) => e && e.name === 'item' && e.position && bot.entity.position.distanceTo(e.position) <= radius;
 
   const before = snapshotInventory(bot);
-  try {
-    await bot.collectBlock.collect(drops, { ignoreNoPath: true });
-  } catch (err) {
-    ctx.log?.('warn', `collectDrops: collect() error: ${err.message}`);
+  const stuckIds = new Set();
+  let iterations = 0;
+
+  // bot.collectBlock.collect() used to do this via GoalFollow(entity, 0), but
+  // one unreachable drop in the batch throws and silently aborts every drop
+  // after it. Walk drops one at a time instead, so a stuck drop can't eat the
+  // rest of the pile.
+  while (iterations < maxIterations) {
+    iterations++;
+    if (ctx.isCancelled?.()) break;
+
+    const drop = bot.nearestEntity((e) => isDrop(e) && !stuckIds.has(e.id));
+    if (!drop) break;
+    const dropId = drop.id;
+
+    // Vanilla pickup radius is tight (~1 block from the player). GoalNear
+    // with any slack (range 1-2) can stop the bot ~1.5+ blocks short and the
+    // drop never gets swept up — path onto the drop's exact block instead.
+    const dest = drop.position.floored();
+    try {
+      await gotoLoop(bot, new goals.GoalBlock(dest.x, dest.y, dest.z), { timeoutMs: 8000, maxAttempts: 2 }, ctx);
+    } catch (err) {
+      ctx.log?.('warn', `collectDrops: could not reach drop at ${posKey(dest)}: ${err.message}`);
+      stuckIds.add(dropId);
+      continue;
+    }
+
+    // Give the server a tick to register the pickup once we're standing on it.
+    await sleep(250);
+
+    // Only mark it "handled" once it's actually gone — a drop that's still
+    // sitting there after arrival didn't get collected, don't loop on it forever.
+    if (bot.entities[dropId]) {
+      stuckIds.add(dropId);
+    }
   }
+
+  try {
+    bot.pathfinder.setGoal(null);
+  } catch {
+    // ignore
+  }
+
   const after = snapshotInventory(bot);
   return { collected: diffInventory(before, after) };
 }
