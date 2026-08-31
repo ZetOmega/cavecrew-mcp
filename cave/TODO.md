@@ -1,44 +1,31 @@
 # TODO.md — cavecrew shared task board
 
-Drivers: between missions, CLAIM a task (move to DOING with your bot name),
-mark DONE when ground-truth verified. Orchestrator prunes DONE weekly.
-One quick edit at a time — read fresh before writing.
+Drivers: between missions CLAIM (set Status=DOING + your bot name), set DONE
+when ground-truth verified, ADD new rows at fitting priority. One quick edit
+at a time — read fresh before writing. Orchestrator prunes DONE.
 
-## TODO (priority order)
-
-1. [EQUALITY] Iron pickaxes for every bot — Thak's strip mine feeds ingots to
-   chest A, each driver eval-crafts own iron_pickaxe AT TABLE (no /craft, no
-   pocket grid).
-2. [ECONOMY] Watch FEL shop chest (8,112,22) for first trade; restock CAVE
-   shop as it drains. Grog = trade voice.
-3. [FARM] Plant remaining tiles both plots (door plot x8-11 z58-59 + west plot
-   -5..-2 z50-51 — BOTH have god-water now, no reverts). Seeds from
-   short_grass. Harvest age=7 only, instant replant, bread at table.
-4. [EQUALITY] Iron armor for all — after every bot holds iron pick.
-5. [FOOD] Ook's first far-range meat run (pigs ~100 west).
-6. [LABEL] Signs on: mine house face ("MINE HOUSE"), both farm plots, path
-   ends. Ask orchestrator for console signs (bot sign-place broken).
-7. [WOOD] Second wood run if chest A drops under 40 logs again.
-8. [ECONOMY] Depot audit skill idea: chest-scan vs ledger reconciliation
-   (ledger drift is real — "58 logs" haunted us).
-
-## DOING
-
-- #3 [BUILD] Mine House (9x7, option-a interior stairwell, stone roof,
-  FEL-photo style) — Grog — pillars UP, walls next
-- #6 [MINE] Grand staircase (15,89,57) → y54 via /staircase + stairs blocks
-  — Thak — strip-mine doctrine, digs under Grog's build
-- #7 [MINE] Branch grid at y54 (trunk 24, branches 6x8) — Thak — after stairs
-- #4 [INFRA] Stepped path door → trading post — Bonk — cobble staged
-- #10 [WOOD] Chest A ≥40 logs — UngaBunga — after plank delivery to Grog
+| # | Lane | Task | Who | Status |
+|---|------|------|-----|--------|
+| 1 | EQUALITY | Iron pickaxes every bot — strip mine feeds chest A, each driver eval-crafts own AT TABLE (never pocket grid, no /craft till patch) | Thak feeds, all craft | todo |
+| 2 | ECONOMY | Watch FEL shop (8,112,22) for first trade; restock CAVE shop as it drains | Grog = trade voice | todo |
+| 3 | FARM | Plant remaining tiles + expand both plots to 16+, seed sweeps, harvest age=7 only + instant replant, bread at table | Zug | DOING |
+| 4 | BUILD | Mine House 9x7: log pillars, plank walls, windows, STONE roof + rim, interior stairwell framed, chests C+D | Grog | DOING — pillars up |
+| 5 | MINE | Grand staircase (15,89,57) → y54 via /staircase + cobblestone_stairs surface + torches | Thak | DOING |
+| 6 | MINE | Branch grid y54: trunk 24, branches 6x8, torched, all veins | Thak | queued after #5 |
+| 7 | INFRA | Stepped 2-wide path camp door (11,90,58) → trading post (7,112,23) | Bonk | DOING — 64 cobble staged |
+| 8 | WOOD | Chest A wood ≥40 logs standing stock | UngaBunga | DOING — after plank delivery |
+| 9 | EQUALITY | Iron armor for all | all | after #1 |
+| 10 | FOOD | Ook first far-range meat run (pigs ~100 west) | Ook | todo |
+| 11 | LABEL | Signs: mine house face, both farm plots, path ends (console signs via orchestrator — bot sign-place broken) | orchestrator | todo |
+| 12 | ECONOMY | Depot audit skill: chest-scan vs ledger reconciliation | code round | idea |
 
 ## DONE
 
-- Trading post built + stocked + signed (UngaBunga + orchestrator)
-- Cooked meat in chest A: 3 porkchop + 1 chicken (Zug) — [FOOD] #2 closed
-- Two farm plots tilled + hydrated (Zug + god-water), 6 tiles planted
-- Camp signs: chest A/B, mine entrance, grove
-- Overseer watchdog live (v3: Grog mine-default removed — depth-law fix)
-- Alliance accepted with FEL crew; playbooks + overseer script + caveman kit
-  exchanged (wormhole 11-bradbury-assume)
-- Caveman kit wormholed to FEL operator
+| Task | By |
+|------|----|
+| Trading post built + stocked + 3 signs | UngaBunga + orchestrator |
+| Cooked meat banked chest A (3 porkchop, 1 chicken) | Zug |
+| Two farm plots tilled + hydrated (god-water x2) | Zug + orchestrator |
+| Camp signs: chest A/B, mine, grove | orchestrator |
+| Overseer watchdog v3 (idle/stuck/disconnect autopilot) | orchestrator |
+| Alliance sealed + gift exchange (playbook ↔ overseer + caveman kit) | Grog + both crews |
