@@ -65,6 +65,11 @@ const choreLast = new Map() // id -> ts
 const state = new Map() // name -> {idleSince, lastPos, posSince, lastRelog, defaultIdx}
 const log = (m) => { const line = `[${new Date().toISOString()}] ${m}\n`; try { fs.appendFileSync(LOG, line) } catch {}; console.log(line.trim()) }
 
+// alerts.log — the escalation channel the orchestrator reads every 5-min tick.
+// Only things the overseer could NOT fix itself belong here.
+const ALERTS = path.join(HERE, 'logs', 'alerts.log')
+const alert = (m) => { const line = `[${new Date().toISOString()}] ALERT ${m}\n`; try { fs.appendFileSync(ALERTS, line) } catch {}; log(`ALERT ${m}`) }
+
 let rcon = null
 const getRcon = () => (rcon ??= createRconChat())
 const grey = async (name, color, text) => { try { await getRcon().sayStatus(name, color, text) } catch (e) { log(`grey fail: ${e.message}`) } }
@@ -85,7 +90,30 @@ async function tick(bot) {
   const s = state.get(bot.name) ?? { idleSince: null, lastPos: null, posSince: 0, lastRelog: 0, defaultIdx: 0 }
   state.set(bot.name, s)
   const st = await api(bot.port, '/status', null, 'GET')
-  if (!st) return // runner down — spawn.mjs territory, not ours
+  if (!st) {
+    s.downCount = (s.downCount ?? 0) + 1
+    if (s.downCount === 3) alert(`${bot.name} runner unreachable on port ${bot.port} (3 polls) — needs spawn.mjs restart`)
+    return
+  }
+  s.downCount = 0
+
+  // failed task sitting unhandled → escalate after ~2 min
+  const nowTs = Date.now()
+  if (st.currentTask && st.currentTask.state === 'failed') {
+    const fkey = st.currentTask.id
+    if (s.failedSeen === fkey) {
+      if (s.failedSince && nowTs - s.failedSince > 120_000 && !s.failedAlerted) {
+        s.failedAlerted = true
+        alert(`${bot.name} task ${fkey} FAILED >2min, no follow-up (${String(st.lastError).slice(0, 80)})`)
+      }
+    } else { s.failedSeen = fkey; s.failedSince = nowTs; s.failedAlerted = false }
+  } else { s.failedSeen = null }
+
+  // disconnected too long despite relogs → escalate
+  if (!st.connected) {
+    if (s.discSince == null) s.discSince = nowTs
+    if (nowTs - s.discSince > 180_000 && !s.discAlerted) { s.discAlerted = true; alert(`${bot.name} disconnected >3min despite relogs`) }
+  } else { s.discSince = null; s.discAlerted = false }
 
   const now = Date.now()
 
