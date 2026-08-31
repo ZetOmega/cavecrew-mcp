@@ -1,3 +1,4 @@
 logs/
 pids/
 local.json
+scoreboard-state.json
