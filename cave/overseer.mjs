@@ -42,6 +42,12 @@ const BOTS = [
     { ep: '/collect', body: { radius: 16 }, say: 'idle: sweep drops' },
     { ep: '/hunt', body: { mob: 'pig', count: 1 }, say: 'idle: sniff for pig' },
   ]},
+  { name: 'Durk', port: 3207, color: 'blue', defaults: [
+    { ep: '/mine', body: { block: 'iron_ore', count: 6, maxDistance: 32 }, say: 'idle: dig iron' },
+  ]},
+  { name: 'Mog', port: 3208, color: 'dark_aqua', defaults: [
+    { ep: '/mine', body: { block: 'iron_ore', count: 6, maxDistance: 32 }, say: 'idle: dig iron' },
+  ]},
 ]
 
 // Recurring chores: fire when due AND bot is free (never preempts real work).
