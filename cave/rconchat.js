@@ -152,12 +152,12 @@ export function createRconChat(cfg) {
     return send(`tellraw @a ${JSON.stringify(payload)}`);
   }
 
-  // Whole line subtle grey — teamColor kept in the signature for parity with
-  // sayFancy/future use, but not applied to any segment here on purpose.
+  // Name keeps its [CAVE] tag + team color (user decree) — only the message
+  // body goes grey.
   function sayStatus(botName, teamColor, text) {
     return tellraw([
       { text: '<', color: 'dark_gray' },
-      { text: `[CAVE] ${botName}`, color: 'dark_gray' },
+      { text: `[CAVE] ${botName}`, color: teamColor || 'white' },
       { text: '> ', color: 'dark_gray' },
       { text: String(text), color: 'gray' },
     ]);
