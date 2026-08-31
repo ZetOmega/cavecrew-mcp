@@ -24,13 +24,16 @@
 //                           ctx.generation itself is a snapshot taken once at
 //                           task-start, not a live value — never compare it
 //                           against a later read of itself.
-//   ctx.sayStatus(text)   — optional; grey narration via the runner's
-//                           rconchat (falls back to bot.chat internally on
-//                           any rconchat trouble — see runner.js's announce()
-//                           and makeCtx()). Used for routine lines this file
-//                           itself generates (e.g. ensureTool's DEPOT ledger
-//                           line). Absent on a bare ctx (tests, /eval
-//                           helpers) — callers fall back to plain bot.chat.
+//   ctx.sayStatus(text)   — optional; routes through the runner's smartChat
+//                           (protocol-ledger lines like DEPOT stay real white
+//                           chat for parser compat; everything else goes grey
+//                           via rconchat, falling back to bot.chat on any
+//                           rconchat trouble — see runner.js's smartChat(),
+//                           announce(), and makeCtx()). Used for routine
+//                           lines this file itself generates (e.g.
+//                           ensureTool's DEPOT ledger line). Absent on a bare
+//                           ctx (tests, /eval helpers) — callers fall back to
+//                           plain bot.chat.
 // All are optional — every call below is guarded with `?.()` / defensive
 // checks so a bare `skills.fn(bot, opts)` call (e.g. from /eval) still works.
 //
@@ -89,6 +92,35 @@ const SOIL_BLOCKS = new Set([
 ]);
 
 const SEAL_MATERIALS = /cobblestone|_stone$|^stone$|dirt|netherrack|blackstone|deepslate/;
+
+// (16) WEDGE-DETECTION nuisance set — narrow and pre-vetted on purpose: only
+// the zero-collision block types the felcrew-mcp survey actually documented
+// wedging a bot in its own tile (torch + leaf_litter confirmed in their
+// FEEDBACK/LEARNING_HANDOFF entries; short_grass and layered snow are the
+// same zero-shape class), none of which is ever a build material.
+// Deliberately NOT fences/walls/slabs/stairs/carpets/etc — those are all
+// craftable build components (FEL's fences, our own grand-staircase
+// cobblestone_stairs) and digging one "because it was in the way" is exactly
+// the eats-own-infrastructure failure mode guard (17) below exists to stop.
+// "snow" is the thin layered block; "snow_block" intentionally not matched.
+// Travel Movements (m.canDig=false, see runner.js's safety-Movements
+// comment) will never clear these on its own. Used by gotoLoop's
+// wedge-detection retry below (adapted from felcrew-mcp survey findings).
+const NUISANCE_BLOCKS = /^(torch|leaf_litter|short_grass|snow)$/;
+
+// (17) PROTECTED-BLOCK DIG GUARD (adapted from felcrew-mcp survey findings —
+// their own digguard.js hardcodes plaza-pillar coordinates as an anti-grief
+// scar after Friedrich chopped Peter's house pillars thinking they were
+// trees; their own TODO admits that should be generalized to block TYPES
+// read from BASE.md instead of hardcoded coords). Refuses to dig any of our
+// own infrastructure block types outright, fleet-wide, no coordinate list to
+// maintain — this is what stops an autonomous mining/idle task from
+// accidentally eating our own chest/furnace/crafting_table/bed during
+// unattended running. Enforced once, centrally, inside safeDig() below,
+// since that's the one choke point every direct bot.dig() call in this file
+// already goes through.
+const PROTECTED_BLOCK_TYPES =
+  /^(chest|trapped_chest|barrel|furnace|blast_furnace|smoker|crafting_table|.*_bed|anvil|chipped_anvil|damaged_anvil|enchanting_table|brewing_stand|lectern|composter|.*_sign|.*_hanging_sign)$/;
 
 // Matches furnace/blast_furnace/smoker block names in both their lit and
 // unlit forms (some minecraft-data versions expose the lit state as a
@@ -262,6 +294,18 @@ function goalTargetInfo(goal) {
   return null;
 }
 
+// (16) WEDGE-DETECTION helper — a nuisance block (torch, leaf_litter,
+// short_grass, snow layer) sitting in the bot's own foot/head tile after
+// every retry has been exhausted. Adapted from felcrew-mcp survey findings.
+function findNuisanceAtSelf(bot) {
+  const pos = bot.entity.position.floored();
+  for (const dy of [0, 1]) {
+    const b = bot.blockAt(pos.offset(0, dy, 0));
+    if (b && NUISANCE_BLOCKS.test(b.name)) return b;
+  }
+  return null;
+}
+
 export async function gotoLoop(bot, goal, opts = {}, ctx = {}) {
   try {
     return await movement.gotoLoopPf(bot, goal, opts, ctx);
@@ -281,6 +325,36 @@ export async function gotoLoop(bot, goal, opts = {}, ctx = {}) {
             `gotoLoop: treating spurious "goal changed" throw as success (${dist.toFixed(2)} blocks from goal, range ${info.range})`
           );
           return;
+        }
+      }
+    }
+    // (16) WEDGE-DETECTION (adapted from felcrew-mcp survey findings): a goto
+    // that exhausted every retry attempt while a nuisance block sits in the
+    // bot's own foot/head tile is very likely wedged on that block, not
+    // genuinely unreachable — travel Movements deliberately never auto-digs
+    // (m.canDig=false, see runner.js's safety-Movements comment: pathfinder's
+    // own auto-dig previously ate the camp crafting table and depot chests
+    // as "path obstacles"), so a real nuisance block never clears itself.
+    // Dig ONLY this narrow, pre-vetted nuisance set (never anything a build
+    // could be made of — see NUISANCE_BLOCKS above) and retry the goto
+    // exactly once more before giving up for real.
+    if (!ctx.isCancelled?.() && !ctx.isStaleGeneration?.() && bot?.entity) {
+      let nuisance = null;
+      try {
+        nuisance = findNuisanceAtSelf(bot);
+      } catch {
+        nuisance = null;
+      }
+      if (nuisance) {
+        ctx.log?.(
+          'warn',
+          `gotoLoop: wedge-detected — ${nuisance.name} in own tile at ${posKey(nuisance.position)}, digging and retrying once`
+        );
+        try {
+          await safeDig(bot, nuisance, ctx);
+          return await movement.gotoLoopPf(bot, goal, opts, ctx);
+        } catch (digErr) {
+          ctx.log?.('warn', `gotoLoop: wedge dig/retry failed: ${digErr?.message ?? digErr}`);
         }
       }
     }
@@ -311,7 +385,16 @@ function withTimeoutLocal(promise, ms) {
   });
 }
 
+function assertNotProtected(block) {
+  if (block && PROTECTED_BLOCK_TYPES.test(block.name)) {
+    throw new Error(
+      `safeDig: refusing to dig protected block type "${block.name}" at ${posKey(block.position)} (chest/furnace/table/bed/etc. are never dig targets)`
+    );
+  }
+}
+
 async function safeDig(bot, block, ctx) {
+  assertNotProtected(block);
   const pos = block.position;
   const expectedName = block.name;
   try {
@@ -1714,6 +1797,71 @@ async function sealStairCell(bot, cellPos, ctx) {
   }
   ctx.log?.('warn', `sealStairCell: no solid neighbor found to seal ${posKey(cellPos)} against`);
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// (18) emergencySeal — "coffin" response to the panic reflex (adapted from
+// felcrew-mcp survey findings: their unshipped survival-doctrine.md spec
+// calls this a WALL_OFF response for far-from-home-or-low-health branches;
+// built here as real code, reusing this file's own sealStairCell instead of
+// a new placement routine). Seals the bot into a full 1x2 pocket — floor,
+// the four side cells at BOTH feet and head level, and the cap above the
+// head — with whatever seal-capable material is on hand, then best-effort
+// eats once sealed. (The bot's own two body cells are unplaceable while it
+// stands in them, so they are not attempted.) Called by runner.js's panic reflex (triggerPanic) when the
+// bot is too far from camp or too deep below it for a blind flee to be safer
+// than holing up. Never throws — every failure mode (no seal material, no
+// food, an already-solid face) just means a smaller number in the returned
+// summary.
+// ---------------------------------------------------------------------------
+export async function emergencySeal(bot, ctx = {}) {
+  const pos = bot.entity.position.floored();
+  // Cells to seal, feet-relative. The bot occupies (0,0,0) and (0,1,0) —
+  // the server refuses placement into an entity's own bounding box, so those
+  // two are skipped, not attempted-and-failed. Order matters: floor + feet
+  // ring first (stops melee reach), head ring next (each head-ring cell can
+  // then place against the fresh feet-ring block below it; stops arrows),
+  // cap above the head last (places against the sealed head ring).
+  const offsets = [
+    [0, -1, 0],
+    [1, 0, 0],
+    [-1, 0, 0],
+    [0, 0, 1],
+    [0, 0, -1],
+    [1, 1, 0],
+    [-1, 1, 0],
+    [0, 1, 1],
+    [0, 1, -1],
+    [0, 2, 0],
+  ];
+  let sealed = 0;
+  for (const [dx, dy, dz] of offsets) {
+    if (ctx.isCancelled?.()) break;
+    const cellPos = pos.offset(dx, dy, dz);
+    const ok = await sealStairCell(bot, cellPos, ctx).catch(() => false);
+    if (ok) sealed++;
+  }
+
+  let ate = false;
+  try {
+    if (bot.autoEat && typeof bot.autoEat.eat === 'function') {
+      await bot.autoEat.eat({ food: true, offhand: false });
+      ate = true;
+    } else {
+      const food = bot.inventory
+        .items()
+        .find((it) => /(bread|cooked_|apple|carrot|potato|beetroot|melon_slice)/.test(it.name));
+      if (food) {
+        await bot.equip(food, 'hand');
+        await bot.consume();
+        ate = true;
+      }
+    }
+  } catch (err) {
+    ctx.log?.('warn', `emergencySeal: eat attempt failed: ${err.message}`);
+  }
+
+  return { pos: toPlainPos(pos), sealed, ate };
 }
 
 // buildStaircase({toY, direction?}) — sealed 1x2 staircase from current pos

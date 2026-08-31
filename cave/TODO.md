@@ -8,8 +8,8 @@ at a time — read fresh before writing. Orchestrator prunes DONE.
 |---|------|------|-----|--------|
 | 1 | EQUALITY | Iron pickaxes every bot — strip mine feeds chest A, each driver eval-crafts own AT TABLE (never pocket grid, no /craft till patch) | Thak feeds, all craft | todo |
 | 2 | ECONOMY | Watch FEL shop (8,112,22) for first trade; restock CAVE shop as it drains | Grog = trade voice | todo |
-| 3 | FARM | Plant remaining tiles + expand both plots to 16+, seed sweeps, harvest age=7 only + instant replant, bread at table | Zug | DOING |
-| 4 | BUILD | Mine House 9x7: log pillars, plank walls, windows, STONE roof + rim, interior stairwell framed, chests C+D | Grog | DOING — pillars up |
+| 3 | FARM | Both plots full + expanded (17 tiles). First full harvest round done: 15 wheat pulled (8 west + 7 camp-door, all age=7 confirmed via block property not name), instant-replanted all 17, 4 bread baked at table, banked chest A (4 bread + 8 wheat + 21 seeds, DEPOT logged). Method confirmed: /goto within ~2 blocks, check age via getProperties().age, dig only if dist<4.5 (reach law), collect, replant same-visit. Ongoing: repeat harvest loop as tiles ripen, watch for early-planted tiles drying before water lands (found+fixed 2 dead ones at west plot this session) | Zug | DOING — harvest loop live |
+| 4 | BUILD | Mine House 9x7: log pillars, plank walls, windows, STONE roof + rim, interior stairwell framed, chests C+D | Grog | DOING — pillars+walls+door+window+chests C/D done, roof blocked on ~99 cobblestone (Bonk delivering 40) |
 | 5 | MINE | Grand staircase (15,89,57) → y54 via /staircase + cobblestone_stairs surface + torches | Thak | DOING |
 | 6 | MINE | Branch grid y54: trunk 24, branches 6x8, torched, all veins | Thak | queued after #5 |
 | 7 | INFRA | Stepped 2-wide path camp door (11,90,58) → trading post (6-8,112,22) | Bonk | DOING — segment z58-56 built+verified, 85 cobble on hand, PAUSED: camp table casualty needs fix first |

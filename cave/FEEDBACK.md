@@ -109,3 +109,69 @@ canDig-eats-furniture entry above. Until that lands, suggest temporarily
 dropping '/collect' from Bonk's defaults array in overseer.mjs (BOTS list,
 ~line 34) while stepped-path construction is active near camp, since that
 work involves long inter-call gaps that reliably trip the 60s threshold.
+
+## [open] pf goto ate blocks near FEL base spawn-in — Ook, 2026-09-01
+New bot spawned in at (-6.5,111,3.5), right on FEL base coord (-3,111,4).
+Ordered /goto camp (11,89,55) engine:"pf", long haul + big drop
+(y111->y81). Landed short of goal (y81 not y89) with 7 dirt + 1 oak_log in
+pouch that were never targeted — same canDig-eats-anything-in-path bug
+logged above (Bonk), now confirmed happening on a fresh long-haul goto too,
+not just short camp-adjacent hops. Can't rule out the oak_log came off a
+FEL wall (they build with oak_log per their own DEPOT chat) vs natural
+hillside. Holding the items aside, not depositing, pending team-lead call.
+Suggest: canDig:false (or protected-coord exclude radius around known
+builds, FEL base included) lands before any more bots goto near (-3,111,4).
+UPDATE 2026-09-01 (team-lead verdict): dirt/log confirmed natural hillside
+pickup, not FEL material — verdict clean, kept + deposited. Root-cause
+(pf canDig eats anything) still open, this entry just closes the "was it
+FEL's stuff" question.
+
+## [open] SAME BUG hit chest A + chest B, not griefing — Zug, 2026-09-01
+Found chest A (11,89,55) AND chest B (12,90,54) both gone — blockAt/findBlocks
+read air in a 21x21x8 scan, confirmed at ~1 block range (not the stale-chunk
+issue). Zug's own overseer default also includes `/collect {radius:16}`
+(see overseer.mjs BOTS list), and this session had many long eval-investigation
+gaps near camp (same driver-thinking-time pattern Bonk documented). Ties
+directly into the two entries above — near-certain same root cause (pf
+canDig tunneling through furniture while chasing a far drop), just chests
+instead of the crafting table this time. Neither chest showed up in Zug's
+own inventory afterward, so either another bot's auto-collect ate it, or the
+dug drop despawned/got sniped before anyone's collect caught it. Whatever
+cooked meat (3 porkchop, 1 chicken) and spare furnace Zug deposited earlier
+this session may be lost with it — orchestrator should check drops near
+camp and replace both chests once the canDig fix lands. Same suggested
+interim fix as above: pull '/collect' from Zug's overseer defaults too until
+Movements gets canDig:false.
+
+## [open] 4th confirmation: canDig bug, Thak carried unexplained furnace+chest+sign — Thak, 2026-09-01
+Independent confirmation of the canDig-eats-furniture bug above (now 4/4
+drivers hit it: Bonk, Ook, Zug, Thak). Mid-session found my own inventory
+mysteriously holding furnace:1, chest:1, oak_sign:1, oak_planks:77,
+dirt:80, birch_log:19 — items I never intentionally mined/crafted. Many
+pf-engine /goto calls this session routed near camp with long
+investigation gaps in between (same pattern as the other 3 reports).
+Strongly suggests MY own goto traffic is what ate chest A/B and the camp
+furnace that Zug reported missing. Deposited everything back into
+whatever chest currently exists near (9,89,55) so materials aren't lost,
+but flagging so orchestrator can connect this to the same root cause
+before rebuilding chest A/B/furnace — no point replacing them until
+canDig:false lands or they'll just get eaten again.
+
+## [open] /staircase reports "done" with high step-count but near-zero net descent, ate my only pickaxe — Thak, 2026-09-01
+Dispatched /staircase {toY:54} from y=87 near (14,87,45). Result: state
+"done", detail "buildStaircase: step 96, y=86 -> 54" (looked like healthy
+progress the whole time), but result.from={x:14,y:87,z:45} / result.to=
+{x:14,y:86,z:46} — ONE level of net descent in 96 dig-steps, not 32.
+torches:0 (never carried any). My only stone_pickaxe vanished from
+inventory during/after the run (durability death, no drop) with nothing
+to show for it. Left me sealed in a leftover 1-tall dead-end pocket
+(walls stone N/W, "exit" south blocked by a 1-tall ceiling) that both
+/goto engines then reported as unreachable ("no path" on ash, false
+"reached:true" with zero position change on pf). Had to manually dig the
+ceiling block and eval-walk out. Suspect the step-loop is retrying a
+blocked/oscillating dig (maybe digging the same spot repeatedly, or a
+stairway direction that loops back on itself) without detecting zero net
+displacement. NEEDS FIX before Grog runs the real grand staircase (TODO
+#5) — same bug will burn his kit for zero depth too. Suggest: track net
+vertical delta vs step-attempts and abort with a clear error the moment
+net progress stalls, instead of counting attempted digs as "steps".

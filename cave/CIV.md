@@ -117,9 +117,11 @@ check logs and restart via `spawn.mjs`).
 ## Base location
 
 Cavecrew camp centered around **(11-12, 89, 55-57)**. Crafting table at
-(12, 89, 56), depot chest A (wood) at (11, 89, 55) [placed by UngaBunga],
-depot chest B (tools) at (12, 90, 54) [placed by UngaBunga 2026-08-31].
-South of world spawn, away from the other tribe's build near (-3, 111, 4).
+(12, **88**, 56) — corrected 2026-09-01, was miswritten as y=89 (cost two
+failed chest crafts before Grog found the real block by scanning).
+Depot chest A (wood) at (11, 89, 55) [placed by UngaBunga], depot chest B
+(tools) at (12, 90, 54) [placed by UngaBunga 2026-08-31]. South of world
+spawn, away from the other tribe's build near (-3, 111, 4).
 
 **State refresh 2026-09-01**: the shelter (perimeter wall + roof) was
 **removed by the user** — camp is currently open-air again, wall/roof
@@ -144,7 +146,29 @@ empty, chat announce, move off before any task.
 **Mine entrance**: picked by Grog at **(15, 89, 57)** — flat grass/dirt
 patch just east of the shelter wall (wall spans x 10-13), right next to
 the existing stone-age dig scar from Grog's first mining run. Staircase
-goes down from here once `buildStaircase`/`branchMine` lands.
+goes down from here once `buildStaircase`/`branchMine` lands. **Now
+interior to the Mine House (see below)** — stairwell frame goes up once
+Thak's shaft is actually cut.
+
+**Mine House** (Grog's build, task #4): 9x7 footprint x13-21, z53-59, east
+of the camp furniture cluster. Oak_log corner pillars (4x, 3 high),
+oak_planks wall infill, window centered north wall (17,90,53), door
+centered south wall (17,89-90,59), stone (cobblestone) flat roof + rim
+pending ~99 cobblestone delivery. Interior: chest D (ore) at (14,89,57)
+right by the stairwell, chest C (food) at (16,89,54) on the north wall.
+Mine entrance (15,89,57) sits inside as the interior stairwell — decreed
+option (a), house swallows the shaft on purpose.
+
+**Plaza + lamp-posts (proposed, Grog draft 2026-09-01)**: once the FEL-style
+plaza goes in under the camp furniture core (~10-13, 89, 54-58), ring it
+with 4-6 log lamp-posts (2-high oak_log + torch on top, torch craft AT
+TABLE only per the fix). Draft positions, one per side, 1 block outside
+the plaza edge so they don't crowd furniture traffic: **(9,89,56)** west,
+**(14,89,53)** north, **(14,89,59)** south, and **(9,89,52)** /
+**(9,89,60)** as optional NW/SW corner posts if the plaza runs the full
+depth. Whoever builds the plaza should adjust these to the actual footprint
+once it's staked — these are placeholders based on the current furniture
+spread, not a surveyed plan.
 
 ## Goal ladder
 

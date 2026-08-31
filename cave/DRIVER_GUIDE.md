@@ -65,6 +65,28 @@ back". Keep lines short.
   up with `/collect` before moving on. **Standing law: after every
   chop/mine/hunt task, run `/collect {"radius":24}`** as a sweep — 24
   blocks, not the 16 default, so nothing gets left for rivals.
+- **Protected blocks — never dug by skills.** `safeDig` (the one
+  choke point every `/chop`, `/mine`, `/staircase`, `/branchmine`, etc.
+  dig goes through) refuses outright to dig chests, barrels, furnaces,
+  crafting tables, beds, anvils, enchanting tables, brewing stands,
+  lecterns, composters, or signs — by block **type**, fleet-wide, no
+  coordinate list to keep in sync. This is a hard stop, not a skip: a
+  task that walks into one of these gets an error, not a silent detour.
+  If you need to actually remove one of our own fixtures on purpose, do
+  it through `/eval` directly, not through the deterministic skills.
+- **Wedge-detection.** If a `/goto` (or any skill built on it) fails
+  every retry attempt while a nuisance block — a torch, leaf_litter,
+  short_grass, or snow layer — is sitting in the bot's own foot/head
+  tile, the skill layer digs just that one block and retries once before
+  giving up for real. Travel itself never auto-digs (see Depth law and
+  the Movements note below), so a bot wedged on its own just-placed
+  torch used to just fail; now it self-clears the narrow, pre-vetted
+  nuisance set on its own. That set is ONLY those four zero-collision
+  block types — never fences, walls, slabs, stairs, carpets, or anything
+  else a build could be made of. If a task still fails after that, the
+  block in the way genuinely isn't on the safe-to-clear list — report it
+  per the Escalation rule rather than manually digging around it via
+  `/eval`.
 - **Best tool always equipped.** The skills layer re-equips the correct
   tool before every dig — you don't need to manage this yourself when
   using `/chop`, `/mine`, etc. If you're doing manual digging through
@@ -151,14 +173,20 @@ back". Keep lines short.
   target block stays `air`), fall back to chat + a note in `CIV.md`/
   `TRADE.md` instead of retrying indefinitely; report the placement
   failure per the escalation rule so it gets a real fix.
-- **Chat tiers (grey / white / rainbow).** Not every `/chat` line carries
-  the same weight — use formatting to signal it: **grey** for routine
-  narration (what you're doing right now, per the Narration rule above),
-  **white** for status/announcements worth every bot noticing (a law
-  change, a new protocol going live), and **rainbow** for tribe-wide
-  proclamations (a goal-ladder milestone, a new pact like the trading
-  post no-touch exception). Match the existing in-game formatting
-  convention other bots are using rather than inventing a new one.
+- **Chat tiers (grey / white / rainbow) — now auto-classified.** The
+  default `/chat` style (`"talk"`, or no `style` at all) routes through
+  the runner's `smartChat`: a line starting with `!` is stripped of the
+  `!` and sent as **important white** real chat; a line starting with a
+  protocol-ledger prefix (`DEPOT `, `TRADE `, `USING `, `FREE `,
+  `LEASE-BREAK `, `BASE `, `CLAIM `, `HELLO `, `OFFER `) is sent
+  **verbatim as real white chat**, unchanged, because other bots/tribes
+  parse chat for those exact prefixes; everything else becomes **grey**
+  routine narration automatically. You don't need to pick a style for
+  ordinary narration ("heading out to chop wood") or for a DEPOT ledger
+  line — just `/chat` it and the classification happens for you. Use
+  `"style":"status"` to force grey regardless of content, or
+  `"style":"rainbow"` for tribe-wide proclamations (a goal-ladder
+  milestone, a new pact like the trading post no-touch exception).
 
 ## DEPOT ledger
 
@@ -181,6 +209,22 @@ DEPOT -8 iron_ingot (chest A)
 
 Send this line via `/chat` yourself right after a `/deposit` or
 `/withdraw` call succeeds.
+
+## Panic reflex (automatic)
+
+The runner watches health at game-packet speed, not driver-poll speed:
+if health drops below **8**, it fires automatically — no `/chat` or
+`/stop` from you required. It aborts the current task, announces
+`!HP <n>/20 - breaking off, reacting to danger!` (real white chat), and
+then either **flees to camp** (if reasonably close and shallow) or
+**seals itself in place and eats** (if far from camp or deep below it —
+a blind flee across unknown terrain is riskier than holing up). This is
+debounced 30s so it won't refire on every low-health tick. Check
+`/events` for a `panic` entry and `/status` afterward — the panic
+response runs as a normal task (`kind: "panic-response"`), so it shows
+up like anything else. Treat a panic firing as a real incident worth a
+`/status` check and a chat narration of what you find, same as any other
+unexpected task failure.
 
 ## Death protocol
 
@@ -432,7 +476,13 @@ curl.exe -s -X POST http://127.0.0.1:3201/chat `
   -d '{"message":"heading out to chop wood"}'
 ```
 
-Body: `{message}`.
+Body: `{message, style?}`. `style` defaults to `"talk"`, which now
+auto-classifies via the runner's `smartChat` — see Chat tiers above:
+`!`-prefixed and protocol-ledger-prefixed (`DEPOT `/`TRADE `/`USING `/
+`FREE `/`LEASE-BREAK `/`BASE `/`CLAIM `/`HELLO `/`OFFER `) lines go out
+as real white chat verbatim, everything else becomes grey narration
+automatically. Pass `"style":"status"` to force grey, `"fancy"` for a
+gold accent, or `"rainbow"` for a tribe-wide proclamation.
 
 ### `POST /autoeat`
 
