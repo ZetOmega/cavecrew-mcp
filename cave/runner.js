@@ -74,7 +74,7 @@ const { name, port, host, mcport, engine: defaultEngine } = args;
 // to plain bot.chat.
 // ---------------------------------------------------------------------------
 
-const TEAM_COLORS = { Grog: 'green', UngaBunga: 'yellow', Zug: 'light_purple', Bonk: 'aqua', Thak: 'gold' };
+const TEAM_COLORS = { Grog: 'green', UngaBunga: 'yellow', Zug: 'light_purple', Bonk: 'aqua', Thak: 'gold', Ook: 'red' };
 const teamColor = TEAM_COLORS[name] || 'white';
 
 let rconChatInstance = null;
@@ -113,6 +113,45 @@ async function announce(style, text) {
   } catch {
     // ignore — no bot to talk through either, nothing more to do
   }
+}
+
+// PROTOCOL_PREFIX / smartChat — protocol-prefix-aware narration router
+// (adapted from felcrew-mcp survey findings: their graychat.js gets this
+// same classification by monkeypatching bot.chat itself via an /eval payload
+// that dies on every bot restart; here it's native runner code on the same
+// narration paths runner.js already owns, so it can never go missing).
+// Classification, in order:
+//   1. starts with "!" -> IMPORTANT WHITE: strip the "!" and send verbatim
+//      real chat — an announcement worth every bot/player noticing.
+//   2. matches a protocol-ledger prefix (DEPOT/TRADE/USING/FREE/LEASE-BREAK/
+//      BASE/CLAIM/HELLO/OFFER) -> REAL WHITE, sent verbatim, UNCHANGED —
+//      other bots/tribes/parsers grep real chat for these exact prefixes, so
+//      they must never be recolored or routed through tellraw.
+//   3. anything else -> routine narration, routed through announce('status',
+//      ...) (grey, team-colored name, falls back to bot.chat on any rconchat
+//      trouble — see announce() above).
+const PROTOCOL_PREFIX = /^(DEPOT |TRADE |USING |FREE |LEASE-BREAK |BASE |CLAIM |HELLO |OFFER )/;
+
+async function smartChat(text) {
+  const msg = String(text);
+  if (msg.startsWith('!')) {
+    const stripped = msg.slice(1).trim();
+    try {
+      bot?.chat?.(stripped);
+    } catch {
+      // ignore — no bot to talk through either, nothing more to do
+    }
+    return;
+  }
+  if (PROTOCOL_PREFIX.test(msg)) {
+    try {
+      bot?.chat?.(msg);
+    } catch {
+      // ignore
+    }
+    return;
+  }
+  await announce('status', msg);
 }
 
 // ---------------------------------------------------------------------------
@@ -250,6 +289,17 @@ function poisonedTargetsCount() {
   return poisonedTargets.size;
 }
 
+// PANIC REFLEX tuning — see triggerPanic() below (defined after
+// startTask/cancelCurrentTask) and its wiring into b.on('health', ...) in
+// wireBot(). PANIC_CAMP_POS must stay in sync with skills.js's own (private)
+// CAMP_POS constant, same duplication tradeoff as IDLE_GUARD_DEPOT_POS below.
+const PANIC_HEALTH_THRESHOLD = 8; // matches skills.js's checkHealthRetreat threshold
+const PANIC_COOLDOWN_MS = 30000; // don't refire the reflex on every single low-health tick
+const PANIC_CAMP_POS = { x: 12, y: 89, z: 56 }; // must stay in sync with skills.js's CAMP_POS
+const PANIC_FAR_RADIUS = 40; // blocks from camp — past this, a blind flee is riskier than sealing in place
+const PANIC_DEEP_DELTA = 15; // blocks below camp's Y — this deep, seal+eat beats fleeing back to the surface
+let lastPanicAt = 0;
+
 const EVENTS_MAX = 500;
 const eventsBuf = [];
 let eventSeq = 0;
@@ -315,7 +365,7 @@ function makeCtx(task) {
     // any rconchat failure). Optional on ctx by design: a bare ctx built by
     // /eval or a test has no runner to route through, and skills.js falls
     // back to plain bot.chat itself when this isn't present.
-    sayStatus: (text) => announce('status', text),
+    sayStatus: (text) => smartChat(text),
   };
 }
 
@@ -436,6 +486,65 @@ async function startTask(kind, fn, { force = false } = {}) {
   })();
 
   return task;
+}
+
+// ---------------------------------------------------------------------------
+// PANIC REFLEX — instant, game-speed health listener (adapted from
+// felcrew-mcp survey findings: their panicguard.js is an /eval-injected
+// payload that dies on every bot restart and needs manual re-injection after
+// every relog; this is native to runner.js so it can never go missing).
+// Their own FEEDBACK.md documents the gap this closes: a bot bled 20->0 HP
+// in ~8 SECONDS inside a 50s driver polling gap — nothing that only checks
+// health at the top of a task loop (see skills.js's checkHealthRetreat) is
+// fast enough to catch that; only an event listener reacting the instant the
+// 'health' packet arrives is. Wired into b.on('health', ...) in wireBot().
+//
+// Debounced (PANIC_COOLDOWN_MS) so a bot sitting below the threshold for a
+// while doesn't refire the reflex every tick. Two responses, chosen by how
+// safe a blind flee is likely to be (adapted from their own unshipped
+// survival-doctrine.md "coffin" idea): near camp -> flee there; far from
+// camp OR deep below it -> seal in place via skills.emergencySeal, since
+// their own FEEDBACK.md logs a flee-home death to a skeleton at depth —
+// fleeing toward camp doesn't help when camp isn't reachable in one safe
+// line. Runs as a real task through startTask/cancelCurrentTask so it
+// participates in the normal task mutex, /status, and /events like anything
+// else — never a bypass around them.
+// ---------------------------------------------------------------------------
+async function triggerPanic(b) {
+  const hp = typeof b.health === 'number' ? b.health : null;
+  logLine('warn', `PANIC: health ${hp} at/below threshold ${PANIC_HEALTH_THRESHOLD}`);
+  pushEvent('panic', `health ${hp} — panic reflex firing`);
+  await smartChat(`!HP ${hp != null ? Math.round(hp) : '?'}/20 - breaking off, reacting to danger!`);
+  await cancelCurrentTask('panic: low health');
+
+  const pos = b.entity?.position;
+  const distFromCamp = pos
+    ? Math.sqrt((pos.x - PANIC_CAMP_POS.x) ** 2 + (pos.y - PANIC_CAMP_POS.y) ** 2 + (pos.z - PANIC_CAMP_POS.z) ** 2)
+    : Infinity;
+  const deepBelowCamp = pos ? PANIC_CAMP_POS.y - pos.y > PANIC_DEEP_DELTA : false;
+  const farOrDeep = distFromCamp > PANIC_FAR_RADIUS || deepBelowCamp;
+
+  try {
+    await startTask(
+      'panic-response',
+      async (task, ctx) => {
+        if (farOrDeep) {
+          ctx.setDetail('panic: far/deep from camp — sealing in place');
+          return skills.emergencySeal(b, ctx);
+        }
+        ctx.setDetail('panic: fleeing to camp');
+        await movement.goTo(
+          b,
+          { x: PANIC_CAMP_POS.x, y: PANIC_CAMP_POS.y, z: PANIC_CAMP_POS.z, range: 3, timeoutMs: 30000, engine: 'pf' },
+          ctx
+        );
+        return { fled: true, to: PANIC_CAMP_POS };
+      },
+      { force: true }
+    );
+  } catch (err) {
+    logLine('error', `panic response task failed to start: ${err?.message ?? err}`);
+  }
 }
 
 function requireBot() {
@@ -614,6 +723,15 @@ function wireBot(b) {
       pushEvent('health', `health dropped to ${b.health} (food=${b.food})`);
     }
     lastHealth = b.health;
+    // PANIC REFLEX — see triggerPanic() above for the full rationale. Fires
+    // at game-packet speed, not driver-poll speed; debounced so a bot
+    // sitting below threshold doesn't refire every tick.
+    if (b !== bot) return;
+    if (typeof b.health !== 'number' || b.health <= 0 || b.health >= PANIC_HEALTH_THRESHOLD) return;
+    const now = Date.now();
+    if (now - lastPanicAt < PANIC_COOLDOWN_MS) return;
+    lastPanicAt = now;
+    triggerPanic(b).catch((err) => logLine('error', `triggerPanic threw: ${err?.stack ?? err}`));
   });
 
   b.on('death', () => {
@@ -736,7 +854,7 @@ movement
 // touched here — idle-guard is just another task from their point of view.
 // ---------------------------------------------------------------------------
 
-const IDLE_GUARD_THRESHOLD_MS = 60000;
+const IDLE_GUARD_THRESHOLD_MS = 15000; // was 60s — user wants near-zero visible idle
 const IDLE_GUARD_TICK_MS = 5000;
 // Depot chest A — must stay in sync with skills.js's own DEPOT_POS constant
 // (kept separate rather than exported/imported to avoid coupling this
@@ -1153,7 +1271,11 @@ async function handleChat(req, res) {
   try {
     const b = requireBot();
     if (style === 'talk') {
-      b.chat(String(body.message));
+      // 'talk' (the default) now auto-classifies via smartChat — protocol
+      // ledger lines and "!"-prefixed announcements still land as real white
+      // chat, everything else routes to grey narration. Ask for "status"
+      // explicitly to force grey regardless of content.
+      await smartChat(String(body.message));
     } else {
       await announce(style, String(body.message));
     }
