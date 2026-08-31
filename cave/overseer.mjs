@@ -23,7 +23,8 @@ const BOTS = [
     { ep: '/collect', body: { radius: 16 }, say: 'idle: sweep drops' },
   ]},
   { name: 'Grog', port: 3202, color: 'green', defaults: [
-    { ep: '/mine', body: { block: 'stone', count: 6, maxDistance: 20 }, say: 'idle: dig stone for house' },
+    // NO mine defaults — /mine maxDistance ignores depth and tunneled Grog
+    // 8 below feet twice (depth-law breach). Builder role: sweeps only.
     { ep: '/collect', body: { radius: 16 }, say: 'idle: sweep drops' },
   ]},
   { name: 'Zug', port: 3203, color: 'light_purple', defaults: [
