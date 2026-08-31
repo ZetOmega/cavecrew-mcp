@@ -121,7 +121,8 @@ Response shape:
     "detail": "chopping tree 3/8",
     "result": null
   },
-  "lastError": null
+  "lastError": null,
+  "engine": "auto"
 }
 ```
 
@@ -140,7 +141,10 @@ curl.exe -s -X POST http://127.0.0.1:3201/goto `
   -d '{"x":100,"y":64,"z":-40,"range":1,"timeoutMs":45000}'
 ```
 
-Body: `{x, y, z, range?=1, timeoutMs?=45000}`.
+Body: `{x, y, z, range?=1, timeoutMs?=45000, engine?}`. `engine` is
+optional — `"auto"` (tries ashfinder, falls back to pathfinder), `"ash"`
+(ashfinder only), or `"pf"` (pathfinder only). Omit it to use the runner's
+own default (see `GET /status`'s `"engine"` field).
 
 ### `POST /chop`
 

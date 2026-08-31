@@ -24,6 +24,7 @@
     "lint:fix": "eslint \"{src,tests}/**/*.ts\" --fix"
   },
   "dependencies": {
+    "@miner-org/mineflayer-baritone": "^4.6.2",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "minecraft-data": "^3.105.0",
     "mineflayer": "^4.35.0",

@@ -16,9 +16,21 @@
 //     bot.pathfinder.stop() (verified: stop() leaves a `stopPathing` flag that
 //     silently discards the very next setGoal() call — it re-nulls the goal
 //     inside the same tick).
+//
+// gotoLoop below is pathfinder-only and takes a pre-built mineflayer-pathfinder
+// Goal object (GoalGetToBlock, GoalBlock, GoalFollow, ...) — its own
+// implementation now lives in cave/movement.js as gotoLoopPf (same
+// retry/backoff, same setGoal(null)-only cancel rule) and this function just
+// delegates to it, so there's one copy of the gotcha instead of two. It stays
+// pathfinder-only on purpose: ashfinder's Goal classes are a different,
+// Vec3-world-position-based API (see movement.js) that a GoalFollow(entity,
+// range) can't be translated into, so the ashfinder-primary engine selection
+// in movement.js's goTo() only applies to the coordinate-based /goto
+// endpoint, not to this goal-object-based helper.
 
 import pathfinderPkg from 'mineflayer-pathfinder';
 import { Vec3 } from 'vec3';
+import * as movement from './movement.js';
 
 const { goals } = pathfinderPkg;
 
@@ -78,22 +90,6 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function withTimeout(promise, ms) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms);
-    promise.then(
-      (v) => {
-        clearTimeout(timer);
-        resolve(v);
-      },
-      (err) => {
-        clearTimeout(timer);
-        reject(err);
-      }
-    );
-  });
-}
-
 function posKey(pos) {
   return `${Math.floor(pos.x)},${Math.floor(pos.y)},${Math.floor(pos.z)}`;
 }
@@ -134,41 +130,13 @@ function isToolLike(name) {
 }
 
 // ---------------------------------------------------------------------------
-// gotoLoop — the one and only movement primitive. Cancel = setGoal(null).
+// gotoLoop — the one and only goal-object movement primitive. Cancel =
+// setGoal(null). Implementation lives in cave/movement.js (gotoLoopPf) — see
+// the file-header note above for why this stays pathfinder-only.
 // ---------------------------------------------------------------------------
 
 export async function gotoLoop(bot, goal, opts = {}, ctx = {}) {
-  const timeoutMs = opts.timeoutMs ?? 45000;
-  const maxAttempts = opts.maxAttempts ?? 5;
-  let lastErr = null;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    if (ctx.isCancelled?.()) {
-      throw new Error('gotoLoop: cancelled');
-    }
-    try {
-      await withTimeout(bot.pathfinder.goto(goal), timeoutMs);
-      return;
-    } catch (err) {
-      lastErr = err;
-      ctx.log?.('warn', `gotoLoop: attempt ${attempt}/${maxAttempts} failed (${err?.message}); re-issuing`);
-      // Cancel via setGoal(null) ONLY. bot.pathfinder.stop() sets an internal
-      // stopPathing flag that silently nulls out the *next* setGoal() call —
-      // never call it here.
-      try {
-        bot.pathfinder.setGoal(null);
-      } catch {
-        // ignore
-      }
-      if (attempt < maxAttempts) await sleep(300);
-    }
-  }
-  try {
-    bot.pathfinder.setGoal(null);
-  } catch {
-    // ignore
-  }
-  throw new Error(`gotoLoop: failed after ${maxAttempts} attempts: ${lastErr?.message ?? 'unknown error'}`);
+  return movement.gotoLoopPf(bot, goal, opts, ctx);
 }
 
 async function collectNear(bot, ctx, radius) {

@@ -26,6 +26,7 @@ import armorManagerPlugin from 'mineflayer-armor-manager';
 import pvpPkg from 'mineflayer-pvp';
 
 import * as skills from './skills.js';
+import * as movement from './movement.js';
 
 const { createBot } = mineflayer;
 const { goals } = pathfinderPkg;
@@ -35,23 +36,30 @@ const { goals } = pathfinderPkg;
 // ---------------------------------------------------------------------------
 
 function parseArgs(argv) {
-  const out = { host: 'localhost', mcport: 25565 };
+  const out = { host: 'localhost', mcport: 25565, engine: 'auto' };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--name') out.name = argv[++i];
     else if (a === '--port') out.port = Number(argv[++i]);
     else if (a === '--host') out.host = argv[++i];
     else if (a === '--mcport') out.mcport = Number(argv[++i]);
+    else if (a === '--engine') out.engine = argv[++i];
   }
   return out;
 }
 
 const args = parseArgs(process.argv.slice(2));
 if (!args.name || !args.port || Number.isNaN(args.port)) {
-  console.error('usage: node cave/runner.js --name <Name> --port <320x> [--host localhost --mcport 25565]');
+  console.error(
+    'usage: node cave/runner.js --name <Name> --port <320x> [--host localhost --mcport 25565] [--engine auto|ash|pf]'
+  );
   process.exit(1);
 }
-const { name, port, host, mcport } = args;
+if (!['auto', 'ash', 'pf'].includes(args.engine)) {
+  console.error(`usage: --engine must be one of auto|ash|pf (got "${args.engine}")`);
+  process.exit(1);
+}
+const { name, port, host, mcport, engine: defaultEngine } = args;
 
 // ---------------------------------------------------------------------------
 // directories + logging (set up before anything else can throw)
@@ -189,7 +197,11 @@ async function cancelCurrentTask(reason) {
     pushEvent('task', `task ${task.id} (${task.kind}) cancelled: ${reason}`);
   }
   try {
-    bot?.pathfinder?.setGoal(null);
+    // Delegates to cave/movement.js: setGoal(null) for pathfinder always,
+    // plus bot.ashfinder.stop() when ashfinder was the engine actually
+    // in flight — never bot.pathfinder.stop() (see skills.js/movement.js
+    // header comments for why).
+    movement.cancelMovement(bot);
   } catch {
     // ignore
   }
@@ -308,6 +320,14 @@ function wireBot(b) {
   b.loadPlugin(toolPkg.plugin);
   b.loadPlugin(collectBlockPkg.plugin);
   loadOptionalPlugins(b).catch((err) => logLine('error', `loadOptionalPlugins failed: ${err?.stack ?? err}`));
+  // Synchronous, and always runs after movement.resolveAshfinder() has
+  // already finished (see the connect() call site below) — ashfinder's own
+  // internal spawn handler (which builds its real pathExecutor) must be
+  // registered before b.once('spawn', ...) below fires, or bot.ashfinder
+  // ends up looking loaded while silently not working. Guarded internally:
+  // if the module never resolved (package not installed, or resolution
+  // failed), this is a no-op and the bot runs pathfinder-only.
+  movement.loadAshfinderIntoBot(b, (lvl, msg) => logLine(lvl, msg));
 
   b.once('spawn', () => {
     state.connected = true;
@@ -392,8 +412,19 @@ function scheduleReconnect() {
 }
 
 // Kick off the Minecraft connection — this does NOT block the HTTP server
-// below from binding and answering requests immediately.
-connect();
+// below from binding and answering requests immediately (server.listen() is
+// still a synchronous call further down this same module, unaffected by the
+// promise chain below). The one thing that DOES wait is connect() itself:
+// movement.resolveAshfinder() must finish (successfully or not) before the
+// first wireBot() runs, so the ashfinder plugin's own spawn handler always
+// gets registered before mineflayer's spawn fires — see movement.js and
+// wireBot() above. Every reconnect after this first one hits the cached
+// result instantly, so this only delays the very first connect, by however
+// long a local module resolution takes (milliseconds).
+movement
+  .resolveAshfinder((lvl, msg) => logLine(lvl, msg))
+  .catch((err) => logLine('error', `movement.resolveAshfinder failed: ${err?.stack ?? err}`))
+  .finally(() => connect());
 
 // ---------------------------------------------------------------------------
 // task-specific helpers not delegated to skills.js
@@ -534,6 +565,7 @@ function buildStatus() {
     inventory: spawned ? summarizeInventory(b) : [],
     currentTask: taskToJSON(state.currentTask),
     lastError: state.lastError,
+    engine: defaultEngine,
   };
 }
 
@@ -582,9 +614,9 @@ const taskRoutes = {
     requireNumber(body, 'y');
     requireNumber(body, 'z');
     const { x, y, z, range = 1, timeoutMs = 45000 } = body;
-    const goal = new goals.GoalNear(x, y, z, range);
-    await skills.gotoLoop(b, goal, { timeoutMs, maxAttempts: 5 }, ctx);
-    return { x, y, z, range, reached: true };
+    const engine = body.engine ?? defaultEngine;
+    const result = await movement.goTo(b, { x, y, z, range, timeoutMs, engine }, ctx);
+    return { x, y, z, range, reached: true, engine: result.engine };
   }),
   '/chop': taskEndpoint('chop', async (b, body, ctx) =>
     skills.chopTrees(b, { count: body.count ?? 8, maxDistance: body.maxDistance ?? 48 }, ctx)
