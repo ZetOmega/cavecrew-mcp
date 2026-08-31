@@ -44,6 +44,15 @@ const BOTS = [
   ]},
 ]
 
+// Recurring chores: fire when due AND bot is free (never preempts real work).
+// Farm-harvest chore upgrades to /farm harvest once farm skills ship.
+const CHORES = [
+  { id: 'zug-farm-sweep', bot: 'Zug', everyMs: 12 * 60_000, ep: '/goto', body: { x: 10, y: 89, z: 58, range: 3 }, say: 'chore: farm round (check crops, sweep)' },
+  { id: 'zug-farm-collect', bot: 'Zug', everyMs: 12 * 60_000, offsetMs: 60_000, ep: '/collect', body: { radius: 12 }, say: 'chore: farm sweep' },
+  { id: 'ook-hunt-cycle', bot: 'Ook', everyMs: 20 * 60_000, ep: '/hunt', body: { mob: 'pig', count: 2 }, say: 'chore: meat round' },
+]
+const choreLast = new Map() // id -> ts
+
 const state = new Map() // name -> {idleSince, lastPos, posSince, lastRelog, defaultIdx}
 const log = (m) => { const line = `[${new Date().toISOString()}] ${m}\n`; try { fs.appendFileSync(LOG, line) } catch {}; console.log(line.trim()) }
 
@@ -97,6 +106,21 @@ async function tick(bot) {
     } else { s.lastPos = key; s.posSince = now }
     s.idleSince = null
     return
+  }
+
+  // recurring chores: due + bot free → fire (before idle-defaults, higher value)
+  for (const ch of CHORES) {
+    if (ch.bot !== bot.name) continue
+    const last = choreLast.get(ch.id) ?? (ch.offsetMs ? now - ch.everyMs + ch.offsetMs : 0)
+    if (now - last < ch.everyMs) continue
+    choreLast.set(ch.id, now)
+    const r = await api(bot.port, ch.ep, ch.body)
+    if (r && !r.error) {
+      log(`${bot.name} chore ${ch.id} -> ${ch.ep}`)
+      await grey(bot.name, bot.color, `(overseer) ${ch.say}`)
+      s.idleSince = null
+      return
+    }
   }
 
   // idle tracking
