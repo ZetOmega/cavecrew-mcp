@@ -114,20 +114,29 @@ async function tick(bot) {
     }
   }
 
-  // stuck detection: running goto but position frozen too long → NO TELEPORT
-  // (user law: rcon world-touches = cheating). Stop the dead task, announce,
-  // let /relog + driver self-rescue handle it; repeated = driver escalates.
+  // stuck detection escalation ladder (user law 2026-09-01: tp allowed as
+  // WORST CASE only): 1st detection = stop + relog; still frozen at the SAME
+  // spot on a later detection = teleport to spawn as last resort.
   if (running && st.pos) {
     const key = `${Math.round(st.pos.x)},${Math.round(st.pos.y)},${Math.round(st.pos.z)}`
     if (s.lastPos === key) {
       if (now - s.posSince > STUCK_MS && st.currentTask.kind === 'goto') {
-        log(`${bot.name} stuck at ${key} -> stop + relog (no-tp law)`)
-        await api(bot.port, '/stop', {})
-        await api(bot.port, '/relog', {})
-        await grey(bot.name, bot.color, '(overseer) stuck — stopped + relogged, driver check needed')
+        if (s.stuckAtKey === key) {
+          log(`${bot.name} STILL stuck at ${key} after relog -> worst-case tp spawn`)
+          await api(bot.port, '/stop', {})
+          await rconCmd(`tp ${bot.name} 0 112 -4`)
+          await grey(bot.name, bot.color, '(overseer) worst-case teleport to spawn — was hard-stuck')
+          s.stuckAtKey = null
+        } else {
+          log(`${bot.name} stuck at ${key} -> stop + relog (tp next if still frozen)`)
+          await api(bot.port, '/stop', {})
+          await api(bot.port, '/relog', {})
+          await grey(bot.name, bot.color, '(overseer) stuck — relogged; tp-to-spawn next if still frozen')
+          s.stuckAtKey = key
+        }
         s.posSince = now
       }
-    } else { s.lastPos = key; s.posSince = now }
+    } else { s.lastPos = key; s.posSince = now; s.stuckAtKey = null }
     s.idleSince = null
     return
   }
