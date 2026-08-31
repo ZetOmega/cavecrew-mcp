@@ -123,7 +123,11 @@ async function tick(bot) {
     }
   }
 
-  // idle tracking
+  // idle tracking — DISABLED since runner-level idle-guard shipped (double
+  // tasking caused chat spam + task churn). Overseer keeps: chores, stuck-tp,
+  // relog, phantom purge. Flip back if runner idle-guard regresses.
+  const IDLE_DEFAULTS_ENABLED = false
+  if (!IDLE_DEFAULTS_ENABLED) return
   if (s.idleSince == null) { s.idleSince = now; return }
   if (now - s.idleSince < IDLE_MS) return
 
