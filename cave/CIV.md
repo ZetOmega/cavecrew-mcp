@@ -30,22 +30,32 @@ stopped) — pick the next free port in the range instead.
 | 3203 | Zug         |
 | 3204 | Bonk        |
 | 3205 | Thak        |
+| 3206 | Ook         |
 | 3298 | (reserved: short-lived test bots, e.g. PebbleZoom) |
 
 ## Roster
 
-| Name      | Port | Role                        | Driver          | Status |
-|-----------|------|-----------------------------|-----------------|--------|
-| UngaBunga | 3201 | lumber, camp builder        | UngaBungaDriver | active |
-| Grog      | 3202 | stone/coal/iron miner       | GrogDriver      | active |
-| Zug       | 3203 | food (hunt, later farm)     | ZugDriver       | active |
-| Bonk      | 3204 | builder (camp infra)        | BonkDriver      | active |
-| Thak      | 3205 | iron miner #2               | ThakDriver      | active |
+| Name      | Port | Role                        | Driver          | Status | Workstation                     |
+|-----------|------|-----------------------------|-----------------|--------|----------------------------------|
+| UngaBunga | 3201 | lumber, camp builder        | UngaBungaDriver | active | trading post ~(3, 95, 22)        |
+| Grog      | 3202 | stone/coal/iron miner       | GrogDriver      | active | house site (20, 89, 58)          |
+| Zug       | 3203 | food (hunt, later farm)     | ZugDriver       | active | farm (8-11, 58-59)                |
+| Bonk      | 3204 | builder (camp infra)        | BonkDriver      | active | door staging (10, 90, 61)         |
+| Thak      | 3205 | iron miner #2               | ThakDriver      | active | mine field (24, 90, 64)           |
+| Ook       | 3206 | hunter (far-range meat)     | OokDriver       | active | camp depot chest A (11, 89, 55)   |
+
+Per-bot workstations exist so bots spread out rather than clump on one
+spot — see Anti-clump law in `DRIVER_GUIDE.md`. A bot working away from
+its listed workstation isn't automatically wrong (goals move), but if
+several bots end up stacked on the same block for no reason, that's the
+anti-clump law being violated — spread back out.
 
 Standing driver rules (user law):
 
-1. Bot idle >3 min → driver issues next step or pings team-lead — never
-   silent standing.
+1. Idle/nag law: bot idle >60s → driver issues the next step itself;
+   if the driver has gone quiet with nothing running for 5+ minutes,
+   that's a nag-worthy silence — ping the senior driver / team-lead.
+   See Idle & nag law in `DRIVER_GUIDE.md` for the full two-tier detail.
 2. After every chop/mine/hunt task, run `/collect {"radius":24}` sweep —
    no drops left.
 3. Death aborts the current task; check `deathCount` in `/status` after
@@ -53,12 +63,27 @@ Standing driver rules (user law):
    gear; poisoned targets are auto-skipped by the skills layer.
 4. Disconnect shows as `503` on every endpoint; `/relog` is first aid;
    two disconnects in a row → report to team-lead, don't loop `/relog`.
-5. Depth law: deep ore only through `buildStaircase` → `branchMine` once
-   that pair is live — no raw `/mine` more than 4 blocks below feet.
+5. Depth law: **SOLVED** — deep ore goes through `buildStaircase` →
+   `branchMine` only, both live on the runner. No raw `/mine` more than
+   4 blocks below feet.
 6. Trade etiquette: only take what's offered, log it with a `DEPOT`-style
    chat line, compliments go over well with KackboonKevin specifically.
+7. Anti-clump: spread out to your workstation (roster table above)
+   rather than stacking on one spot.
+8. Watching ≠ working: a bot standing near another bot's task isn't
+   "helping" unless it's actually issuing its own task — idle law still
+   applies to it.
+9. Ground-truth verify: confirm state via `/status`/`/eval` (actual
+   inventory, actual position, actual block) before reporting something
+   done — don't take another bot's or your own chat narration as proof.
+10. Signs-for-labeling law: label camp fixtures (chests, stations) with
+    physical signs where placement works, chat + `CIV.md` otherwise (see
+    the sign-on-chest quirk logged under Trading post above).
+11. Equality doctrine: all five bots are equally cavecrew — no bot's
+    output/goal outranks another's without team-lead say-so.
 
-Full detail on all of the above: `DRIVER_GUIDE.md`.
+Full detail on all of the above, plus build standards, chat tiers,
+plugin-first doctrine, and the blink/tp-rescue protocols: `DRIVER_GUIDE.md`.
 
 Drivers are sonnet teammates in the orchestrator session; senior driver:
 GrogDriver. Orchestrator (team-lead) sets big goals.
@@ -75,6 +100,7 @@ Each bot runs on its own in-game team, `cave_<name>`, chat prefixed
 | Zug       | cave_Zug      |
 | Thak      | cave_Thak     |
 | Bonk      | cave_Bonk     |
+| Ook       | cave_Ook      |
 
 A newly added bot needs its team created and joined via RCON
 (`node swarm\rcon.mjs "team add cave_<Name>"` then
@@ -91,14 +117,29 @@ check logs and restart via `spawn.mjs`).
 ## Base location
 
 Cavecrew camp centered around **(11-12, 89, 55-57)**. Crafting table at
-(12, 89, 56), furnace at (11, 89, 57) [placed by Grog], depot chest A
-(wood) at (11, 89, 55) [placed by UngaBunga], depot chest B (tools) at
-(12, 90, 54) [placed by UngaBunga 2026-08-31]. South of world spawn,
-away from the other tribe's build near (-3, 111, 4).
+(12, 89, 56), depot chest A (wood) at (11, 89, 55) [placed by UngaBunga],
+depot chest B (tools) at (12, 90, 54) [placed by UngaBunga 2026-08-31].
+South of world spawn, away from the other tribe's build near (-3, 111, 4).
+
+**State refresh 2026-09-01**: the shelter (perimeter wall + roof) was
+**removed by the user** — camp is currently open-air again, wall/roof
+goal below no longer reflects reality until it's rebuilt. The furnace at
+(11, 89, 57) was **destroyed** — rebuild pending, nobody assigned yet.
+Camp signs have been placed (labeling depot chests/crafting table area,
+see Signs law below). There is a **mystery chest at (-1, 91, 56)** of
+unknown origin — **do not open, deposit to, or withdraw from it** until
+someone identifies whose it is.
 
 **Grove** (tree farm patch): planted DONE near **(8, 91, 68)** by
 UngaBunga 2026-08-31 — 6 oak_sapling + 2 birch_sapling in ground,
 spaced ~2 blocks apart on grass. Let grow before harvesting.
+
+**New bot note 2026-09-01**: Ook (hunter) spawned in at (-6.5, 111, 3.5) —
+right on top of the FEL base coord (-3, 111, 4), not near cavecrew spawn.
+Inventory was empty on wake so no touch risk, but OokDriver moved it out
+carefully (no digging, nothing held) before doing anything else. If a
+future bot spawns near FEL territory again, same drill: check inventory
+empty, chat announce, move off before any task.
 
 **Mine entrance**: picked by Grog at **(15, 89, 57)** — flat grass/dirt
 patch just east of the shelter wall (wall spans x 10-13), right next to
@@ -118,13 +159,12 @@ Progress the tribe as a whole, in order:
 4. **Farm** — a sustainable food source (crops and/or animal pen). In
    progress (Zug hunting; farm later).
 5. **Base** — a claimed, defensible build at the base location above.
-   Started: table + furnace + depot chest placed. Shelter: single-layer
-   oak_planks perimeter wall around camp DONE (x 10-13, z 54-58, y=90
-   atop ground, southeast corner patched over its terrain step), only
-   gap is the door at (11, 90, 58) facing south toward the grove. Roof
-   DONE (y=93, full x 10-13 / z 54-58 footprint, oak_planks/oak_log),
-   1-block smoke gap left at (11, 93, 57) over the furnace. Built by
-   UngaBunga 2026-08-31.
+   Table + depot chest placed. Shelter (perimeter wall + roof, previously
+   DONE 2026-08-31) was **removed by the user 2026-09-01** — camp is
+   open-air again, rebuild not yet scheduled. Furnace **destroyed**
+   2026-09-01 — rebuild pending, nobody assigned. Camp signs placed
+   2026-09-01 (see Signs law in `DRIVER_GUIDE.md`). See State refresh
+   note above for current condition.
 6. **Depot** — cavecrew's own chest storage with a ledger. DONE: chest
    at (11, 89, 55), first deposit logged in chat 2026-08-31 (+14
    oak_log, +24 oak_planks, +6 birch_log). See `DRIVER_GUIDE.md` for

@@ -69,22 +69,96 @@ back". Keep lines short.
   tool before every dig — you don't need to manage this yourself when
   using `/chop`, `/mine`, etc. If you're doing manual digging through
   `/eval`, equip the right tool first.
-- **Never idle silently.** If your bot has been idle (no running task)
-  for more than 3 minutes, that's a bug in your loop, not a rest break —
-  either self-issue the next step from the goal ladder in `CIV.md`, or
-  ping the senior driver / team-lead for direction. A driver that goes
-  quiet for 3+ minutes with nothing running looks crashed even when it
-  isn't.
-- **Depth law.** Once structured mining is live (see below), deep ore
-  goes through `buildStaircase` → `branchMine` only. Do not `/mine` raw
-  ore more than **4 blocks below your own feet** by hand — that's how
-  bots fall into ravines and lava pockets. Staircase down properly first.
+- **Idle & nag law (two-tier).** If your bot has been idle (no running
+  task) for more than **60 seconds**, that's a bug in your loop, not a
+  rest break — self-issue the next step from the goal ladder in `CIV.md`
+  or your workstation assignment (see Anti-clump below) immediately,
+  don't wait to be asked. Separately, if **you as a driver** have gone
+  quiet — no `/status` poll, no `/chat` narration, nothing — for **5+
+  minutes**, that's nag-worthy: the senior driver / team-lead should ping
+  you, and if you're the one who notices another driver has gone quiet
+  that long, ping them. The two timers are independent: a bot can be
+  correctly mid-task (not idle) while its driver is still expected to be
+  actively polling/narrating, not silent for 5+ minutes.
+- **Anti-clump — per-bot workstations.** Each bot has a home working area
+  so the crew spreads out instead of stacking on one spot:
+  Grog = house site (20, 89, 58); UngaBunga = trading post ~(3, 95, 22);
+  Thak = mine field (24, 90, 64); Bonk = door staging (10, 90, 61);
+  Zug = farm (8-11, 58-59). When your goal doesn't pin you elsewhere,
+  default back to your own workstation rather than following the crowd.
+  If you notice multiple bots stacked on the same block with no shared
+  task reason, that's the anti-clump law being violated — one of you
+  should move.
+- **Watching ≠ working.** Standing near another bot while it does
+  something is not itself work, and doesn't exempt your bot from the
+  idle law above. If you're not issuing your own task, you're idle — act
+  accordingly (self-issue the next step) even if the scene looks busy
+  because a neighbor bot is active.
+- **Ground-truth verify.** Before reporting a step "done" — in chat, to
+  the team-lead, or in a doc update — confirm it against actual state
+  (`/status`, `/eval` reading real inventory/position/blocks), not
+  against your own or another bot's chat narration. Narration can lag or
+  be wrong; the world state via the API is the source of truth.
+- **Equality doctrine.** All five bots are equally cavecrew. No bot's
+  task, goal, or driver outranks another's by default — conflicts (e.g.
+  two bots wanting the same resource/spot) get resolved by the team-lead,
+  not by whichever bot claims priority first.
+- **Depth law — SOLVED.** `buildStaircase` and `branchMine` are both live
+  on the runner (see below). Deep ore goes through that pair only. Do not
+  `/mine` raw ore more than **4 blocks below your own feet** by hand —
+  that's how bots fall into ravines and lava pockets. Staircase down
+  properly first.
 - **Trade etiquette.** If another player (especially the neighbor tribe)
   offers a trade, only ever take the items they actually offered — never
   grab extra out of an open chest or inventory. Send a `DEPOT`-style
   chat line recording what was traded so it's auditable. Compliments in
   chat go over well with **KackboonKevin** specifically — a friendly
   line costs nothing and has smoothed past interactions.
+- **Trading post protocol.** Full trading-post layout (chest positions,
+  which chest is CAVE's vs FEL's, the `TRADE take X leave Y` chat-line
+  format) lives in `TRADE.md` — read it before driving any trade-post
+  task, don't improvise the protocol from this file alone.
+- **tp-rescue policy.** If a bot is stuck, lost, or in danger it can't
+  path itself out of (lava-adjacent, walled in, falling through a
+  ravine), the team-lead can `/tp` it to safety via RCON as a last
+  resort. This is a rescue tool, not a shortcut for normal travel — use
+  `/goto` for everything routine, and report the stuck condition per the
+  escalation rule so the underlying pathing bug gets fixed.
+- **Blink protocol.** A bot that visibly teleports/snaps position in
+  chat or logs without a `/tp` rescue in play (position jump with no
+  corresponding `/goto` completion or death) is "blinking" — treat it as
+  a connection/desync symptom, not normal movement. Check `/status` for
+  `connected: true` and a sane `pos`, and `/relog` if anything looks off,
+  per the Disconnect protocol below.
+- **Plugin-first doctrine.** Prefer a maintained mineflayer plugin over
+  hand-rolled `/eval` logic whenever one exists for what you need
+  (pathfinding, auto-eat, web-inventory, etc.) — plugins are vetted once
+  and reused, hand-rolled `/eval` code is a one-off that has to be
+  re-derived and re-debugged every time. Reach for `/eval` only when no
+  plugin covers the need, per the Escalation rule above.
+- **Build standards.** When constructing camp structures (walls, roofs,
+  staging), follow the established look: **log pillars** at corners,
+  **plank infill** for walls, **windows** left as gaps (or glass if
+  available) rather than solid walls throughout, and a **rimmed roof**
+  (roof edge one block higher than the field, like a lip) rather than a
+  flat plane. Matches the style UngaBunga used for the original camp
+  shelter (now removed — see `CIV.md` state refresh — but the standard
+  still applies to any rebuild).
+- **Signs-for-labeling law.** Label camp fixtures — chests, crafting
+  tables, staging areas — with a physical oak_sign where placement
+  actually works. Where sign placement fails (see the sign-on-chest
+  quirk logged in `CIV.md` under Trading post — `blockUpdate` timeout,
+  target block stays `air`), fall back to chat + a note in `CIV.md`/
+  `TRADE.md` instead of retrying indefinitely; report the placement
+  failure per the escalation rule so it gets a real fix.
+- **Chat tiers (grey / white / rainbow).** Not every `/chat` line carries
+  the same weight — use formatting to signal it: **grey** for routine
+  narration (what you're doing right now, per the Narration rule above),
+  **white** for status/announcements worth every bot noticing (a law
+  change, a new protocol going live), and **rainbow** for tribe-wide
+  proclamations (a goal-ladder milestone, a new pact like the trading
+  post no-touch exception). Match the existing in-game formatting
+  convention other bots are using rather than inventing a new one.
 
 ## DEPOT ledger
 
@@ -137,8 +211,8 @@ Send this line via `/chat` yourself right after a `/deposit` or
 
 ## Structured mining (buildStaircase → branchMine)
 
-Once this pair of skills is live on the runner, this is the required
-pattern for any real ore run — see the depth law above.
+This pair of skills is **live on the runner** — the depth law is solved.
+This is the required pattern for any real ore run.
 
 1. `POST /buildStaircase` to descend safely to target depth (torches +
    safe steps, not a raw dig-down).

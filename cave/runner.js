@@ -27,6 +27,8 @@ import pvpPkg from 'mineflayer-pvp';
 
 import * as skills from './skills.js';
 import * as movement from './movement.js';
+import { createRconChat } from './rconchat.js';
+import { tryStartWebInventory } from './webinv.js';
 
 const { createBot } = mineflayer;
 const { goals } = pathfinderPkg;
@@ -60,6 +62,58 @@ if (!['auto', 'ash', 'pf'].includes(args.engine)) {
   process.exit(1);
 }
 const { name, port, host, mcport, engine: defaultEngine } = args;
+
+// ---------------------------------------------------------------------------
+// rconchat — grey narration. One lazy rconChat instance per runner process
+// (created on first use, never re-created), used for every ROUTINE line this
+// process itself generates (idle-guard chatter, the DEPOT ledger line
+// ensureTool's own depot withdrawal emits — see skills.js). Real talk from a
+// driver's own /chat call bypasses this entirely and stays bot.chat unless
+// the driver explicitly asks for a style. Never let rconchat trouble crash
+// the runner: local.json missing, RCON down, or a send failing all fall back
+// to plain bot.chat.
+// ---------------------------------------------------------------------------
+
+const TEAM_COLORS = { Grog: 'green', UngaBunga: 'yellow', Zug: 'light_purple', Bonk: 'aqua', Thak: 'gold' };
+const teamColor = TEAM_COLORS[name] || 'white';
+
+let rconChatInstance = null;
+let rconChatInitTried = false;
+function getRconChat() {
+  if (!rconChatInitTried) {
+    rconChatInitTried = true;
+    try {
+      rconChatInstance = createRconChat();
+    } catch (err) {
+      logLine('warn', `rconchat unavailable, narration will fall back to bot.chat: ${err?.message ?? err}`);
+      rconChatInstance = null;
+    }
+  }
+  return rconChatInstance;
+}
+
+// announce(style, text) — style: 'status' (grey, default for routine lines),
+// 'fancy', or 'rainbow'. Always resolves, never throws: an rconchat failure
+// (no local.json, RCON down, a bad send) falls back to bot.chat with the
+// plain text, so a narration line never takes the runner down with it.
+async function announce(style, text) {
+  const rc = getRconChat();
+  if (rc) {
+    try {
+      if (style === 'fancy') await rc.sayFancy(name, teamColor, text);
+      else if (style === 'rainbow') await rc.sayRainbow(name, teamColor, text);
+      else await rc.sayStatus(name, teamColor, text);
+      return;
+    } catch (err) {
+      logLine('warn', `rconchat announce(${style}) failed, falling back to bot.chat: ${err?.message ?? err}`);
+    }
+  }
+  try {
+    bot?.chat?.(String(text));
+  } catch {
+    // ignore — no bot to talk through either, nothing more to do
+  }
+}
 
 // ---------------------------------------------------------------------------
 // directories + logging (set up before anything else can throw)
@@ -152,6 +206,11 @@ const state = {
   lastDeath: null, // { pos: {x,y,z}|null, ts }
 };
 
+// Timestamp of the last moment the runner had no running task. Read by the
+// idle-guard ticker (below) to decide when 60s of idleness has elapsed;
+// written by markTaskFinished() every time a task leaves 'running'.
+let idleSince = Date.now();
+
 // ---------------------------------------------------------------------------
 // poisoned targets — a position a task's bot died going after gets flagged
 // here (with a timestamp) so future skill runs can steer clear of it. Set by
@@ -202,11 +261,23 @@ function pushEvent(type, msg) {
 
 let taskCounter = 0;
 function newTask(kind) {
-  return { id: `task-${++taskCounter}`, kind, state: 'running', detail: null, result: null };
+  return { id: `task-${++taskCounter}`, kind, state: 'running', detail: null, result: null, finishedAt: null };
 }
 function taskToJSON(t) {
   if (!t) return null;
-  return { id: t.id, kind: t.kind, state: t.state, detail: t.detail, result: t.result };
+  return { id: t.id, kind: t.kind, state: t.state, detail: t.detail, result: t.result, finishedAt: t.finishedAt };
+}
+
+// Marks a task done/failed/cancelled: stamps finishedAt (STATUS-HOLD: the
+// task object itself — including this timestamp — stays in state.currentTask
+// as-is, never cleared to null, until the NEXT task replaces it; a driver
+// polling /status always sees either a running task or the last finished one)
+// and resets idleSince so the idle-guard threshold (see below) is measured
+// from the moment the runner actually went idle, not from whenever it was
+// last checked.
+function markTaskFinished(task) {
+  task.finishedAt = new Date().toISOString();
+  idleSince = Date.now();
 }
 
 function makeCtx(task) {
@@ -238,6 +309,13 @@ function makeCtx(task) {
     get mcData() {
       return mcData;
     },
+    // Grey narration passthrough for skills.js's own routine chat lines (e.g.
+    // ensureTool's DEPOT ledger line on an automatic depot withdrawal — see
+    // announce() above, which already falls back to bot.chat internally on
+    // any rconchat failure). Optional on ctx by design: a bare ctx built by
+    // /eval or a test has no runner to route through, and skills.js falls
+    // back to plain bot.chat itself when this isn't present.
+    sayStatus: (text) => announce('status', text),
   };
 }
 
@@ -253,6 +331,7 @@ function failActiveTask(errMsg) {
     task.state = 'failed';
     task.result = { error: errMsg };
     state.lastError = errMsg;
+    markTaskFinished(task);
     logLine('error', `task ${task.id} (${task.kind}) failed: ${errMsg}`);
     pushEvent('task', `task ${task.id} (${task.kind}) failed: ${errMsg}`);
   }
@@ -282,6 +361,7 @@ async function cancelCurrentTask(reason) {
     task.state = 'done';
     task.detail = reason;
     task.result = { cancelled: true, reason };
+    markTaskFinished(task);
     logLine('info', `task ${task.id} (${task.kind}) cancelled: ${reason}`);
     pushEvent('task', `task ${task.id} (${task.kind}) cancelled: ${reason}`);
   }
@@ -304,12 +384,18 @@ async function cancelCurrentTask(reason) {
 
 async function startTask(kind, fn, { force = false } = {}) {
   if (state.currentTask && state.currentTask.state === 'running') {
-    if (!force) {
+    // IDLE-GUARD auto-preemption: idle-guard is a runner-self-issued filler
+    // task (see idleGuardCycle below), never something a driver asked for.
+    // Any real task request must preempt it instantly — no 409, no need for
+    // the driver to pass force:true — so a driver never has to know or care
+    // that idle-guard happened to be running underneath it.
+    const preemptingIdleGuard = state.currentTask.kind === 'idle-guard' && kind !== 'idle-guard';
+    if (!force && !preemptingIdleGuard) {
       const err = new Error('busy');
       err.busy = true;
       throw err;
     }
-    await cancelCurrentTask(`superseded by new ${kind} task (force)`);
+    await cancelCurrentTask(preemptingIdleGuard ? 'preempted by driver task' : `superseded by new ${kind} task (force)`);
     // Re-check after the await: another request may have claimed the mutex
     // while we were cancelling. Exactly one caller may install a task.
     if (state.currentTask && state.currentTask.state === 'running') {
@@ -332,6 +418,7 @@ async function startTask(kind, fn, { force = false } = {}) {
       if (task.state === 'running') {
         task.state = 'done';
         task.result = result ?? null;
+        markTaskFinished(task);
         logLine('info', `task ${task.id} (${kind}) done`);
         pushEvent('task', `task ${task.id} (${kind}) done`);
       }
@@ -341,6 +428,7 @@ async function startTask(kind, fn, { force = false } = {}) {
         task.state = 'failed';
         task.result = { error: msg };
         state.lastError = msg;
+        markTaskFinished(task);
         logLine('error', `task ${task.id} (${kind}) failed: ${msg}`);
         pushEvent('task', `task ${task.id} (${kind}) failed: ${msg}`);
       }
@@ -425,10 +513,29 @@ function wireBot(b) {
   b.once('spawn', () => {
     state.connected = true;
     reconnectAttempt = 0;
+    idleSince = Date.now();
     try {
       mcData = minecraftData(b.version);
     } catch (err) {
       logLine('warn', `minecraft-data lookup failed for version ${b.version}: ${err.message}`);
+    }
+    // SAFETY MOVEMENTS (FEL intel + camp griefing incident): default pathfinder
+    // Movements auto-DIG blocks en route — it ate the camp crafting table and
+    // both depot chests as "path obstacles". Travel must never dig or scaffold;
+    // actual digging happens only inside skills via bot.dig. Also fall-safety
+    // caps (their fleet's fall death) and no ugly self-built towers.
+    try {
+      const m = new pathfinderPkg.Movements(b);
+      m.canDig = false;
+      m.allow1by1towers = false;
+      m.allowParkour = false;
+      m.maxDropDown = 3;
+      m.infiniteLiquidDropdownDistance = false;
+      m.scafoldingBlocks = [];
+      b.pathfinder.setMovements(m);
+      logLine('info', 'safety Movements applied (no-dig travel)');
+    } catch (err) {
+      logLine('warn', `safety Movements failed: ${err.message}`);
     }
     logLine('info', `spawned as ${name} (mc version ${b.version})`);
     pushEvent('connect', `${name} spawned`);
@@ -447,6 +554,12 @@ function wireBot(b) {
     } catch {
       // ignore
     }
+    // Best-effort inventory web viewer — see cave/webinv.js. Never throws
+    // (internally try/catch guarded), but wrapped in .catch() anyway per this
+    // file's defensive style for every optional-plugin call site.
+    tryStartWebInventory(b, port).catch((err) =>
+      logLine('error', `tryStartWebInventory threw unexpectedly: ${err?.stack ?? err}`)
+    );
   });
 
   b.on('error', (err) => {
@@ -529,6 +642,25 @@ function wireBot(b) {
     if (username === b.username) return;
     pushEvent('chat', `${username}: ${message}`);
   });
+
+  // System/tellraw capture — mineflayer's 'message' event fires for every
+  // server-sent chat-shaped packet, tagged with a position ('chat' |
+  // 'system' | 'game_info', the "type flag"). Actual player chat already
+  // comes through the dedicated 'chat' event above, so skip position==='chat'
+  // here to avoid double-logging it; this is specifically for tellraw/system
+  // announcements (including our own sayStatus/sayFancy/sayRainbow lines)
+  // that never fire 'chat' at all.
+  b.on('message', (jsonMsg, position) => {
+    if (b !== bot) return;
+    if (position === 'chat') return;
+    let text;
+    try {
+      text = jsonMsg.toString();
+    } catch {
+      text = String(jsonMsg);
+    }
+    pushEvent('system', `[${position}] ${text}`);
+  });
 }
 
 function connect() {
@@ -592,6 +724,108 @@ movement
   .finally(() => connect());
 
 // ---------------------------------------------------------------------------
+// IDLE-GUARD — runner-level, self-issued filler work. When the bot has had no
+// running task for IDLE_GUARD_THRESHOLD_MS and is connected, the ticker below
+// self-issues an 'idle-guard' task (through the normal startTask/task-mutex
+// path, so it shows up in /status like anything else) that loops forever:
+// sweep drops -> deposit surplus at depot A if close enough and carrying
+// enough, else a short pause -> repeat. Deliberately preemptible: any real
+// task request from a driver instantly cancels it (see the
+// preemptingIdleGuard branch in startTask above) with no 409 and no force
+// flag needed. deathCount/poisonedTargets/state.connected etc. are never
+// touched here — idle-guard is just another task from their point of view.
+// ---------------------------------------------------------------------------
+
+const IDLE_GUARD_THRESHOLD_MS = 60000;
+const IDLE_GUARD_TICK_MS = 5000;
+// Depot chest A — must stay in sync with skills.js's own DEPOT_POS constant
+// (kept separate rather than exported/imported to avoid coupling this
+// runner-only scheduling concern to skills.js's module surface).
+const IDLE_GUARD_DEPOT_POS = { x: 11, y: 89, z: 55 };
+const IDLE_GUARD_DEPOT_RADIUS = 40;
+const IDLE_GUARD_SURPLUS_THRESHOLD = 8;
+
+function distance3(a, b) {
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  const dz = a.z - b.z;
+  return Math.sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+// Sleeps up to ms, but checks ctx.isCancelled() every 500ms and returns
+// early the instant a preemption lands — this is what makes the "else pause
+// 20s" branch of the cycle instantly preemptible instead of blocking a
+// driver's request behind a dumb setTimeout.
+async function cancellableSleep(ms, ctx) {
+  const step = 500;
+  let waited = 0;
+  while (waited < ms) {
+    if (ctx.isCancelled?.()) return;
+    await sleep(Math.min(step, ms - waited));
+    waited += step;
+  }
+}
+
+async function idleGuardCycle(task, ctx) {
+  let cycles = 0;
+  while (!ctx.isCancelled() && !ctx.isStaleGeneration?.()) {
+    const b = bot;
+    if (!b || !b.entity) break;
+    cycles++;
+    ctx.setDetail(`idle-guard: cycle ${cycles}`);
+
+    await announce('status', '(idle-guard) sweeping for drops');
+    try {
+      await skills.collectDrops(b, { radius: 12 }, ctx);
+    } catch (err) {
+      ctx.log('warn', `idle-guard: collectDrops failed: ${err.message}`);
+    }
+    if (ctx.isCancelled()) break;
+    if (!bot || !bot.entity) break;
+
+    const nonTool = bot.inventory.items().filter((it) => !skills.isToolLike(it.name));
+    const nonToolCount = nonTool.reduce((sum, it) => sum + it.count, 0);
+    const dist = distance3(bot.entity.position, IDLE_GUARD_DEPOT_POS);
+
+    if (nonToolCount > IDLE_GUARD_SURPLUS_THRESHOLD && dist <= IDLE_GUARD_DEPOT_RADIUS) {
+      const names = [...new Set(nonTool.map((it) => it.name))];
+      await announce('status', `(idle-guard) depositing ${nonToolCount} surplus items at depot`);
+      try {
+        const result = await skills.depositToChest(bot, { pos: IDLE_GUARD_DEPOT_POS, items: names }, ctx);
+        const deposited = result.deposited || [];
+        const summary = deposited.length ? deposited.map((d) => `+${d.count} ${d.name}`).join(', ') : 'nothing (chest full?)';
+        await announce('status', `(idle-guard) DEPOT ${summary} (chest A)`);
+      } catch (err) {
+        ctx.log('warn', `idle-guard: deposit failed: ${err.message}`);
+        await announce('status', `(idle-guard) deposit attempt failed: ${err.message}`);
+      }
+    } else {
+      await announce('status', '(idle-guard) nothing to do, pausing');
+      await cancellableSleep(20000, ctx);
+    }
+  }
+  return { cycles };
+}
+
+function maybeStartIdleGuard() {
+  if (!state.connected || !bot?.entity) return;
+  const isIdle = !state.currentTask || state.currentTask.state !== 'running';
+  if (!isIdle) return;
+  if (Date.now() - idleSince < IDLE_GUARD_THRESHOLD_MS) return;
+  startTask('idle-guard', idleGuardCycle).catch((err) => {
+    if (!err?.busy) logLine('error', `idle-guard: failed to self-start: ${err?.message ?? err}`);
+  });
+}
+
+setInterval(() => {
+  try {
+    maybeStartIdleGuard();
+  } catch (err) {
+    logLine('error', `idle-guard tick error: ${err?.stack ?? err}`);
+  }
+}, IDLE_GUARD_TICK_MS);
+
+// ---------------------------------------------------------------------------
 // task-specific helpers not delegated to skills.js
 // ---------------------------------------------------------------------------
 
@@ -630,12 +864,36 @@ async function followPlayer(b, playerName, range, ctx) {
   return { followed: playerName, range };
 }
 
+// craftItem — rewritten resolution after a field bug where recipesFor()
+// silently handed back a recipe for the WRONG item entirely: a birch_planks
+// request crafted torches and burned 19 logs while reporting success; a
+// torch request ate ingredients and produced 0. Fix has three parts:
+//   1. Look the item id up via bot.registry (the same minecraft-data-backed
+//      registry bot.recipesFor()/bot.craft() resolve recipes against
+//      internally) rather than the separately-instantiated module-level
+//      mcData — using two different registry instances for the id lookup
+//      and the actual craft risks an id-space mismatch.
+//   2. Never trust recipesFor()'s own filtering: assert recipe.result.id
+//      matches the requested item's id ourselves before a recipe is ever
+//      handed to bot.craft().
+//   3. INVENTORY-DIFF VERIFY: bot.craft()'s resolved promise is not proof of
+//      anything by itself (see the field bug above). Only a measured
+//      increase in the requested item's own inventory count counts as a
+//      real success — no diff means a real, thrown error, never a silent
+//      "ok".
 async function craftItem(b, itemName, amount, ctx) {
-  const itemDef = mcData?.itemsByName?.[itemName];
+  const registry = b.registry ?? mcData;
+  const itemDef = registry?.itemsByName?.[itemName];
   if (!itemDef) throw new Error(`craftItem: unknown item "${itemName}"`);
 
-  let recipes = b.recipesFor(itemDef.id, null, 1, null);
+  const countOf = (nm) => b.inventory.items().filter((it) => it.name === nm).reduce((sum, it) => sum + it.count, 0);
+  const before = countOf(itemName);
+
+  const exactRecipesFor = (table) =>
+    b.recipesFor(itemDef.id, null, 1, table).filter((r) => r.result && r.result.id === itemDef.id);
+
   let table = null;
+  let recipes = exactRecipesFor(null);
   if (recipes.length === 0) {
     table = b.findBlock({
       matching: (blk) => blk.name === 'crafting_table',
@@ -652,15 +910,25 @@ async function craftItem(b, itemName, amount, ctx) {
       { timeoutMs: 30000, maxAttempts: 5 },
       ctx
     );
-    recipes = b.recipesFor(itemDef.id, null, 1, table);
+    const tableBlock = b.blockAt(table.position);
+    recipes = exactRecipesFor(tableBlock);
     if (recipes.length === 0) {
       throw new Error(`craftItem: no recipe for "${itemName}" even with a crafting table (missing ingredients?)`);
     }
   }
 
+  const recipe = recipes[0];
   ctx.setDetail(`crafting ${amount}x ${itemName}`);
-  await b.craft(recipes[0], amount, table || undefined);
-  return { item: itemName, amount, usedTable: !!table };
+  await b.craft(recipe, amount, table || undefined);
+
+  const after = countOf(itemName);
+  if (after <= before) {
+    throw new Error(
+      `craftItem: craft() reported success but inventory shows no increase in "${itemName}" (before=${before}, after=${after}) — treating as a failed craft, not trusting the resolved promise`
+    );
+  }
+
+  return { item: itemName, amount, usedTable: !!table, before, after, gained: after - before };
 }
 
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
@@ -729,7 +997,13 @@ function buildStatus() {
     gamemode: b?.game ? b.game.gameMode : null,
     inventory: spawned ? summarizeInventory(b) : [],
     currentTask: taskToJSON(state.currentTask),
-    lastError: state.lastError,
+    // Per-task, not global: reflects the CURRENT task's own failure (if it
+    // failed) and nothing else — a fresh task starting always reads back
+    // null here immediately, even if some earlier unrelated task or a bare
+    // connection blip had set state.lastError. STATUS-HOLD (see
+    // markTaskFinished) means this still holds the last task's error after
+    // it's done, same as currentTask itself, until the next task replaces it.
+    lastError: state.currentTask?.result?.error ?? null,
     engine: defaultEngine,
     deathCount: state.deathCount,
     lastDeath: state.lastDeath,
@@ -827,6 +1101,14 @@ const taskRoutes = {
     if (!body.item) throw new Error('/craft requires "item"');
     return craftItem(b, body.item, body.amount ?? 1, ctx);
   }),
+  '/smelt': taskEndpoint('smelt', async (b, body, ctx) => {
+    if (!body.input) throw new Error('/smelt requires "input"');
+    return skills.smeltItems(
+      b,
+      { input: body.input, fuel: body.fuel, count: body.count ?? 1, timeoutMs: body.timeoutMs },
+      ctx
+    );
+  }),
   '/recover': taskEndpoint('recover', async (b, body, ctx) => {
     // deathPos comes from the runner's own state.lastDeath (set by the
     // b.on('death') handler above) — not the request body. skills.recoverKit
@@ -864,11 +1146,19 @@ async function handleChat(req, res) {
     return sendJson(res, 400, { error: err.message });
   }
   if (!body.message) return sendJson(res, 400, { error: '/chat requires "message"' });
+  const style = body.style ?? 'talk';
+  if (!['talk', 'status', 'fancy', 'rainbow'].includes(style)) {
+    return sendJson(res, 400, { error: '/chat "style" must be one of talk|status|fancy|rainbow' });
+  }
   try {
     const b = requireBot();
-    b.chat(String(body.message));
+    if (style === 'talk') {
+      b.chat(String(body.message));
+    } else {
+      await announce(style, String(body.message));
+    }
     pushEvent('chat_sent', String(body.message));
-    sendJson(res, 200, { ok: true });
+    sendJson(res, 200, { ok: true, style });
   } catch (err) {
     sendJson(res, 400, { error: err.message });
   }

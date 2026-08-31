@@ -12,7 +12,7 @@ at a time — read fresh before writing. Orchestrator prunes DONE.
 | 4 | BUILD | Mine House 9x7: log pillars, plank walls, windows, STONE roof + rim, interior stairwell framed, chests C+D | Grog | DOING — pillars up |
 | 5 | MINE | Grand staircase (15,89,57) → y54 via /staircase + cobblestone_stairs surface + torches | Thak | DOING |
 | 6 | MINE | Branch grid y54: trunk 24, branches 6x8, torched, all veins | Thak | queued after #5 |
-| 7 | INFRA | Stepped 2-wide path camp door (11,90,58) → trading post (7,112,23) | Bonk | DOING — 64 cobble staged |
+| 7 | INFRA | Stepped 2-wide path camp door (11,90,58) → trading post (6-8,112,22) | Bonk | DOING — segment z58-56 built+verified, 85 cobble on hand, PAUSED: camp table casualty needs fix first |
 | 8 | WOOD | Chest A wood ≥40 logs standing stock | UngaBunga | DOING — after plank delivery |
 | 9 | EQUALITY | Iron armor for all | all | after #1 |
 | 10 | FOOD | Ook first far-range meat run (pigs ~100 west) | Ook | todo |

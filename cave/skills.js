@@ -24,6 +24,13 @@
 //                           ctx.generation itself is a snapshot taken once at
 //                           task-start, not a live value — never compare it
 //                           against a later read of itself.
+//   ctx.sayStatus(text)   — optional; grey narration via the runner's
+//                           rconchat (falls back to bot.chat internally on
+//                           any rconchat trouble — see runner.js's announce()
+//                           and makeCtx()). Used for routine lines this file
+//                           itself generates (e.g. ensureTool's DEPOT ledger
+//                           line). Absent on a bare ctx (tests, /eval
+//                           helpers) — callers fall back to plain bot.chat.
 // All are optional — every call below is guarded with `?.()` / defensive
 // checks so a bare `skills.fn(bot, opts)` call (e.g. from /eval) still works.
 //
@@ -82,6 +89,12 @@ const SOIL_BLOCKS = new Set([
 ]);
 
 const SEAL_MATERIALS = /cobblestone|_stone$|^stone$|dirt|netherrack|blackstone|deepslate/;
+
+// Matches furnace/blast_furnace/smoker block names in both their lit and
+// unlit forms (some minecraft-data versions expose the lit state as a
+// separate block name, e.g. "lit_furnace"; others fold it into a blockstate
+// on "furnace" — matching both costs nothing and covers either case).
+const FURNACE_BLOCKS = /^(lit_)?(furnace|blast_furnace|smoker)$/;
 
 const PASSIVE_MOBS = new Set([
   'cow',
@@ -188,7 +201,7 @@ function diffInventory(before, after) {
   return out;
 }
 
-function isToolLike(name) {
+export function isToolLike(name) {
   return /(_pickaxe|_axe|_shovel|_hoe|_sword|shears|bow|crossbow|trident|fishing_rod|flint_and_steel|shield|_helmet|_chestplate|_leggings|_boots|elytra)$/.test(
     name
   );
@@ -999,6 +1012,163 @@ export async function withdrawFromChest(bot, opts = {}, ctx = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// giveItems — toss a stack toward a target position, then step 3 blocks back
+// so vanilla auto-pickup doesn't just walk the bot right back onto its own
+// drop (confirmed live: without the step-back, the "given" item silently
+// stayed in inventory — the bot re-grabbed the toss before it ever settled).
+// Verified via inventory-diff: a net decrease smaller than `count` means the
+// bot reclaimed some or all of the toss, and that's reported as a failure,
+// not papered over.
+// ---------------------------------------------------------------------------
+
+export async function giveItems(bot, opts = {}, ctx = {}) {
+  const targetPos = opts.targetPos;
+  const itemName = opts.itemName;
+  const count = opts.count ?? 1;
+  if (!targetPos || typeof targetPos.x !== 'number' || typeof targetPos.y !== 'number' || typeof targetPos.z !== 'number') {
+    throw new Error('giveItems: "targetPos" {x,y,z} is required');
+  }
+  if (!itemName) throw new Error('giveItems: "itemName" is required');
+
+  const before = itemCount(bot, itemName);
+  if (before < count) throw new Error(`giveItems: only have ${before}x ${itemName}, need ${count}`);
+
+  ctx.setDetail?.(`giveItems: heading to ${posKey(targetPos)} to toss ${count}x ${itemName}`);
+  ctx.setTargetPos?.(targetPos);
+  await gotoLoop(bot, new goals.GoalNear(targetPos.x, targetPos.y, targetPos.z, 2), { timeoutMs: 30000, maxAttempts: 3 }, ctx);
+
+  const toToss = bot.inventory.items().find((it) => it.name === itemName);
+  if (!toToss) throw new Error(`giveItems: ${itemName} vanished from inventory before toss`);
+  await bot.toss(toToss.type, toToss.metadata ?? null, count);
+
+  // Step 3 blocks back along the (bot -> target) line, away from the drop.
+  const pos = bot.entity.position;
+  const dx = pos.x - targetPos.x;
+  const dz = pos.z - targetPos.z;
+  const mag = Math.hypot(dx, dz) || 1;
+  const back = { x: pos.x + (dx / mag) * 3, y: pos.y, z: pos.z + (dz / mag) * 3 };
+  try {
+    await gotoLoop(bot, new goals.GoalNear(back.x, back.y, back.z, 1), { timeoutMs: 10000, maxAttempts: 2 }, ctx);
+  } catch (err) {
+    ctx.log?.('warn', `giveItems: step-back failed (continuing to verify anyway): ${err.message}`);
+  }
+
+  await sleep(500);
+  const after = itemCount(bot, itemName);
+  const netGiven = before - after;
+  if (netGiven < count) {
+    throw new Error(
+      `giveItems: toss verify failed — expected net -${count} ${itemName}, actual net -${netGiven} (before=${before}, after=${after}); the bot likely re-collected its own toss`
+    );
+  }
+  return { targetPos: toPlainPos(targetPos), item: itemName, requested: count, given: netGiven };
+}
+
+// ---------------------------------------------------------------------------
+// smeltItems — goto a furnace within 16 blocks, load input + fuel (default
+// fuel: coal/charcoal, else *_planks from inventory), poll takeOutput until
+// `count` worth has come out or timeoutMs elapses, then verify via
+// inventory-diff that what was actually taken out of the furnace really
+// landed in the bot's bag — never trust the poll loop's own bookkeeping
+// alone (same "no diff = no success" rule as craftItem's fix).
+// ---------------------------------------------------------------------------
+
+export async function smeltItems(bot, opts = {}, ctx = {}) {
+  const inputName = opts.input;
+  const count = opts.count ?? 1;
+  if (!inputName) throw new Error('smeltItems: "input" is required');
+
+  const haveInput = itemCount(bot, inputName);
+  if (haveInput < count) throw new Error(`smeltItems: only have ${haveInput}x ${inputName}, need ${count}`);
+
+  const furnaceBlock = bot.findBlock({
+    matching: (b) => FURNACE_BLOCKS.test(b.name),
+    maxDistance: 16,
+    point: bot.entity.position,
+  });
+  if (!furnaceBlock) throw new Error('smeltItems: no furnace within 16 blocks');
+  const furnacePos = furnaceBlock.position.clone();
+
+  ctx.setDetail?.(`smeltItems: heading to furnace at ${posKey(furnacePos)}`);
+  ctx.setTargetPos?.(furnacePos);
+  await gotoLoop(bot, new goals.GoalGetToBlock(furnacePos.x, furnacePos.y, furnacePos.z), { timeoutMs: 30000, maxAttempts: 5 }, ctx);
+
+  const freshFurnace = bot.blockAt(furnacePos);
+  if (!freshFurnace || !FURNACE_BLOCKS.test(freshFurnace.name)) {
+    throw new Error(`smeltItems: no furnace-like block at ${posKey(furnacePos)} anymore`);
+  }
+
+  const preSnapshot = snapshotInventory(bot);
+  const furnace = await bot.openFurnace(freshFurnace);
+  const taken = [];
+  try {
+    const inputItem = bot.inventory.items().find((it) => it.name === inputName);
+    if (!inputItem) throw new Error(`smeltItems: ${inputName} vanished from inventory before putInput`);
+    await furnace.putInput(inputItem.type, inputItem.metadata ?? null, count);
+
+    let fuelItem;
+    if (opts.fuel) {
+      fuelItem = bot.inventory.items().find((it) => it.name === opts.fuel);
+      if (!fuelItem) throw new Error(`smeltItems: requested fuel "${opts.fuel}" not in inventory`);
+    } else {
+      fuelItem =
+        bot.inventory.items().find((it) => it.name === 'coal' || it.name === 'charcoal') ||
+        bot.inventory.items().find((it) => it.name.endsWith('_planks'));
+      if (!fuelItem) throw new Error('smeltItems: no fuel available (need coal/charcoal in inventory, or pass "fuel")');
+    }
+    const fuelToPut = Math.min(fuelItem.count, Math.max(1, Math.ceil(count / 8)));
+    await furnace.putFuel(fuelItem.type, fuelItem.metadata ?? null, fuelToPut);
+
+    ctx.setDetail?.(`smeltItems: smelting ${count}x ${inputName}`);
+    const timeoutMs = opts.timeoutMs ?? Math.max(40000, count * 12000);
+    const deadline = Date.now() + timeoutMs;
+    let takenCount = 0;
+    while (takenCount < count && Date.now() < deadline) {
+      if (ctx.isCancelled?.()) break;
+      await sleep(2000);
+      const outSlotItem = furnace.outputItem ? furnace.outputItem() : null;
+      if (outSlotItem) {
+        try {
+          const out = await furnace.takeOutput();
+          if (out) {
+            taken.push({ name: out.name, count: out.count });
+            takenCount += out.count;
+          }
+        } catch (err) {
+          ctx.log?.('warn', `smeltItems: takeOutput error (will keep polling): ${err.message}`);
+        }
+      }
+    }
+  } finally {
+    try {
+      furnace.close();
+    } catch {
+      // ignore
+    }
+  }
+
+  // INVENTORY-DIFF VERIFY — the poll loop's own `taken` bookkeeping is not
+  // proof by itself (a takeOutput() could in principle resolve without the
+  // stack actually landing back in the bot's inventory, e.g. a full
+  // inventory silently dropping it). Confirm each taken item really shows up
+  // as a net gain before calling this a success.
+  const after = snapshotInventory(bot);
+  const gained = diffInventory(preSnapshot, after);
+  const takenTotals = mergeCounts(taken);
+  const verified = taken.length > 0 && takenTotals.every((t) => {
+    const g = gained.find((x) => x.name === t.name);
+    return g && g.count >= t.count;
+  });
+  if (!verified) {
+    throw new Error(
+      `smeltItems: no verified output — took ${JSON.stringify(takenTotals)}, inventory diff shows ${JSON.stringify(gained)} (furnace may have timed out, or output was never confirmed in the bag)`
+    );
+  }
+
+  return { input: inputName, requested: count, smelted: takenTotals, furnace: toPlainPos(furnacePos) };
+}
+
+// ---------------------------------------------------------------------------
 // safeDescend — staircase down, never straight-dig, seal fluids, flee lava.
 // ---------------------------------------------------------------------------
 
@@ -1340,7 +1510,16 @@ export async function ensureTool(bot, opts = {}, ctx = {}) {
       }
     }
     if (match) {
-      bot.chat(`DEPOT -1 ${match.name} (chest A)`);
+      const depotLine = `DEPOT -1 ${match.name} (chest A)`;
+      // Grey narration via the runner's rconchat sayStatus when ctx supplies
+      // it (see runner.js's makeCtx) — it already falls back to bot.chat
+      // internally on any rconchat trouble. Bare ctx (tests, /eval helpers
+      // without a runner behind them) falls back to plain bot.chat here.
+      if (typeof ctx.sayStatus === 'function') {
+        await ctx.sayStatus(depotLine);
+      } else {
+        bot.chat(depotLine);
+      }
       const got = bot.inventory.items().find((it) => it.name === match.name);
       if (got) await bot.equip(got, 'hand');
       return { source: 'depot', tool: match.name };
