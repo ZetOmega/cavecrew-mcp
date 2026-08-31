@@ -37,6 +37,10 @@ const BOTS = [
     { ep: '/mine', body: { block: 'coal_ore', count: 4, maxDistance: 28 }, say: 'idle: dig coal' },
     { ep: '/mine', body: { block: 'iron_ore', count: 4, maxDistance: 28 }, say: 'idle: dig iron' },
   ]},
+  { name: 'Ook', port: 3206, color: 'red', defaults: [
+    { ep: '/collect', body: { radius: 16 }, say: 'idle: sweep drops' },
+    { ep: '/hunt', body: { mob: 'pig', count: 1 }, say: 'idle: sniff for pig' },
+  ]},
 ]
 
 const state = new Map() // name -> {idleSince, lastPos, posSince, lastRelog, defaultIdx}
