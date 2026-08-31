@@ -42,11 +42,14 @@ const BOTS = [
     { ep: '/collect', body: { radius: 16 }, say: 'idle: sweep drops' },
     { ep: '/hunt', body: { mob: 'pig', count: 1 }, say: 'idle: sniff for pig' },
   ]},
+  // /mine PULLED from all idle-defaults: maxDistance is 3D — it chased ore
+  // straight DOWN a ravine and killed Grog (y89→y26, full kit lost). No bot
+  // mines unattended until mineBlocks gets a vertical guard.
   { name: 'Durk', port: 3207, color: 'blue', defaults: [
-    { ep: '/mine', body: { block: 'iron_ore', count: 6, maxDistance: 32 }, say: 'idle: dig iron' },
+    { ep: '/collect', body: { radius: 16 }, say: 'idle: sweep drops' },
   ]},
   { name: 'Mog', port: 3208, color: 'dark_aqua', defaults: [
-    { ep: '/mine', body: { block: 'iron_ore', count: 6, maxDistance: 32 }, say: 'idle: dig iron' },
+    { ep: '/collect', body: { radius: 16 }, say: 'idle: sweep drops' },
   ]},
 ]
 
