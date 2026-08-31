@@ -150,10 +150,12 @@ async function tick(bot) {
     if (s.lastPos === key) {
       if (now - s.posSince > STUCK_MS && st.currentTask.kind === 'goto') {
         if (s.stuckAtKey === key) {
-          log(`${bot.name} STILL stuck at ${key} after relog -> worst-case tp spawn`)
+          // TP TARGET = CAMP YARD OPEN AIR, never world spawn: spawn coords got
+          // built over and suffocated UngaBunga inside a block (death #1).
+          log(`${bot.name} STILL stuck at ${key} after relog -> worst-case tp camp yard`)
           await api(bot.port, '/stop', {})
-          await rconCmd(`tp ${bot.name} 0 112 -4`)
-          await grey(bot.name, bot.color, '(overseer) worst-case teleport to spawn — was hard-stuck')
+          await rconCmd(`tp ${bot.name} 12 93 50`)
+          await grey(bot.name, bot.color, '(overseer) worst-case teleport to camp — was hard-stuck')
           s.stuckAtKey = null
         } else {
           log(`${bot.name} stuck at ${key} -> stop + relog (tp next if still frozen)`)
