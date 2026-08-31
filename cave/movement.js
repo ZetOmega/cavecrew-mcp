@@ -116,9 +116,21 @@ function raceWithCancelAndTimeout(promise, { timeoutMs, ctx, label }) {
       fn(val);
     };
     const timer = setTimeout(() => finish(reject, new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
-    const poller = ctx?.isCancelled
+    // Also polls ctx.isStaleGeneration() (set by runner.js — flips true the
+    // instant the bot reconnects/relogs mid-task) so a promise tied to a bot
+    // instance that no longer exists fails fast with a distinct message
+    // instead of riding out the full timeoutMs. This is what actually fixes
+    // the ash-executor-never-resolves-after-kick case: the underlying
+    // library promise still never settles (gotcha #2 above), but we stop
+    // waiting on it immediately once the generation moves on, same as we
+    // already do for cancellation.
+    const poller = ctx?.isCancelled || ctx?.isStaleGeneration
       ? setInterval(() => {
-          if (ctx.isCancelled()) finish(reject, new Error(`${label} cancelled`));
+          if (ctx.isStaleGeneration?.()) {
+            finish(reject, new Error(`${label} stale generation`));
+            return;
+          }
+          if (ctx.isCancelled?.()) finish(reject, new Error(`${label} cancelled`));
         }, 200)
       : null;
     promise.then(
@@ -228,6 +240,13 @@ export async function gotoLoopPf(bot, goal, opts = {}, ctx = {}) {
     if (ctx.isCancelled?.()) {
       throw new Error('gotoLoopPf: cancelled');
     }
+    // Bot reconnected/relogged out from under this run (generation bumped in
+    // runner.js) — the bot.pathfinder.goto() promise below is bounded by
+    // timeoutMs already so this isn't a hang risk like ash, but there's no
+    // reason to burn further retries against a stale bot instance.
+    if (ctx.isStaleGeneration?.()) {
+      throw new Error('gotoLoopPf: stale generation');
+    }
     try {
       await withTimeout(bot.pathfinder.goto(goal), timeoutMs);
       return;
@@ -254,6 +273,7 @@ export async function gotoLoopPf(bot, goal, opts = {}, ctx = {}) {
 }
 
 async function runPf(bot, { x, y, z, range, timeoutMs }, ctx) {
+  if (ctx.isStaleGeneration?.()) throw new Error('goTo: stale generation');
   const token = { engine: 'pf' };
   activeEngineByBot.set(bot, token);
   try {
@@ -300,7 +320,7 @@ async function gotoAsh(bot, goal, opts, ctx) {
   // trusting a single immediate sample — still fails fast (~750ms) on a
   // genuine miss, never masks one.
   let reached = typeof goal.isReached === 'function' ? goal.isReached(bot.entity.position) : true;
-  for (let i = 0; !reached && i < 5 && !ctx.isCancelled?.(); i++) {
+  for (let i = 0; !reached && i < 5 && !ctx.isCancelled?.() && !ctx.isStaleGeneration?.(); i++) {
     await sleep(150);
     reached = typeof goal.isReached === 'function' ? goal.isReached(bot.entity.position) : true;
   }
@@ -311,6 +331,7 @@ async function gotoAsh(bot, goal, opts, ctx) {
 }
 
 async function runAsh(bot, { x, y, z, range, timeoutMs }, ctx) {
+  if (ctx.isStaleGeneration?.()) throw new Error('goTo: stale generation');
   if (!ashAvailable(bot)) {
     throw new Error('goTo: bot.ashfinder is not available (plugin not loaded, or bot not spawned yet)');
   }
@@ -361,6 +382,14 @@ export async function goTo(bot, opts = {}, ctx = {}) {
   }
   if (!ENGINES.has(engine)) {
     throw new Error(`goTo: unknown engine "${engine}" (expected auto|ash|pf)`);
+  }
+  // ctx.generation/isStaleGeneration are stamped by runner.js's makeCtx() —
+  // every task/movement promise "carries its generation" that way. A goTo()
+  // call issued just before a reconnect/relog can arrive here after the
+  // generation has already moved on; fail it immediately rather than driving
+  // a bot instance that's about to become (or already is) a zombie.
+  if (ctx.isStaleGeneration?.()) {
+    throw new Error('goTo: stale generation');
   }
 
   if (engine === 'pf') return runPf(bot, { x, y, z, range, timeoutMs }, ctx);

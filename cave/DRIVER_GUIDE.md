@@ -62,11 +62,29 @@ back". Keep lines short.
 - **Never leave drops on the ground.** Skills already collect
   immediately after felling/mining (rival bots snipe drops within
   seconds) — if you do anything through `/eval` that drops items, follow
-  up with `/collect` before moving on.
+  up with `/collect` before moving on. **Standing law: after every
+  chop/mine/hunt task, run `/collect {"radius":24}`** as a sweep — 24
+  blocks, not the 16 default, so nothing gets left for rivals.
 - **Best tool always equipped.** The skills layer re-equips the correct
   tool before every dig — you don't need to manage this yourself when
   using `/chop`, `/mine`, etc. If you're doing manual digging through
   `/eval`, equip the right tool first.
+- **Never idle silently.** If your bot has been idle (no running task)
+  for more than 3 minutes, that's a bug in your loop, not a rest break —
+  either self-issue the next step from the goal ladder in `CIV.md`, or
+  ping the senior driver / team-lead for direction. A driver that goes
+  quiet for 3+ minutes with nothing running looks crashed even when it
+  isn't.
+- **Depth law.** Once structured mining is live (see below), deep ore
+  goes through `buildStaircase` → `branchMine` only. Do not `/mine` raw
+  ore more than **4 blocks below your own feet** by hand — that's how
+  bots fall into ravines and lava pockets. Staircase down properly first.
+- **Trade etiquette.** If another player (especially the neighbor tribe)
+  offers a trade, only ever take the items they actually offered — never
+  grab extra out of an open chest or inventory. Send a `DEPOT`-style
+  chat line recording what was traded so it's auditable. Compliments in
+  chat go over well with **KackboonKevin** specifically — a friendly
+  line costs nothing and has smoothed past interactions.
 
 ## DEPOT ledger
 
@@ -89,6 +107,105 @@ DEPOT -8 iron_ingot (chest A)
 
 Send this line via `/chat` yourself right after a `/deposit` or
 `/withdraw` call succeeds.
+
+## Death protocol
+
+- A death **aborts the current task** — whatever was running is over,
+  don't assume it resumes on respawn.
+- `GET /status` carries a `deathCount` field. Check it after any
+  unexpected task failure or gap in `/events` — a jump means the bot
+  died and respawned since you last looked.
+- After a death, if the bot lost its kit (tools/armor), run a `/recover`
+  kit run: get back to camp/depot, `ensureTool` (see below) the essentials
+  back into hand, and only then resume the goal you were on.
+- Poisoned targets (mobs/blocks flagged poisonous by the runner) are
+  **auto-skipped** by the skills layer — you don't need to detect these
+  yourself, but don't fight the skip by manually targeting them through
+  `/eval`.
+
+## Disconnect protocol
+
+- If the bot has dropped off the server, endpoints return **503** while
+  it's offline — that's the signal, not a bug to route around.
+- First aid: `POST /relog` (reconnects the bot). Try this before
+  anything else.
+- If `/relog` doesn't bring it back and you hit a **second** disconnect
+  in the same session, **report it** to the team-lead rather than
+  looping `/relog` indefinitely — two disconnects in a row usually means
+  something upstream (server restart, kick, crash) that a driver can't
+  fix alone.
+
+## Structured mining (buildStaircase → branchMine)
+
+Once this pair of skills is live on the runner, this is the required
+pattern for any real ore run — see the depth law above.
+
+1. `POST /buildStaircase` to descend safely to target depth (torches +
+   safe steps, not a raw dig-down).
+2. `POST /branchMine` from the bottom of the staircase to sweep ore
+   bands at that depth (branches off a central shaft, standard
+   strip-mining pattern).
+3. Only fall back to plain `/mine` for shallow, surface-adjacent blocks
+   — not for anything past the 4-block depth law above.
+
+Exact body shapes for `/buildStaircase` and `/branchMine` — check
+`/status` or ask the team-lead if the runner's response shape isn't
+obvious from a first call; document what you learn back to `CIV.md` or
+`skills.js` per the escalation rule.
+
+## ensureTool (auto tool chain)
+
+Skills that need a specific tool call `ensureTool` internally. When your
+bot's inventory doesn't have the right tool:
+
+1. It checks current inventory first — no wasted trip if you already
+   have it.
+2. If missing, it goes to the depot at **(11, 89, 55)** and withdraws
+   the tool if the chest has one — sends the `DEPOT -N item (chest X)`
+   ledger line for you.
+3. If the depot doesn't have it either, it walks the **craft chain**:
+   gather/withdraw materials → craft table if needed → craft the tool.
+
+You don't need to drive this by hand — it's automatic inside `/chop`,
+`/mine`, `/buildStaircase`, `/branchMine`, etc. Just expect a task to
+take longer than usual the first time a bot needs a new tool tier.
+
+## placeBlock — slow confirm
+
+`placeBlock` (used internally by staircase/shelter skills, and via
+`/eval` if you call it directly) confirms placement **slowly** — the
+runner waits for the block-update packet before considering it done
+rather than assuming success the instant the packet is sent. Don't treat
+a pause here as a hang; give it a few extra seconds before you decide
+something's wrong and escalate.
+
+## Team tags
+
+Each bot is on its own colored in-game team, named `cave_<name>` (e.g.
+`cave_Grog`, `cave_UngaBunga`, `cave_Zug`), with chat prefixed `[CAVE]`
+so tribe members are visually distinguishable from the neighbor tribe at
+a glance. When a **new bot** joins the roster, it needs its team created
+and joined via RCON before it's doing real work:
+
+```powershell
+node swarm\rcon.mjs "team add cave_<Name>"
+node swarm\rcon.mjs "team join cave_<Name> <Name>"
+```
+
+Run these from `C:\Users\phili\tools\minecraft-mcp-v2`. Add the new
+bot's name and port to the roster table in `CIV.md` at the same time.
+
+## Engine choice on `/goto`
+
+`engine` on `/goto` currently defaults to the runner's own pick (see
+`GET /status`'s `"engine"` field) but you can force it: `"pf"`
+(pathfinder) or `"ash"` (ashfinder). As of now, **`pf` is measured
+faster on open ground** — prefer it for camp-to-camp or surface travel.
+`ash` remains an option worth trying for tight cave/underground
+navigation where pathfinder struggles. A proper safety A/B between the
+two engines is **pending** — don't treat either as fully vetted yet, and
+report any stuck/unsafe pathing back per the escalation rule regardless
+of which engine you used.
 
 ## API reference
 

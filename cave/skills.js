@@ -6,8 +6,26 @@
 //   ctx.setDetail(str)    — update the current task's `detail` field
 //   ctx.isCancelled()     — true once /stop has cancelled the running task
 //   ctx.mcData            — minecraft-data instance for bot.version
-// All three are optional — every call below is guarded with `?.()` so a
-// bare `skills.fn(bot, opts)` call (e.g. from /eval) still works.
+//   ctx.isPoisoned(pos)   — true if `pos` is flagged unsafe fleet-wide
+//                           (runner.js's own poisonedTargets Map, TTL'd).
+//                           Falls back to a raw ctx.poisonedTargets
+//                           Set/Array/anything-with-.has() for bare ctx
+//                           objects that don't supply the function.
+//   ctx.setTargetPos(pos) — call right before moving toward a dig/mine
+//                           target so that if the bot dies mid-approach, the
+//                           runner's death handler can poison that exact
+//                           spot (see runner.js's failActiveTask/'death').
+//                           Optional — skipping it just means no poison gets
+//                           recorded for that particular movement.
+//   ctx.isStaleGeneration() — optional; true once the runner has reconnected
+//                           since this task started (see runTargetWithWatchdog
+//                           below — belt-and-braces on top of
+//                           ctx.isCancelled(), not a replacement). NOTE:
+//                           ctx.generation itself is a snapshot taken once at
+//                           task-start, not a live value — never compare it
+//                           against a later read of itself.
+// All are optional — every call below is guarded with `?.()` / defensive
+// checks so a bare `skills.fn(bot, opts)` call (e.g. from /eval) still works.
 //
 // Field quirks encoded here on purpose — do not "simplify" them away:
 //   - equip the tool fresh before EVERY dig (equip does not persist between digs)
@@ -16,6 +34,17 @@
 //     bot.pathfinder.stop() (verified: stop() leaves a `stopPathing` flag that
 //     silently discards the very next setGoal() call — it re-nulls the goal
 //     inside the same tick).
+//   - dropped-item entities can take a tick or two to actually appear after a
+//     dig resolves — collecting immediately used to race that and come back
+//     empty; stepOntoAndCollect() below waits 500ms and walks onto the
+//     mined block before sweeping (see MINE AUTO-COLLECT FIX in the task
+//     spec this file was built against).
+//   - EVERY direct bot.dig()/bot.placeBlock() call goes through
+//     safeDig()/safePlaceBlock() — both race a 10s timeout and, on timeout
+//     OR rejection, check actual world state before believing it was a real
+//     failure (a slow server confirm is not the same thing as a failed dig).
+//   - EVERY reported block coordinate is floor()'d, never round()'d — see
+//     toPlainPos().
 //
 // gotoLoop below is pathfinder-only and takes a pre-built mineflayer-pathfinder
 // Goal object (GoalGetToBlock, GoalBlock, GoalFollow, ...) — its own
@@ -27,6 +56,14 @@
 // range) can't be translated into, so the ashfinder-primary engine selection
 // in movement.js's goTo() only applies to the coordinate-based /goto
 // endpoint, not to this goal-object-based helper.
+//
+// gotoLoop ALSO absorbs a field-observed pathfinder quirk on top of
+// movement.gotoLoopPf: pathfinder's own goto() promise sometimes rejects with
+// "goal was changed before it could be completed!" even though the bot is
+// already standing right on top of the goal (observed at 0.8 blocks out).
+// Rather than edit movement.js's retry internals, this wrapper catches that
+// specific message and rechecks the ACTUAL distance to the goal before
+// trusting it as a real failure — see goalTargetInfo() below.
 
 import pathfinderPkg from 'mineflayer-pathfinder';
 import { Vec3 } from 'vec3';
@@ -82,6 +119,31 @@ const PASSIVE_MOBS = new Set([
   'allay',
 ]);
 
+// Ore-band guidance (comments only — not enforced, callers pass explicit y):
+//   coal:   y=90-140 upper band, also common near any surface exposure
+//   iron:   y=15 ± (1.21 * distance-from-15) banding, but also runs through
+//           exposed mountain faces well above y=15
+// branchMine() defaults to y=54 when no explicit y is given — a reasonable
+// generic mid-depth fallback, not tuned to any one ore.
+const ORE_NAMES = [
+  'iron_ore',
+  'deepslate_iron_ore',
+  'coal_ore',
+  'deepslate_coal_ore',
+  'copper_ore',
+  'deepslate_copper_ore',
+];
+
+const CARDINALS = {
+  north: { x: 0, z: -1 },
+  south: { x: 0, z: 1 },
+  east: { x: 1, z: 0 },
+  west: { x: -1, z: 0 },
+};
+
+const CAMP_POS = new Vec3(12, 89, 56); // also the camp crafting table location
+const DEPOT_POS = { x: 11, y: 89, z: 55 };
+
 // ---------------------------------------------------------------------------
 // small internal helpers
 // ---------------------------------------------------------------------------
@@ -94,8 +156,11 @@ function posKey(pos) {
   return `${Math.floor(pos.x)},${Math.floor(pos.y)},${Math.floor(pos.z)}`;
 }
 
+// (13) SAFE COORDS: floor(), never round() — a block position reported as
+// "the block at 4.9" is the block at 4, not 5. Centralized here so every
+// caller (existing and new) gets this for free.
 function toPlainPos(pos) {
-  return { x: pos.x, y: pos.y, z: pos.z };
+  return { x: Math.floor(pos.x), y: Math.floor(pos.y), z: Math.floor(pos.z) };
 }
 
 function mergeCounts(items) {
@@ -129,14 +194,273 @@ function isToolLike(name) {
   );
 }
 
+function itemCount(bot, name) {
+  return bot.inventory
+    .items()
+    .filter((it) => it.name === name)
+    .reduce((sum, it) => sum + it.count, 0);
+}
+
+// runner.js's ctx exposes poisoning as a function — ctx.isPoisoned(pos) —
+// backed by its own Map with TTL expiry (see poisonedTargets/isPoisonedTarget
+// in runner.js). Prefer that live check; fall back to a raw
+// ctx.poisonedTargets Set/Array/anything-with-.has() for callers that build
+// their own bare ctx (tests, /eval one-offs) without the runner.js function.
+function isPoisoned(ctx, pos) {
+  if (typeof ctx?.isPoisoned === 'function') return !!ctx.isPoisoned(pos);
+  const p = ctx?.poisonedTargets;
+  if (!p) return false;
+  const key = posKey(pos);
+  if (typeof p.has === 'function') return p.has(key);
+  if (Array.isArray(p)) return p.includes(key);
+  return false;
+}
+
+// (5) SAFE DEPTH GATE — shared by mineBlocks, recoverKit, and the structured
+// mining skills: a target more than `maxBelow` blocks below the bot's own
+// feet is not safe to blind-goto toward (pathfinder will happily route
+// through an unlit shaft into whatever's down there). maxBelow defaults to 4
+// per the mineBlocks spec.
+function withinDepthGate(bot, pos, maxBelow = 4) {
+  const feetY = Math.floor(bot.entity.position.y);
+  const blockY = Math.floor(pos.y);
+  return feetY - blockY <= maxBelow;
+}
+
 // ---------------------------------------------------------------------------
 // gotoLoop — the one and only goal-object movement primitive. Cancel =
 // setGoal(null). Implementation lives in cave/movement.js (gotoLoopPf) — see
-// the file-header note above for why this stays pathfinder-only.
+// the file-header note above for why this stays pathfinder-only, and for the
+// (11) spurious-throw recovery this wrapper adds on top of it.
 // ---------------------------------------------------------------------------
 
+// Duck-types a pathfinder Goal object to extract "what position/range is it
+// actually aiming for" — used only to recheck a spurious failure, see (11).
+function goalTargetInfo(goal) {
+  if (!goal) return null;
+  if (goal.entity && goal.entity.position) {
+    // GoalFollow
+    return { pos: goal.entity.position, range: typeof goal.range === 'number' ? goal.range : 1 };
+  }
+  if (typeof goal.x === 'number' && typeof goal.y === 'number' && typeof goal.z === 'number') {
+    const range = typeof goal.range === 'number' ? goal.range : 0;
+    return { pos: new Vec3(goal.x, goal.y, goal.z), range };
+  }
+  return null;
+}
+
 export async function gotoLoop(bot, goal, opts = {}, ctx = {}) {
-  return movement.gotoLoopPf(bot, goal, opts, ctx);
+  try {
+    return await movement.gotoLoopPf(bot, goal, opts, ctx);
+  } catch (err) {
+    // (11) Spurious throw observed in the field: pathfinder's goto() promise
+    // sometimes rejects with "goal was changed before it could be
+    // completed!" even though the bot is already standing right on top of
+    // the goal (measured at 0.8 blocks out). Recheck the ACTUAL distance
+    // before trusting that message as a real failure.
+    if (/goal was changed before it could be completed/i.test(err?.message ?? '') && bot?.entity) {
+      const info = goalTargetInfo(goal);
+      if (info) {
+        const dist = bot.entity.position.distanceTo(info.pos);
+        if (dist <= info.range + 0.8) {
+          ctx.log?.(
+            'info',
+            `gotoLoop: treating spurious "goal changed" throw as success (${dist.toFixed(2)} blocks from goal, range ${info.range})`
+          );
+          return;
+        }
+      }
+    }
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// (12) safeDig / safePlaceBlock — every direct bot.dig()/bot.placeBlock()
+// call in this file goes through these. Both race a 10s timeout; on timeout
+// OR any rejection, check actual world state before believing it — a slow
+// server confirm on an already-successful action is not a failure.
+// ---------------------------------------------------------------------------
+
+function withTimeoutLocal(promise, ms) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms);
+    promise.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
+async function safeDig(bot, block, ctx) {
+  const pos = block.position;
+  const expectedName = block.name;
+  try {
+    await withTimeoutLocal(bot.dig(block), 10000);
+    return true;
+  } catch (err) {
+    const now = bot.blockAt(pos);
+    if (!now || now.name !== expectedName) {
+      ctx?.log?.(
+        'warn',
+        `safeDig: dig() errored/timed out but world state shows the block is gone at ${posKey(pos)} — treating as success (${err?.message ?? err})`
+      );
+      return true;
+    }
+    throw err;
+  }
+}
+
+async function safePlaceBlock(bot, refBlock, faceVector, ctx, expectedPos) {
+  const checkPos = expectedPos ?? refBlock.position.plus(faceVector);
+  try {
+    await withTimeoutLocal(bot.placeBlock(refBlock, faceVector), 10000);
+    return true;
+  } catch (err) {
+    const now = bot.blockAt(checkPos);
+    if (now && now.name !== 'air') {
+      ctx?.log?.(
+        'warn',
+        `safePlaceBlock: placeBlock() errored/timed out but world state shows a block now present at ${posKey(checkPos)} — treating as success (${err?.message ?? err})`
+      );
+      return true;
+    }
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// (6) LOW-HEALTH RETREAT — shared guard, called at the top of every
+// per-target/per-step iteration in the task loops below. Best-effort goto
+// camp, then always aborts the task (the throw is what makes runner.js set
+// state.failed + lastError "low health retreat" — see taskEndpoint/startTask
+// in runner.js, unmodified here).
+// ---------------------------------------------------------------------------
+
+async function checkHealthRetreat(bot, ctx) {
+  if (typeof bot.health === 'number' && bot.health < 8) {
+    ctx.log?.('warn', `low health (${bot.health}) — retreating to camp before aborting task`);
+    try {
+      await gotoLoop(bot, new goals.GoalNear(CAMP_POS.x, CAMP_POS.y, CAMP_POS.z, 3), { timeoutMs: 60000, maxAttempts: 3 }, ctx);
+    } catch (err) {
+      ctx.log?.('warn', `low-health retreat goto failed (best-effort, continuing to abort): ${err.message}`);
+    }
+    throw new Error('low health retreat');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// (10) STALL WATCHDOG — wraps a per-target step (goto+dig+collect, or
+// equivalent) with a progress timeout. If the step hasn't settled within
+// timeoutMs AND the bot hasn't moved, inventory hasn't changed, and no block
+// broke, it's a stall: the caller should skip this target. If any of those
+// three progress signals fired, this is NOT a stall — just slow — so we keep
+// waiting for the real result instead of abandoning good work.
+//
+// Returns { stalled: true } on a genuine stall (the still-running step
+// promise is deliberately abandoned/unref'd at that point — same "don't
+// re-await a promise once you've decided to move on" pattern movement.js
+// uses for ashfinder timeouts). Returns { stalled: false, result } on a
+// normal completion. Rethrows on a real error from stepFn (not a stall).
+// ---------------------------------------------------------------------------
+
+async function runTargetWithWatchdog(bot, ctx, timeoutMs, stepFn) {
+  let blockBroke = false;
+  const onBreak = () => {
+    blockBroke = true;
+  };
+  bot.on('diggingCompleted', onBreak);
+
+  const startPos = bot.entity.position.clone();
+  const startInv = snapshotInventory(bot);
+
+  let settled = false;
+  let stepResult;
+  let stepError;
+
+  const stepPromise = stepFn().then(
+    (v) => {
+      settled = true;
+      stepResult = v;
+    },
+    (err) => {
+      settled = true;
+      stepError = err;
+    }
+  );
+
+  let stalled = false;
+  const timeoutPromise = sleep(timeoutMs).then(() => {
+    if (settled) return;
+    const moved = bot.entity.position.distanceTo(startPos) > 0.5;
+    const invChanged = diffInventory(startInv, snapshotInventory(bot)).length > 0;
+    // runner.js's ctx.generation is a snapshot captured once at task-start
+    // (it never mutates on the ctx object itself) — the live check is the
+    // ctx.isStaleGeneration() function, which reads the module-level counter
+    // that DOES get bumped on every reconnect. A reconnect mid-step means the
+    // runner already superseded this task — no point calling that
+    // "progress", treat it like a stall so the caller unwinds promptly
+    // instead of grinding on a bot instance that's now a zombie.
+    const staleGeneration = !!ctx.isStaleGeneration?.();
+    if (staleGeneration || (!moved && !invChanged && !blockBroke)) {
+      stalled = true;
+    }
+  });
+
+  await Promise.race([stepPromise, timeoutPromise]);
+
+  bot.removeListener('diggingCompleted', onBreak);
+
+  if (!settled && stalled) {
+    return { stalled: true };
+  }
+  if (!settled) {
+    // Progress was observed at the 25s mark but the step is still running —
+    // this is a stall detector, not a hard deadline, so wait for real
+    // completion once we know it's making progress.
+    await stepPromise;
+  }
+  if (stepError) throw stepError;
+  return { stalled: false, result: stepResult };
+}
+
+// ---------------------------------------------------------------------------
+// (8) MINE AUTO-COLLECT FIX — wait for the drop entity to actually exist,
+// then walk straight onto the block that was just broken (loose drops
+// usually land inside it) before falling back to the normal drop-hunt sweep.
+// This is what fixed mined-block collected[] always coming back empty.
+// ---------------------------------------------------------------------------
+
+// (8b) preDigSnapshot (optional): a snapshotInventory() taken by the caller
+// BEFORE the dig that produced this drop. Vanilla auto-pickup is often
+// faster than our own 500ms-sleep-then-collect dance below — a drop landing
+// right at the bot's feet can already be in the bag before collectNear()
+// ever takes ITS OWN "before" snapshot, which made the returned collected[]
+// silently miss real pickups (confirmed live: 3 stone mined, 3 cobblestone
+// sitting in inventory, task result reported collected:[] for it). When the
+// caller supplies preDigSnapshot, the diff is computed against that earlier
+// point instead, so an already-auto-picked-up item still gets reported.
+async function stepOntoAndCollect(bot, pos, ctx, radius, preDigSnapshot) {
+  await sleep(500);
+  try {
+    await gotoLoop(bot, new goals.GoalBlock(pos.x, pos.y, pos.z), { timeoutMs: 5000, maxAttempts: 1 }, ctx);
+  } catch {
+    // ignore — the collectDrops sweep below still tries via its own pathing
+  }
+  const before = preDigSnapshot ?? snapshotInventory(bot);
+  await collectNear(bot, ctx, radius).catch(() => ({ collected: [] }));
+  const after = snapshotInventory(bot);
+  const collected = diffInventory(before, after);
+  if (collected.length === 0) {
+    ctx.log?.('warn', `stepOntoAndCollect: no drop picked up near ${posKey(pos)}`);
+  }
+  return collected;
 }
 
 async function collectNear(bot, ctx, radius) {
@@ -151,7 +475,7 @@ async function replantSapling(bot, belowPos, ctx) {
   const plantAt = bot.blockAt(belowPos.offset(0, 1, 0));
   if (!plantAt || plantAt.name !== 'air') return false;
   await bot.equip(sapling, 'hand');
-  await bot.placeBlock(soil, new Vec3(0, 1, 0));
+  await safePlaceBlock(bot, soil, new Vec3(0, 1, 0), ctx, belowPos.offset(0, 1, 0));
   ctx.log?.('info', `replanted ${sapling.name} at ${posKey(belowPos)}`);
   return true;
 }
@@ -164,15 +488,32 @@ export async function chopTrees(bot, opts = {}, ctx = {}) {
   const count = opts.count ?? 8;
   const maxDistance = opts.maxDistance ?? 48;
 
+  // (9) Axe is optional here — hand-chopping works, just slower. Best-effort
+  // only: a failed ensureTool() must never abort a chop task.
+  //
+  // opts._skipEnsureTool is an internal-only escape hatch: ensureTool's own
+  // craft chain bootstraps missing logs via ensureLogs() -> chopTrees(), and
+  // without this flag that would recurse forever (chopTrees calls
+  // ensureTool('axe') -> craftToolChain -> ensurePlanksAndSticks ->
+  // ensureLogs -> chopTrees -> ensureTool('axe') -> ...). Never set this
+  // from outside skills.js.
+  if (!opts._skipEnsureTool) {
+    await ensureTool(bot, { kind: 'axe' }, ctx).catch((err) => {
+      ctx.log?.('warn', `chopTrees: ensureTool(axe) failed, hand-chopping instead: ${err.message}`);
+    });
+  }
+
   const choppedTrees = [];
   const collectedAll = [];
   const skippedKeys = new Set();
   const maxIterations = count * 4 + 20;
   let iterations = 0;
+  let consecutiveStalls = 0;
 
   while (choppedTrees.length < count && iterations < maxIterations) {
     iterations++;
     if (ctx.isCancelled?.()) break;
+    await checkHealthRetreat(bot, ctx);
     ctx.setDetail?.(`chopping tree ${choppedTrees.length + 1}/${count}`);
 
     const base = bot.findBlock({
@@ -184,63 +525,88 @@ export async function chopTrees(bot, opts = {}, ctx = {}) {
       // block (position set). Guard b.position before keying on it, or the
       // pre-filter call throws "Cannot read properties of null (reading
       // 'x')" the instant a nearby section's palette contains a log type.
-      matching: (b) => /_log$/.test(b.name) && (!b.position || !skippedKeys.has(posKey(b.position))),
+      matching: (b) =>
+        /_log$/.test(b.name) && (!b.position || (!skippedKeys.has(posKey(b.position)) && !isPoisoned(ctx, b.position))),
     });
     if (!base) {
       ctx.log?.('warn', `chopTrees: no more *_log blocks within ${maxDistance} blocks`);
       break;
     }
     const key = posKey(base.position);
+    const basePos = base.position.clone();
 
+    let watchdog;
     try {
-      await gotoLoop(
-        bot,
-        new goals.GoalGetToBlock(base.position.x, base.position.y, base.position.z),
-        { timeoutMs: 20000, maxAttempts: 3 },
-        ctx
-      );
+      watchdog = await runTargetWithWatchdog(bot, ctx, 25000, async () => {
+        ctx.setTargetPos?.(basePos);
+        await gotoLoop(
+          bot,
+          new goals.GoalGetToBlock(basePos.x, basePos.y, basePos.z),
+          { timeoutMs: 20000, maxAttempts: 3 },
+          ctx
+        );
+
+        const belowPos = basePos.offset(0, -1, 0);
+        let current = bot.blockAt(basePos);
+        let logsFelled = 0;
+        const preDigSnapshot = snapshotInventory(bot);
+
+        while (current && /_log$/.test(current.name)) {
+          // Equip the best axe BEFORE EACH log — equip does not persist between digs.
+          try {
+            await bot.tool.equipForBlock(current, { requireHarvest: false });
+          } catch (err) {
+            ctx.log?.('warn', `chopTrees: equip axe failed at ${posKey(current.position)}: ${err.message}`);
+          }
+          try {
+            await safeDig(bot, current, ctx);
+            logsFelled++;
+          } catch (err) {
+            ctx.log?.('warn', `chopTrees: dig failed at ${posKey(current.position)}: ${err.message}`);
+            break;
+          }
+          current = bot.blockAt(current.position.offset(0, 1, 0));
+        }
+
+        if (logsFelled === 0) return { logsFelled: 0, collected: [] };
+
+        // Collect drops IMMEDIATELY — rival bots snipe drops within seconds.
+        const collected = await stepOntoAndCollect(bot, basePos, ctx, 6, preDigSnapshot);
+
+        await replantSapling(bot, belowPos, ctx).catch((err) => {
+          ctx.log?.('warn', `chopTrees: replant failed: ${err.message}`);
+        });
+
+        return { logsFelled, collected };
+      });
     } catch (err) {
       skippedKeys.add(key);
-      ctx.log?.('warn', `chopTrees: could not reach tree at ${key}: ${err.message}`);
+      ctx.log?.('warn', `chopTrees: could not reach/fell tree at ${key}: ${err.message}`);
       continue;
     }
 
-    const belowPos = base.position.offset(0, -1, 0);
-    let current = bot.blockAt(base.position);
-    let logsFelled = 0;
-
-    while (current && /_log$/.test(current.name)) {
-      // Equip the best axe BEFORE EACH log — equip does not persist between digs.
-      try {
-        await bot.tool.equipForBlock(current, { requireHarvest: false });
-      } catch (err) {
-        ctx.log?.('warn', `chopTrees: equip axe failed at ${posKey(current.position)}: ${err.message}`);
-      }
-      try {
-        await bot.dig(current);
-        logsFelled++;
-      } catch (err) {
-        ctx.log?.('warn', `chopTrees: dig failed at ${posKey(current.position)}: ${err.message}`);
-        break;
-      }
-      current = bot.blockAt(current.position.offset(0, 1, 0));
+    if (watchdog.stalled) {
+      skippedKeys.add(key);
+      consecutiveStalls++;
+      ctx.log?.('warn', `chopTrees: target at ${key} stalled (${consecutiveStalls}/3)`);
+      if (consecutiveStalls >= 3) throw new Error('stalled');
+      continue;
     }
+    consecutiveStalls = 0;
 
-    if (logsFelled === 0) {
+    if (!watchdog.result || watchdog.result.logsFelled === 0) {
       skippedKeys.add(key);
       continue;
     }
 
-    choppedTrees.push({ ...toPlainPos(base.position), logs: logsFelled });
-
-    // Collect drops IMMEDIATELY — rival bots snipe drops within seconds.
-    const { collected } = await collectNear(bot, ctx, 6).catch(() => ({ collected: [] }));
-    collectedAll.push(...collected);
-
-    await replantSapling(bot, belowPos, ctx).catch((err) => {
-      ctx.log?.('warn', `chopTrees: replant failed: ${err.message}`);
-    });
+    choppedTrees.push({ ...toPlainPos(basePos), logs: watchdog.result.logsFelled });
+    collectedAll.push(...(watchdog.result.collected || []));
   }
+
+  // (8) End-of-task late-drop sweep — leaf decay and slow-to-land drops.
+  await sleep(2500);
+  const { collected: late } = await collectDrops(bot, { radius: 24 }, ctx).catch(() => ({ collected: [] }));
+  collectedAll.push(...late);
 
   return { chopped: choppedTrees.length, trees: choppedTrees, collected: mergeCounts(collectedAll) };
 }
@@ -255,16 +621,26 @@ export async function mineBlocks(bot, opts = {}, ctx = {}) {
   const maxDistance = opts.maxDistance ?? 48;
   if (!block) throw new Error('mineBlocks: "block" is required');
 
+  // (9) Pickaxe is REQUIRED for stone/ores — fail the whole task with a
+  // clear lastError if the ensureTool chain can't produce one.
+  try {
+    await ensureTool(bot, { kind: 'pickaxe' }, ctx);
+  } catch (err) {
+    throw new Error(`mineBlocks: pickaxe required but ensureTool failed: ${err.message}`);
+  }
+
   const mined = [];
   const skipped = [];
   const skippedKeys = new Set();
   const collectedAll = [];
   const maxIterations = count * 4 + 20;
   let iterations = 0;
+  let consecutiveStalls = 0;
 
   while (mined.length < count && iterations < maxIterations) {
     iterations++;
     if (ctx.isCancelled?.()) break;
+    await checkHealthRetreat(bot, ctx);
     ctx.setDetail?.(`mining ${block} ${mined.length}/${count}`);
 
     const target = bot.findBlock({
@@ -272,61 +648,100 @@ export async function mineBlocks(bot, opts = {}, ctx = {}) {
       maxDistance,
       // Same palette-pre-filter gotcha as chopTrees above — b.position can
       // be null on the first (synthetic) call; guard it before posKey().
-      matching: (b) => b.name === block && (!b.position || !skippedKeys.has(posKey(b.position))),
+      matching: (b) =>
+        b.name === block && (!b.position || (!skippedKeys.has(posKey(b.position)) && !isPoisoned(ctx, b.position))),
     });
     if (!target) {
       ctx.log?.('warn', `mineBlocks: no reachable ${block} left within ${maxDistance} blocks`);
       break;
     }
     const key = posKey(target.position);
+    const targetPos = target.position.clone();
 
-    let reached = false;
-    for (let attempt = 1; attempt <= 2 && !reached; attempt++) {
-      try {
-        await gotoLoop(
-          bot,
-          new goals.GoalGetToBlock(target.position.x, target.position.y, target.position.z),
-          { timeoutMs: 20000, maxAttempts: 2 },
-          ctx
-        );
-        reached = true;
-      } catch (err) {
-        ctx.log?.('warn', `mineBlocks: unreachable attempt ${attempt}/2 for ${block} at ${key}: ${err.message}`);
-      }
-    }
-    // Skip block if unreachable twice — record it and move on.
-    if (!reached) {
-      skippedKeys.add(key);
-      skipped.push({ pos: toPlainPos(target.position), reason: 'unreachable' });
-      continue;
-    }
-
-    // Re-equip the best pickaxe per block — equip does not persist between digs.
+    let watchdog;
     try {
-      await bot.tool.equipForBlock(target, { requireHarvest: false });
-    } catch (err) {
-      ctx.log?.('warn', `mineBlocks: equip failed for ${block} at ${key}: ${err.message}`);
-    }
+      watchdog = await runTargetWithWatchdog(bot, ctx, 25000, async () => {
+        ctx.setTargetPos?.(targetPos);
+        // (5) SAFE DEPTH GATE — a target more than 4 blocks below the bot's
+        // own feet does not get a direct goto; stairstep down toward its Y
+        // first via safeDescend, or give up on this target cleanly.
+        const depthBelow = Math.floor(bot.entity.position.y) - Math.floor(targetPos.y);
+        if (depthBelow > 4) {
+          try {
+            await safeDescend(bot, { targetY: targetPos.y }, ctx);
+          } catch (err) {
+            throw new Error(`too deep, needs staircase (safeDescend failed: ${err.message})`);
+          }
+          if (Math.floor(bot.entity.position.y) - Math.floor(targetPos.y) > 4) {
+            throw new Error('too deep, needs staircase');
+          }
+        }
 
-    const freshBlock = bot.blockAt(target.position);
-    if (!freshBlock || freshBlock.name !== block) {
-      // Someone/something already took it — try again, no penalty.
-      continue;
-    }
+        let reached = false;
+        let lastReachErr = null;
+        for (let attempt = 1; attempt <= 2 && !reached; attempt++) {
+          try {
+            await gotoLoop(
+              bot,
+              new goals.GoalGetToBlock(targetPos.x, targetPos.y, targetPos.z),
+              { timeoutMs: 20000, maxAttempts: 2 },
+              ctx
+            );
+            reached = true;
+          } catch (err) {
+            lastReachErr = err;
+            ctx.log?.('warn', `mineBlocks: unreachable attempt ${attempt}/2 for ${block} at ${key}: ${err.message}`);
+          }
+        }
+        if (!reached) throw new Error(`unreachable: ${lastReachErr?.message ?? 'unknown'}`);
 
-    try {
-      await bot.dig(freshBlock);
+        // Re-equip the best pickaxe per block — equip does not persist between digs.
+        const preDigBlock = bot.blockAt(targetPos) ?? target;
+        try {
+          await bot.tool.equipForBlock(preDigBlock, { requireHarvest: false });
+        } catch (err) {
+          ctx.log?.('warn', `mineBlocks: equip failed for ${block} at ${key}: ${err.message}`);
+        }
+
+        const freshBlock = bot.blockAt(targetPos);
+        if (!freshBlock || freshBlock.name !== block) {
+          // Someone/something already took it — try again, no penalty.
+          return { taken: true };
+        }
+
+        const preDigSnapshot = snapshotInventory(bot);
+        await safeDig(bot, freshBlock, ctx);
+        const collected = await stepOntoAndCollect(bot, targetPos, ctx, 4, preDigSnapshot);
+        return { minedPos: toPlainPos(targetPos), collected };
+      });
     } catch (err) {
       skippedKeys.add(key);
-      skipped.push({ pos: toPlainPos(target.position), reason: `dig failed: ${err.message}` });
+      skipped.push({ pos: toPlainPos(targetPos), reason: err.message });
       continue;
     }
 
-    mined.push(toPlainPos(target.position));
-    // Step onto / collect the drop immediately.
-    const { collected } = await collectNear(bot, ctx, 4).catch(() => ({ collected: [] }));
-    collectedAll.push(...collected);
+    if (watchdog.stalled) {
+      skippedKeys.add(key);
+      skipped.push({ pos: toPlainPos(targetPos), reason: 'stalled' });
+      consecutiveStalls++;
+      ctx.log?.('warn', `mineBlocks: target at ${key} stalled (${consecutiveStalls}/3)`);
+      if (consecutiveStalls >= 3) throw new Error('stalled');
+      continue;
+    }
+    consecutiveStalls = 0;
+
+    if (watchdog.result?.taken) {
+      continue;
+    }
+
+    mined.push(watchdog.result.minedPos);
+    collectedAll.push(...(watchdog.result.collected || []));
   }
+
+  // (8) End-of-task late-drop sweep — leaf/ore decay drops can lag.
+  await sleep(2500);
+  const { collected: late } = await collectDrops(bot, { radius: 24 }, ctx).catch(() => ({ collected: [] }));
+  collectedAll.push(...late);
 
   return { mined: mined.length, positions: mined, skipped, collected: mergeCounts(collectedAll) };
 }
@@ -414,6 +829,7 @@ export async function huntAnimals(bot, opts = {}, ctx = {}) {
 
   for (let i = 0; i < count; i++) {
     if (ctx.isCancelled?.()) break;
+    await checkHealthRetreat(bot, ctx);
     ctx.setDetail?.(`hunting ${wanted} ${i + 1}/${count}`);
 
     const target = bot.nearestEntity((e) => {
@@ -595,7 +1011,7 @@ async function sealBlock(bot, pos, ctx) {
   const below = bot.blockAt(pos.offset(0, -1, 0));
   if (!below || below.name === 'air') return false;
   await bot.equip(material, 'hand');
-  await bot.placeBlock(below, new Vec3(0, 1, 0));
+  await safePlaceBlock(bot, below, new Vec3(0, 1, 0), ctx, pos);
   return true;
 }
 
@@ -605,7 +1021,7 @@ export async function safeDescend(bot, opts = {}, ctx = {}) {
 
   const startY = bot.entity.position.y;
   if (targetY >= startY) {
-    return { descended: 0, finalY: startY, reason: 'already at or above targetY' };
+    return { descended: 0, finalY: Math.floor(startY), reason: 'already at or above targetY' };
   }
 
   const dirs = [
@@ -639,6 +1055,7 @@ export async function safeDescend(bot, opts = {}, ctx = {}) {
     const frontAbove = frontPos.offset(0, 1, 0);
     const belowFront = frontPos.offset(0, -1, 0);
     const belowFrontBlock = bot.blockAt(belowFront);
+    ctx.setTargetPos?.(belowFront);
 
     if (belowFrontBlock && (belowFrontBlock.name === 'lava' || belowFrontBlock.name === 'water')) {
       // Never dig straight down into a fluid — seal it instead and try another heading.
@@ -655,7 +1072,7 @@ export async function safeDescend(bot, opts = {}, ctx = {}) {
           // ignore — not every block needs a tool
         }
         try {
-          await bot.dig(b);
+          await safeDig(bot, b, ctx);
         } catch (err) {
           ctx.log?.('warn', `safeDescend: dig failed at ${posKey(digPos)}: ${err.message}`);
         }
@@ -669,7 +1086,7 @@ export async function safeDescend(bot, opts = {}, ctx = {}) {
         // ignore
       }
       try {
-        await bot.dig(belowFrontBlock);
+        await safeDig(bot, belowFrontBlock, ctx);
       } catch (err) {
         ctx.log?.('warn', `safeDescend: dig-below failed at ${posKey(belowFront)}: ${err.message}`);
       }
@@ -682,5 +1099,744 @@ export async function safeDescend(bot, opts = {}, ctx = {}) {
     }
   }
 
-  return { descended: startY - bot.entity.position.y, finalY: bot.entity.position.y };
+  return { descended: startY - bot.entity.position.y, finalY: Math.floor(bot.entity.position.y) };
+}
+
+// ---------------------------------------------------------------------------
+// (9) ensureTool(kind) — resolution order:
+//   (a) inventory already has an adequate tool → equip it
+//   (b) depot chest at (11,89,55) reachable + has one → withdraw + chat ledger
+//   (c) craft chain: logs → planks/sticks → crafting table → wooden_pickaxe
+//       → 3 (shallow, depth-gated) cobblestone → stone_pickaxe/stone_axe
+// Wired into chopTrees (axe, best-effort) and mineBlocks (pickaxe, required).
+// ---------------------------------------------------------------------------
+
+// bot.recipesFor()/bot.craft() duplicate the pattern runner.js's own
+// craftItem() uses (skills.js can't import from runner.js — that would be a
+// circular import, runner.js is the one that imports skills.js). Kept
+// deliberately simple: hand-craftable items only (planks, sticks, the table
+// itself) — anything needing a 3x3 grid goes through craftWithTable() below.
+async function craftLocal(bot, itemName, amount, ctx) {
+  const itemDef = ctx.mcData?.itemsByName?.[itemName];
+  if (!itemDef) throw new Error(`craftLocal: unknown item "${itemName}" (mcData missing or item not found)`);
+  const recipes = bot.recipesFor(itemDef.id, null, 1, null);
+  if (recipes.length === 0) throw new Error(`craftLocal: no hand recipe for "${itemName}" (missing ingredients?)`);
+  await bot.craft(recipes[0], amount, undefined);
+  return { item: itemName, amount };
+}
+
+async function ensureCraftingTableNearby(bot, ctx) {
+  const existing = bot.findBlock({
+    matching: (b) => b.name === 'crafting_table',
+    maxDistance: 40,
+    point: bot.entity.position,
+  });
+  if (existing) return existing;
+
+  // Craft + place our own — spec: "use camp table (12,89,56) if within 40,
+  // else craft+place own". findBlock above already covers "any table within
+  // 40" (the camp table included, if it's actually there); this is the
+  // fallback when nothing was found.
+  const planksItem = bot.inventory.items().find((it) => it.name.endsWith('_planks'));
+  if (!planksItem || planksItem.count < 4) {
+    throw new Error('ensureTool: not enough planks to craft a crafting_table (need 4)');
+  }
+  await craftLocal(bot, 'crafting_table', 1, ctx);
+  const tableItem = bot.inventory.items().find((it) => it.name === 'crafting_table');
+  if (!tableItem) throw new Error('ensureTool: crafting_table craft reported success but item not in inventory');
+
+  const belowPos = bot.entity.position.floored().offset(0, -1, 0);
+  const ground = bot.blockAt(belowPos);
+  if (!ground || ground.name === 'air') {
+    throw new Error('ensureTool: no solid ground under feet to place a crafting_table on');
+  }
+  await bot.equip(tableItem, 'hand');
+  await safePlaceBlock(bot, ground, new Vec3(0, 1, 0), ctx, belowPos.offset(0, 1, 0));
+  const placed = bot.findBlock({ matching: (b) => b.name === 'crafting_table', maxDistance: 4, point: bot.entity.position });
+  if (!placed) throw new Error('ensureTool: placed crafting_table not found afterward');
+  ctx.log?.('info', `ensureTool: crafted + placed own crafting_table at ${posKey(placed.position)}`);
+  return placed;
+}
+
+async function craftWithTable(bot, itemName, amount, ctx) {
+  const table = await ensureCraftingTableNearby(bot, ctx);
+  await gotoLoop(
+    bot,
+    new goals.GoalGetToBlock(table.position.x, table.position.y, table.position.z),
+    { timeoutMs: 30000, maxAttempts: 3 },
+    ctx
+  );
+  const itemDef = ctx.mcData?.itemsByName?.[itemName];
+  if (!itemDef) throw new Error(`craftWithTable: unknown item "${itemName}" (mcData missing or item not found)`);
+  const tableBlock = bot.blockAt(table.position);
+  const recipes = bot.recipesFor(itemDef.id, null, 1, tableBlock);
+  if (recipes.length === 0) throw new Error(`craftWithTable: no recipe for "${itemName}" at crafting table (missing ingredients?)`);
+  await bot.craft(recipes[0], amount, tableBlock);
+  return { item: itemName, amount };
+}
+
+async function ensureLogs(bot, ctx, minLogs) {
+  const haveLogs = () => bot.inventory.items().filter((it) => /_log$/.test(it.name)).reduce((s, it) => s + it.count, 0);
+  if (haveLogs() >= minLogs) return true;
+  ctx.log?.('info', `ensureTool: gathering logs (have ${haveLogs()}, need ${minLogs})`);
+  try {
+    // _skipEnsureTool: see the matching comment in chopTrees() — without it
+    // this call recurses into ensureTool('axe') -> craftToolChain ->
+    // ensurePlanksAndSticks -> ensureLogs -> chopTrees -> ... forever.
+    await chopTrees(bot, { count: minLogs - haveLogs() + 1, _skipEnsureTool: true }, ctx);
+  } catch (err) {
+    ctx.log?.('warn', `ensureTool: chopTrees for logs failed: ${err.message}`);
+  }
+  return haveLogs() >= minLogs;
+}
+
+async function ensurePlanksAndSticks(bot, ctx) {
+  // Need >=3 planks for a pickaxe/axe head plus >=2 planks worth of sticks —
+  // keep this simple and just make sure we have a healthy buffer (>=5
+  // planks, >=2 sticks) before attempting the tool recipe itself.
+  let planks = bot.inventory.items().find((it) => it.name.endsWith('_planks'));
+  if (!planks || planks.count < 5) {
+    let log = bot.inventory.items().find((it) => /_log$/.test(it.name));
+    if (!log) {
+      if (!(await ensureLogs(bot, ctx, 2))) throw new Error('ensureTool: could not gather any logs for planks');
+      log = bot.inventory.items().find((it) => /_log$/.test(it.name));
+    }
+    if (!log) throw new Error('ensureTool: no logs available to craft planks');
+    const plankName = log.name.replace(/_log$/, '_planks');
+    const logCount = itemCount(bot, log.name);
+    await craftLocal(bot, plankName, Math.min(logCount, 4), ctx);
+    planks = bot.inventory.items().find((it) => it.name.endsWith('_planks'));
+  }
+  if (!planks || planks.count < 5) throw new Error('ensureTool: not enough planks after crafting');
+
+  if (itemCount(bot, 'stick') < 2) {
+    await craftLocal(bot, 'stick', 1, ctx);
+  }
+  if (itemCount(bot, 'stick') < 2) throw new Error('ensureTool: not enough sticks after crafting');
+  return true;
+}
+
+// Bootstrap-safe shallow cobblestone mining: called with only a fresh
+// wooden_pickaxe, so this stays deliberately simple and hand-rolled rather
+// than recursing into mineBlocks() (which itself calls ensureTool() for its
+// own pickaxe requirement — recursing would loop). Surface stone only, same
+// depth gate as mineBlocks.
+async function mineShallowCobble(bot, count, ctx) {
+  const collectedAll = [];
+  let mined = 0;
+  let attempts = 0;
+  while (mined < count && attempts < count * 4 + 10) {
+    attempts++;
+    if (ctx.isCancelled?.()) break;
+    const target = bot.findBlock({
+      point: bot.entity.position,
+      maxDistance: 24,
+      matching: (b) => b.name === 'stone' && (!b.position || (withinDepthGate(bot, b.position) && !isPoisoned(ctx, b.position))),
+    });
+    if (!target) break;
+    const pos = target.position.clone();
+    try {
+      await gotoLoop(bot, new goals.GoalGetToBlock(pos.x, pos.y, pos.z), { timeoutMs: 15000, maxAttempts: 2 }, ctx);
+    } catch (err) {
+      ctx.log?.('warn', `mineShallowCobble: unreachable stone at ${posKey(pos)}: ${err.message}`);
+      continue;
+    }
+    try {
+      await bot.tool.equipForBlock(target, { requireHarvest: false });
+    } catch {
+      // ignore
+    }
+    const fresh = bot.blockAt(pos);
+    if (!fresh || fresh.name !== 'stone') continue;
+    const preDigSnapshot = snapshotInventory(bot);
+    try {
+      await safeDig(bot, fresh, ctx);
+    } catch (err) {
+      ctx.log?.('warn', `mineShallowCobble: dig failed at ${posKey(pos)}: ${err.message}`);
+      continue;
+    }
+    mined++;
+    const collected = await stepOntoAndCollect(bot, pos, ctx, 4, preDigSnapshot);
+    collectedAll.push(...collected);
+  }
+  return { mined, collected: mergeCounts(collectedAll) };
+}
+
+async function craftToolChain(bot, kind, ctx) {
+  ctx.setDetail?.(`ensureTool: craft chain for ${kind}`);
+  await ensurePlanksAndSticks(bot, ctx);
+
+  // Wooden tier first — always a pickaxe, even when the caller wants an
+  // axe, because a pickaxe is what lets us mine the cobblestone the stone
+  // tier needs (an axe can't mine stone). Skip if any pickaxe is already
+  // owned.
+  const hasAnyPickaxe = bot.inventory.items().some((it) => /_pickaxe$/.test(it.name));
+  if (!hasAnyPickaxe) {
+    await ensurePlanksAndSticks(bot, ctx);
+    await craftWithTable(bot, 'wooden_pickaxe', 1, ctx);
+    ctx.log?.('info', 'ensureTool: crafted wooden_pickaxe (bootstrap)');
+  }
+
+  if (kind === 'axe') {
+    const hasAxe = bot.inventory.items().some((it) => /_axe$/.test(it.name));
+    if (!hasAxe) {
+      await ensurePlanksAndSticks(bot, ctx);
+      await craftWithTable(bot, 'wooden_axe', 1, ctx);
+      ctx.log?.('info', 'ensureTool: crafted wooden_axe');
+    }
+  }
+
+  // Upgrade path: mine 3 shallow cobblestone with whatever pickaxe we now
+  // have, then craft the stone-tier tool the caller actually asked for. If
+  // cobblestone can't be gathered, wooden tier is an acceptable outcome —
+  // the caller already has SOME tool of the right family by this point.
+  const haveCobble = itemCount(bot, 'cobblestone');
+  if (haveCobble < 3) {
+    const { mined } = await mineShallowCobble(bot, 3 - haveCobble, ctx);
+    ctx.log?.('info', `ensureTool: mined ${mined} cobblestone toward stone tier`);
+  }
+  if (itemCount(bot, 'cobblestone') >= 3) {
+    await ensurePlanksAndSticks(bot, ctx);
+    const stoneName = kind === 'axe' ? 'stone_axe' : 'stone_pickaxe';
+    const hasStone = bot.inventory.items().some((it) => it.name === stoneName);
+    if (!hasStone) {
+      await craftWithTable(bot, stoneName, 1, ctx);
+      ctx.log?.('info', `ensureTool: crafted ${stoneName}`);
+    }
+  } else {
+    ctx.log?.('warn', 'ensureTool: could not gather 3 cobblestone, staying at wooden tier');
+  }
+}
+
+export async function ensureTool(bot, opts = {}, ctx = {}) {
+  const kind = opts.kind;
+  if (kind !== 'pickaxe' && kind !== 'axe') throw new Error('ensureTool: "kind" must be "pickaxe" or "axe"');
+  const suffix = `_${kind}`;
+
+  // (a) already-adequate tool in inventory.
+  const owned = bot.inventory.items().find((it) => it.name.endsWith(suffix));
+  if (owned) {
+    await bot.equip(owned, 'hand');
+    return { source: 'inventory', tool: owned.name };
+  }
+
+  // (b) depot chest.
+  try {
+    const chestBlock = await gotoChestBlock(bot, DEPOT_POS, ctx);
+    ctx.setDetail?.('ensureTool: checking depot chest');
+    const win = await bot.openChest(chestBlock);
+    let match = null;
+    try {
+      const contents = win.containerItems();
+      match = contents.find((it) => it.name.endsWith(suffix)) || null;
+      if (match) {
+        await win.withdraw(match.type, match.metadata ?? null, 1);
+      }
+    } finally {
+      try {
+        win.close();
+      } catch {
+        // ignore
+      }
+    }
+    if (match) {
+      bot.chat(`DEPOT -1 ${match.name} (chest A)`);
+      const got = bot.inventory.items().find((it) => it.name === match.name);
+      if (got) await bot.equip(got, 'hand');
+      return { source: 'depot', tool: match.name };
+    }
+  } catch (err) {
+    ctx.log?.('warn', `ensureTool: depot chest unavailable/empty (${err.message}), falling back to craft chain`);
+  }
+
+  // (c) craft chain.
+  await craftToolChain(bot, kind, ctx);
+  const crafted = bot.inventory.items().find((it) => it.name.endsWith(suffix));
+  if (!crafted) throw new Error(`ensureTool: craft chain finished but no ${kind} in inventory`);
+  await bot.equip(crafted, 'hand');
+  return { source: 'craft', tool: crafted.name };
+}
+
+// ---------------------------------------------------------------------------
+// (7) recoverKit — safe-goto to a death position (depth gate respected),
+// collectDrops radius 8, time-boxed 90s total. No /recover endpoint exists
+// in runner.js yet (out of this file's scope — see the report this worker
+// filed); exported here so the orchestrator can wire an endpoint later.
+// ---------------------------------------------------------------------------
+
+function withDeadline(promise, ms) {
+  if (ms <= 0) return Promise.reject(new Error('deadline exceeded'));
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`operation exceeded time budget (${ms}ms)`)), ms);
+    promise.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
+export async function recoverKit(bot, opts = {}, ctx = {}) {
+  const deathPos = opts.deathPos;
+  if (!deathPos || typeof deathPos.x !== 'number' || typeof deathPos.y !== 'number' || typeof deathPos.z !== 'number') {
+    throw new Error('recoverKit: "deathPos" {x,y,z} is required');
+  }
+  const timeBudgetMs = opts.timeBudgetMs ?? 90000;
+  const deadline = Date.now() + timeBudgetMs;
+
+  const result = {
+    deathPos: toPlainPos(deathPos),
+    reachedDeathPos: false,
+    staircased: false,
+    collected: [],
+    timedOut: false,
+  };
+
+  ctx.setDetail?.(`recoverKit: heading to death pos ${posKey(deathPos)}`);
+  ctx.setTargetPos?.(deathPos);
+
+  // (5) SAFE DEPTH GATE, same rule as mineBlocks.
+  const feetY = Math.floor(bot.entity.position.y);
+  const targetY = Math.floor(deathPos.y);
+  if (feetY - targetY > 4) {
+    try {
+      await safeDescend(bot, { targetY }, ctx);
+      result.staircased = true;
+    } catch (err) {
+      ctx.log?.('warn', `recoverKit: safeDescend failed: ${err.message}`);
+    }
+  }
+
+  if (Date.now() >= deadline) {
+    result.timedOut = true;
+    return result;
+  }
+
+  try {
+    const remaining = deadline - Date.now();
+    await withDeadline(
+      gotoLoop(bot, new goals.GoalNear(deathPos.x, deathPos.y, deathPos.z, 2), { timeoutMs: Math.min(remaining, 30000), maxAttempts: 3 }, ctx),
+      remaining
+    );
+    result.reachedDeathPos = true;
+  } catch (err) {
+    ctx.log?.('warn', `recoverKit: could not reach death pos: ${err.message}`);
+  }
+
+  if (Date.now() < deadline) {
+    const remaining = deadline - Date.now();
+    try {
+      const { collected } = await withDeadline(collectDrops(bot, { radius: 8 }, ctx), remaining);
+      result.collected = collected;
+    } catch (err) {
+      ctx.log?.('warn', `recoverKit: collectDrops interrupted: ${err.message}`);
+      result.timedOut = true;
+    }
+  } else {
+    result.timedOut = true;
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// (14) STRUCTURED MINING — buildStaircase, branchMine.
+// ---------------------------------------------------------------------------
+
+function resolveDirection(opts) {
+  const dir = (opts.direction || 'south').toLowerCase();
+  if (!CARDINALS[dir]) throw new Error(`unknown direction "${opts.direction}" (expected north|south|east|west)`);
+  return { name: dir, ...CARDINALS[dir] };
+}
+
+// Places (or crafts-then-places) a torch on the floor or nearest solid wall
+// under the bot's feet. Crafts from coal/charcoal + a stick (1 stick + 1
+// coal -> 4 torches) if none are already carried. Returns false, never
+// throws, when torches just aren't available — torching is a nice-to-have,
+// not a hard requirement of either structured-mining skill.
+async function ensureTorches(bot, ctx) {
+  if (bot.inventory.items().some((it) => it.name === 'torch')) return true;
+  const coal = bot.inventory.items().find((it) => it.name === 'coal' || it.name === 'charcoal');
+  const stick = bot.inventory.items().find((it) => it.name === 'stick');
+  if (!coal || !stick) return false;
+  try {
+    await craftLocal(bot, 'torch', 1, ctx);
+    return bot.inventory.items().some((it) => it.name === 'torch');
+  } catch (err) {
+    ctx.log?.('warn', `ensureTorches: craft failed: ${err.message}`);
+    return false;
+  }
+}
+
+async function placeTorchHere(bot, ctx) {
+  const ok = await ensureTorches(bot, ctx);
+  if (!ok) return false;
+  const torch = bot.inventory.items().find((it) => it.name === 'torch');
+  if (!torch) return false;
+  const pos = bot.entity.position.floored();
+  const candidates = [
+    { ref: pos.offset(0, -1, 0), face: new Vec3(0, 1, 0) },
+    { ref: pos.offset(1, 0, 0), face: new Vec3(-1, 0, 0) },
+    { ref: pos.offset(-1, 0, 0), face: new Vec3(1, 0, 0) },
+    { ref: pos.offset(0, 0, 1), face: new Vec3(0, 0, -1) },
+    { ref: pos.offset(0, 0, -1), face: new Vec3(0, 0, 1) },
+  ];
+  for (const c of candidates) {
+    const refBlock = bot.blockAt(c.ref);
+    if (!refBlock || refBlock.name === 'air') continue;
+    try {
+      await bot.equip(torch, 'hand');
+      await safePlaceBlock(bot, refBlock, c.face, ctx, c.ref.plus(c.face));
+      return true;
+    } catch {
+      // try the next candidate face
+    }
+  }
+  return false;
+}
+
+// Seals one cell (air/water/lava) by placing a seal-material block against
+// whichever solid neighbor is available — used by buildStaircase's
+// side+below exposure checks.
+async function sealStairCell(bot, cellPos, ctx) {
+  const b = bot.blockAt(cellPos);
+  if (!b || !(b.name === 'air' || b.name === 'water' || b.name === 'lava')) return false;
+  const material = bot.inventory.items().find((it) => SEAL_MATERIALS.test(it.name));
+  if (!material) {
+    ctx.log?.('warn', `sealStairCell: no seal material on hand for ${posKey(cellPos)}`);
+    return false;
+  }
+  const neighborOffsets = [
+    [0, -1, 0],
+    [0, 1, 0],
+    [1, 0, 0],
+    [-1, 0, 0],
+    [0, 0, 1],
+    [0, 0, -1],
+  ];
+  for (const [dx, dy, dz] of neighborOffsets) {
+    const refPos = cellPos.offset(dx, dy, dz);
+    const ref = bot.blockAt(refPos);
+    if (ref && ref.name !== 'air' && ref.name !== 'water' && ref.name !== 'lava') {
+      const faceVec = cellPos.minus(refPos);
+      try {
+        await bot.equip(material, 'hand');
+        await safePlaceBlock(bot, ref, faceVec, ctx, cellPos);
+        return true;
+      } catch (err) {
+        ctx.log?.('warn', `sealStairCell: place attempt against ${posKey(refPos)} failed: ${err.message}`);
+      }
+    }
+  }
+  ctx.log?.('warn', `sealStairCell: no solid neighbor found to seal ${posKey(cellPos)} against`);
+  return false;
+}
+
+// buildStaircase({toY, direction?}) — sealed 1x2 staircase from current pos
+// down to toY. Never digs straight down: each step digs the 2-high walkway
+// forward (frontHead = front at current feet-y, frontFeet = front at
+// feet-y-1) and only ever CHECKS the block below that (newFloor) for a
+// liquid/air exposure to seal — it is never dug. Aborts + seals on lava
+// sight. Torches every 8 steps if torches are available/craftable.
+export async function buildStaircase(bot, opts = {}, ctx = {}) {
+  const toY = opts.toY;
+  if (typeof toY !== 'number') throw new Error('buildStaircase: "toY" is required');
+  const dir = resolveDirection(opts);
+  const from = toPlainPos(bot.entity.position);
+  const startY = bot.entity.position.y;
+  if (toY >= startY) {
+    return { from, to: from, steps: 0, torches: 0, reason: 'already at or above toY' };
+  }
+
+  const maxSteps = Math.ceil(startY - toY) * 2 + 30;
+  let steps = 0;
+  let torchesPlaced = 0;
+
+  while (bot.entity.position.y > toY && steps < maxSteps) {
+    if (ctx.isCancelled?.()) break;
+    await checkHealthRetreat(bot, ctx);
+    steps++;
+    ctx.setDetail?.(`buildStaircase: step ${steps}, y=${Math.floor(bot.entity.position.y)} -> ${toY}`);
+
+    const pos = bot.entity.position.floored();
+    const frontHead = pos.offset(dir.x, 0, dir.z);
+    const frontFeet = pos.offset(dir.x, -1, dir.z);
+    const newFloor = pos.offset(dir.x, -2, dir.z);
+    ctx.setTargetPos?.(frontFeet);
+
+    const watchCells = [frontHead, frontFeet, newFloor, frontHead.offset(0, 1, 0)];
+    const lavaNearby = watchCells.some((p) => bot.blockAt(p)?.name === 'lava');
+    if (lavaNearby) {
+      await sealStairCell(bot, newFloor, ctx).catch(() => {});
+      ctx.log?.('warn', `buildStaircase: lava spotted near ${posKey(frontFeet)} — aborting for safety`);
+      break;
+    }
+
+    for (const digPos of [frontHead, frontFeet]) {
+      const b = bot.blockAt(digPos);
+      if (b && b.diggable && b.name !== 'air') {
+        try {
+          await bot.tool.equipForBlock(b, { requireHarvest: false });
+        } catch {
+          // ignore
+        }
+        await safeDig(bot, b, ctx).catch((err) => {
+          ctx.log?.('warn', `buildStaircase: dig failed at ${posKey(digPos)}: ${err.message}`);
+        });
+      }
+    }
+
+    // Seal any liquid/air exposure — below (newFloor) and the 4 side cells
+    // at foot height (skip the cell that IS the path forward).
+    await sealStairCell(bot, newFloor, ctx);
+    const sideOffsets = [
+      [1, 0, 0],
+      [-1, 0, 0],
+      [0, 0, 1],
+      [0, 0, -1],
+    ];
+    for (const [dx, dy, dz] of sideOffsets) {
+      const side = frontFeet.offset(dx, dy, dz);
+      if (side.x === frontHead.x && side.z === frontHead.z) continue;
+      await sealStairCell(bot, side, ctx);
+    }
+
+    try {
+      await gotoLoop(bot, new goals.GoalNear(frontFeet.x, frontFeet.y, frontFeet.z, 0), { timeoutMs: 8000, maxAttempts: 2 }, ctx);
+    } catch (err) {
+      ctx.log?.('warn', `buildStaircase: step-forward to ${posKey(frontFeet)} failed: ${err.message}`);
+    }
+
+    if (steps % 8 === 0) {
+      const placed = await placeTorchHere(bot, ctx).catch((err) => {
+        ctx.log?.('warn', `buildStaircase: torch placement failed: ${err.message}`);
+        return false;
+      });
+      if (placed) torchesPlaced++;
+    }
+  }
+
+  return { from, to: toPlainPos(bot.entity.position), steps, torches: torchesPlaced };
+}
+
+async function scanForOres(bot, ctx, oreCounts, collectedAll) {
+  const pos = bot.entity.position.floored();
+  const neighborOffsets = [
+    [1, 0, 0],
+    [-1, 0, 0],
+    [0, 1, 0],
+    [0, -1, 0],
+    [0, 0, 1],
+    [0, 0, -1],
+  ];
+  let found = false;
+  for (const [dx, dy, dz] of neighborOffsets) {
+    const p = pos.offset(dx, dy, dz);
+    if (isPoisoned(ctx, p)) continue;
+    const b = bot.blockAt(p);
+    if (b && ORE_NAMES.includes(b.name)) {
+      found = true;
+      await mineOreVein(bot, p, ctx, oreCounts, collectedAll);
+    }
+  }
+  return found;
+}
+
+async function mineOreVein(bot, startPos, ctx, oreCounts, collectedAll, cap = 12) {
+  const seen = new Set([posKey(startPos)]);
+  const queue = [startPos];
+  let mined = 0;
+  while (queue.length && mined < cap) {
+    if (ctx.isCancelled?.()) break;
+    const p = queue.shift();
+    if (isPoisoned(ctx, p) || !withinDepthGate(bot, p, 6)) continue;
+    const b = bot.blockAt(p);
+    if (!b || !ORE_NAMES.includes(b.name)) continue;
+
+    ctx.setTargetPos?.(p);
+    try {
+      await gotoLoop(bot, new goals.GoalGetToBlock(p.x, p.y, p.z), { timeoutMs: 10000, maxAttempts: 2 }, ctx);
+    } catch (err) {
+      ctx.log?.('warn', `mineOreVein: unreachable ${b.name} at ${posKey(p)}: ${err.message}`);
+      continue;
+    }
+    try {
+      await bot.tool.equipForBlock(b, { requireHarvest: false });
+    } catch {
+      // ignore
+    }
+    const fresh = bot.blockAt(p);
+    if (!fresh || !ORE_NAMES.includes(fresh.name)) continue;
+    const oreName = fresh.name;
+    const preDigSnapshot = snapshotInventory(bot);
+    try {
+      await safeDig(bot, fresh, ctx);
+    } catch (err) {
+      ctx.log?.('warn', `mineOreVein: dig failed at ${posKey(p)}: ${err.message}`);
+      continue;
+    }
+    mined++;
+    oreCounts[oreName] = (oreCounts[oreName] || 0) + 1;
+    const collected = await stepOntoAndCollect(bot, p, ctx, 4, preDigSnapshot);
+    collectedAll.push(...collected);
+
+    for (const [dx, dy, dz] of [
+      [1, 0, 0],
+      [-1, 0, 0],
+      [0, 1, 0],
+      [0, -1, 0],
+      [0, 0, 1],
+      [0, 0, -1],
+    ]) {
+      const np = p.offset(dx, dy, dz);
+      const key = posKey(np);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const nb = bot.blockAt(np);
+      if (nb && ORE_NAMES.includes(nb.name)) queue.push(np);
+    }
+  }
+  return mined;
+}
+
+async function digCorridorStep(bot, dir, ctx) {
+  const pos = bot.entity.position.floored();
+  const fwd0 = pos.offset(dir.x, 0, dir.z); // same level as feet — new feet cell
+  const fwd1 = pos.offset(dir.x, 1, dir.z); // one above — headroom
+  ctx.setTargetPos?.(fwd0);
+  for (const digPos of [fwd0, fwd1]) {
+    const b = bot.blockAt(digPos);
+    if (b && b.diggable && b.name !== 'air') {
+      try {
+        await bot.tool.equipForBlock(b, { requireHarvest: false });
+      } catch {
+        // ignore
+      }
+      await safeDig(bot, b, ctx).catch((err) => {
+        ctx.log?.('warn', `branchMine: corridor dig failed at ${posKey(digPos)}: ${err.message}`);
+      });
+    }
+  }
+  await gotoLoop(bot, new goals.GoalNear(fwd0.x, fwd0.y, fwd0.z, 0), { timeoutMs: 8000, maxAttempts: 2 }, ctx).catch((err) => {
+    ctx.log?.('warn', `branchMine: corridor step failed: ${err.message}`);
+  });
+}
+
+async function mineBranch(bot, dir, length, ctx, oreCounts, collectedAll) {
+  const from = toPlainPos(bot.entity.position);
+  const result = { from, to: null, length: 0, torch: false };
+  result.torch = await placeTorchHere(bot, ctx).catch(() => false);
+
+  for (let i = 0; i < length; i++) {
+    if (ctx.isCancelled?.()) break;
+    await checkHealthRetreat(bot, ctx);
+    await digCorridorStep(bot, dir, ctx);
+    await scanForOres(bot, ctx, oreCounts, collectedAll);
+    result.length = i + 1;
+  }
+  result.to = toPlainPos(bot.entity.position);
+  return result;
+}
+
+// branchMine({y, trunkLength?=24, branches?=6, branchLength?=8, direction?}) —
+// from the current position (intended to be a staircase bottom): trunk
+// corridor 2-high, branch pairs every 3 blocks alternating sides, torch each
+// branch mouth, collect all drops, ore-scan each branch (iron/coal/copper ore
+// adjacent to the corridor -> mine them + their connected vein).
+export async function branchMine(bot, opts = {}, ctx = {}) {
+  const trunkLength = opts.trunkLength ?? 24;
+  const branchesCount = opts.branches ?? 6;
+  const branchLength = opts.branchLength ?? 8;
+  // Explicit y accepted; default fallback y=54 per the ore-band guidance
+  // comment near ORE_NAMES above. y itself isn't used to move the bot (the
+  // caller is expected to already be at depth, e.g. via buildStaircase) —
+  // it's accepted so callers can report/verify the intended depth.
+  const y = opts.y ?? 54;
+
+  // (15) branchMine assumes the caller is already standing at the intended
+  // staircase-bottom location — but ensureTool()'s depot-chest fallback (see
+  // its own header) can silently walk the bot back to camp (the depot chest
+  // sits right in the middle of it) to fetch a pickaxe, and camp is very
+  // likely NOT where trunk-digging should start. Confirmed live: this exact
+  // path put a bot's trunk corridor straight through the camp furnace.
+  // Snapshot the intended start now and, if ensureTool moved us off of it,
+  // walk back before digging the first trunk block.
+  const intendedStart = bot.entity.position.clone();
+  try {
+    await ensureTool(bot, { kind: 'pickaxe' }, ctx);
+  } catch (err) {
+    throw new Error(`branchMine: pickaxe required but ensureTool failed: ${err.message}`);
+  }
+  if (bot.entity.position.distanceTo(intendedStart) > 2) {
+    ctx.log?.(
+      'warn',
+      `branchMine: ensureTool relocated the bot (now ${posKey(bot.entity.position)}) — returning to intended start ${posKey(intendedStart)} before digging`
+    );
+    try {
+      await gotoLoop(
+        bot,
+        new goals.GoalNear(intendedStart.x, intendedStart.y, intendedStart.z, 1),
+        { timeoutMs: 30000, maxAttempts: 3 },
+        ctx
+      );
+    } catch (err) {
+      throw new Error(`branchMine: could not return to intended start after ensureTool relocation: ${err.message}`);
+    }
+  }
+
+  const dir = resolveDirection(opts);
+  const perp = { x: -dir.z, z: dir.x };
+
+  const trunkFrom = toPlainPos(bot.entity.position);
+  const trunkResult = { from: trunkFrom, to: null, length: 0, y };
+  const branchResults = [];
+  const oreCounts = {};
+  const collectedAll = [];
+  let consecutiveStalls = 0;
+
+  for (let i = 0; i < trunkLength; i++) {
+    if (ctx.isCancelled?.()) break;
+    await checkHealthRetreat(bot, ctx);
+    ctx.setDetail?.(`branchMine: trunk ${i + 1}/${trunkLength}`);
+
+    let watchdog;
+    try {
+      watchdog = await runTargetWithWatchdog(bot, ctx, 25000, async () => {
+        await digCorridorStep(bot, dir, ctx);
+        const found = await scanForOres(bot, ctx, oreCounts, collectedAll);
+        return { found };
+      });
+    } catch (err) {
+      ctx.log?.('warn', `branchMine: trunk position ${i} failed: ${err.message}`);
+      continue;
+    }
+
+    if (watchdog.stalled) {
+      consecutiveStalls++;
+      ctx.log?.('warn', `branchMine: trunk position ${i} stalled (${consecutiveStalls}/3)`);
+      if (consecutiveStalls >= 3) throw new Error('stalled');
+      continue;
+    }
+    consecutiveStalls = 0;
+    trunkResult.length = i + 1;
+
+    if ((i + 1) % 3 === 0 && branchResults.length < branchesCount) {
+      const side = branchResults.length % 2 === 0 ? perp : { x: -perp.x, z: -perp.z };
+      const branch = await mineBranch(bot, side, branchLength, ctx, oreCounts, collectedAll);
+      branchResults.push(branch);
+    }
+  }
+  trunkResult.to = toPlainPos(bot.entity.position);
+
+  // (8) End-of-task late-drop sweep — leaf/ore decay drops can lag.
+  await sleep(2500);
+  const { collected: late } = await collectDrops(bot, { radius: 24 }, ctx).catch(() => ({ collected: [] }));
+  collectedAll.push(...late);
+
+  return { trunk: trunkResult, branches: branchResults, ores: oreCounts, collected: mergeCounts(collectedAll) };
 }

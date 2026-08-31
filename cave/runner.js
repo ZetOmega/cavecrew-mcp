@@ -148,7 +148,48 @@ const state = {
   connected: false,
   lastError: null,
   currentTask: null,
+  deathCount: 0,
+  lastDeath: null, // { pos: {x,y,z}|null, ts }
 };
+
+// ---------------------------------------------------------------------------
+// poisoned targets — a position a task's bot died going after gets flagged
+// here (with a timestamp) so future skill runs can steer clear of it. Set by
+// the death handler below, read via ctx.isPoisoned() (see makeCtx). Entries
+// expire on their own after POISON_TTL_MS; never retried automatically.
+// ---------------------------------------------------------------------------
+
+const POISON_TTL_MS = 15 * 60 * 1000;
+const poisonedTargets = new Map(); // key "x,y,z" (floored) -> { pos, ts, expiresAt }
+
+function poisonKey(pos) {
+  return `${Math.floor(pos.x)},${Math.floor(pos.y)},${Math.floor(pos.z)}`;
+}
+
+function poisonTarget(pos) {
+  if (!pos) return;
+  const key = poisonKey(pos);
+  const now = Date.now();
+  poisonedTargets.set(key, { pos: { x: pos.x, y: pos.y, z: pos.z }, ts: now, expiresAt: now + POISON_TTL_MS });
+}
+
+function purgeExpiredPoison() {
+  const now = Date.now();
+  for (const [key, entry] of poisonedTargets) {
+    if (entry.expiresAt <= now) poisonedTargets.delete(key);
+  }
+}
+
+function isPoisonedTarget(pos) {
+  if (!pos) return false;
+  purgeExpiredPoison();
+  return poisonedTargets.has(poisonKey(pos));
+}
+
+function poisonedTargetsCount() {
+  purgeExpiredPoison();
+  return poisonedTargets.size;
+}
 
 const EVENTS_MAX = 500;
 const eventsBuf = [];
@@ -169,6 +210,12 @@ function taskToJSON(t) {
 }
 
 function makeCtx(task) {
+  // Captured once, at task-start — every movement/task promise spawned from
+  // this ctx "carries" this generation. `generation` itself (module-level,
+  // bumped once per connect() call — see connect() below) is read live
+  // inside isStaleGeneration(), so a reconnect that happens WHILE this task
+  // is still running is detected the instant something next polls it.
+  const startGen = generation;
   return {
     log: (level, msg) => {
       logLine(level, msg);
@@ -178,10 +225,52 @@ function makeCtx(task) {
       task.detail = detail;
     },
     isCancelled: () => task.state !== 'running',
+    generation: startGen,
+    isStaleGeneration: () => generation !== startGen,
+    // Skills (out of this file's scope) call this to register "where I'm
+    // headed right now" so that if the bot dies mid-task, that spot gets
+    // poisoned (see the death handler below). Optional — a task that never
+    // calls it just has nothing to poison on death.
+    setTargetPos: (pos) => {
+      task.targetPos = pos ? { x: pos.x, y: pos.y, z: pos.z } : null;
+    },
+    isPoisoned: (pos) => isPoisonedTarget(pos),
     get mcData() {
       return mcData;
     },
   };
+}
+
+// Instantly fails the active task (state=failed, not cancelled) with the
+// given reason — used by the death/disconnect handlers below, which need the
+// task to stop being "running" synchronously, before anything awaits.
+// Distinct from cancelCurrentTask(): that one is for a *requested* stop
+// (/stop, superseded-by-force) and marks the task done/cancelled; this one is
+// for the bot no longer being in a state where the task could ever succeed.
+function failActiveTask(errMsg) {
+  const task = state.currentTask;
+  if (task && task.state === 'running') {
+    task.state = 'failed';
+    task.result = { error: errMsg };
+    state.lastError = errMsg;
+    logLine('error', `task ${task.id} (${task.kind}) failed: ${errMsg}`);
+    pushEvent('task', `task ${task.id} (${task.kind}) failed: ${errMsg}`);
+  }
+  try {
+    // Same cancel path cancelCurrentTask uses: setGoal(null) always, plus
+    // bot.ashfinder.stop() when ash was the engine actually in flight. `bot`
+    // here is still the OLD instance at the moment end/kicked/death fires
+    // (connect() only reassigns it later, from scheduleReconnect's timer).
+    movement.cancelMovement(bot);
+  } catch {
+    // ignore
+  }
+  try {
+    bot?.collectBlock?.cancelTask?.().catch(() => {});
+  } catch {
+    // ignore
+  }
+  return task;
 }
 
 async function cancelCurrentTask(reason) {
@@ -277,6 +366,10 @@ let reconnectTimer = null;
 let relogTimer = null;
 let manualRelog = false;
 let lastHealth = null;
+// Bumped once per connect() attempt (success or failure). ctx captures this
+// at task-start (see makeCtx) so any promise a task is awaiting can tell,
+// live, whether the bot it was talking to has since been replaced.
+let generation = 0;
 
 const pluginStatus = { autoEat: false, armorManager: false, pvp: false };
 
@@ -339,13 +432,41 @@ function wireBot(b) {
     }
     logLine('info', `spawned as ${name} (mc version ${b.version})`);
     pushEvent('connect', `${name} spawned`);
+    // Defensive belt-and-suspenders on every (re)connect: clear any movement
+    // engine state that could otherwise carry over from a previous
+    // connection's plugin internals. Cheap, idempotent, never throws — see
+    // movement.js file-header gotcha #2 for why a stray in-flight ashfinder
+    // path needs an explicit stop(), not just being left alone.
+    try {
+      b.ashfinder?.stop?.();
+    } catch {
+      // ignore
+    }
+    try {
+      b.pathfinder?.setGoal?.(null);
+    } catch {
+      // ignore
+    }
   });
 
   b.on('error', (err) => {
+    if (b !== bot) {
+      logLine('info', `ignoring 'error' from stale bot instance: ${err?.message ?? err}`);
+      return;
+    }
     const msg = err?.message ?? String(err);
     logLine('error', `bot error: ${err?.stack ?? err}`);
     state.lastError = msg;
     pushEvent('error', msg);
+    // Some failure modes (e.g. connection refused before spawn) only ever
+    // emit 'error', never 'end' — without this, reconnect backoff never
+    // gets armed and the bot stays offline forever (the Zug case).
+    // scheduleReconnect() is idempotent (guarded by reconnectTimer) so this
+    // never double-schedules alongside the 'end' handler below.
+    if (!state.connected) {
+      state.connected = false;
+      if (!manualRelog) scheduleReconnect();
+    }
   });
 
   b.on('end', (reason) => {
@@ -360,13 +481,19 @@ function wireBot(b) {
     state.connected = false;
     logLine('warn', `disconnected (end): ${reason}`);
     pushEvent('disconnect', `end: ${reason}`);
+    failActiveTask('disconnected');
     if (!manualRelog) scheduleReconnect();
   });
 
   b.on('kicked', (reason) => {
+    if (b !== bot) return;
     const msg = typeof reason === 'string' ? reason : JSON.stringify(reason);
     logLine('warn', `kicked: ${msg}`);
     pushEvent('kicked', msg);
+    // 'end' normally follows shortly and would catch this too, but fail the
+    // task right here — no reason to wait for the socket-close event when we
+    // already know the connection is done.
+    failActiveTask('disconnected');
   });
 
   b.on('health', () => {
@@ -377,8 +504,25 @@ function wireBot(b) {
   });
 
   b.on('death', () => {
-    logLine('warn', 'died');
-    pushEvent('death', `${name} died`);
+    if (b !== bot) return;
+    const pos = b.entity ? { x: b.entity.position.x, y: b.entity.position.y, z: b.entity.position.z } : null;
+    const posStr = pos ? `${pos.x.toFixed(1)},${pos.y.toFixed(1)},${pos.z.toFixed(1)}` : 'unknown';
+    logLine('warn', `died at ${posStr}`);
+    pushEvent('death', `${name} died at ${posStr}`);
+    state.deathCount++;
+    state.lastDeath = { pos, ts: new Date().toISOString() };
+    // Grab the dying task's target BEFORE failing it (failActiveTask doesn't
+    // touch task.targetPos, but read it first for clarity/safety) — that's
+    // the spot that got the bot killed, so future skill runs should steer
+    // clear of it. No automatic retry, ever.
+    const dyingTask = state.currentTask;
+    const targetPos = dyingTask && dyingTask.state === 'running' ? dyingTask.targetPos : null;
+    failActiveTask(`died: ${posStr}`);
+    if (targetPos) {
+      poisonTarget(targetPos);
+      logLine('info', `poisoned target ${poisonKey(targetPos)} after death`);
+      pushEvent('quirk', `poisoned target ${poisonKey(targetPos)} after death`);
+    }
   });
 
   b.on('chat', (username, message) => {
@@ -389,19 +533,40 @@ function wireBot(b) {
 
 function connect() {
   logLine('info', `connecting to ${host}:${mcport} as ${name}`);
-  bot = createBot({
-    host,
-    port: mcport,
-    username: name,
-    auth: 'offline',
-    disableChatSigning: true,
-  });
-  wireBot(bot);
+  // Bump BEFORE the attempt, even though it might fail synchronously below —
+  // this is "a (re)connect happened", and any task/promise still holding an
+  // older generation should already be considering itself stale.
+  generation++;
+  try {
+    bot = createBot({
+      host,
+      port: mcport,
+      username: name,
+      auth: 'offline',
+      disableChatSigning: true,
+    });
+    wireBot(bot);
+  } catch (err) {
+    // Root cause of the Zug bug: reconnection was entirely event-driven (via
+    // bot.on('end')/('error')). If createBot()/wireBot() itself threw
+    // synchronously (bad plugin load, etc.), no bot object ever got far
+    // enough to emit those events, so nothing ever called scheduleReconnect()
+    // again — connected stayed false forever with backoff never re-armed.
+    // Catch it here and re-arm explicitly so a bad attempt always leads to
+    // another attempt.
+    logLine('error', `connect() failed synchronously: ${err?.stack ?? err}`);
+    state.connected = false;
+    state.lastError = err?.message ?? String(err);
+    pushEvent('error', `connect failed: ${err?.message ?? err}`);
+    if (!manualRelog) scheduleReconnect();
+  }
 }
 
 function scheduleReconnect() {
   if (reconnectTimer) return;
   const delays = [5000, 10000, 20000];
+  // Cap at 60s regardless of how large reconnectAttempt has grown; reset to 0
+  // happens on every successful spawn (see b.once('spawn', ...) above).
   const delay = reconnectAttempt < delays.length ? delays[reconnectAttempt] : 60000;
   reconnectAttempt++;
   logLine('info', `reconnecting in ${delay}ms (attempt ${reconnectAttempt})`);
@@ -566,6 +731,9 @@ function buildStatus() {
     currentTask: taskToJSON(state.currentTask),
     lastError: state.lastError,
     engine: defaultEngine,
+    deathCount: state.deathCount,
+    lastDeath: state.lastDeath,
+    poisonedTargets: poisonedTargetsCount(),
   };
 }
 
@@ -586,6 +754,11 @@ function taskEndpoint(kind, runner) {
       body = await readJsonBody(req);
     } catch (err) {
       return sendJson(res, 400, { error: err.message });
+    }
+    // Disconnect-abort: every task-starting endpoint refuses outright while
+    // offline (status/relog/events/stop stay reachable — see handleRequest).
+    if (!state.connected) {
+      return sendJson(res, 503, { error: 'disconnected' });
     }
     try {
       const task = await startTask(
@@ -615,6 +788,9 @@ const taskRoutes = {
     requireNumber(body, 'z');
     const { x, y, z, range = 1, timeoutMs = 45000 } = body;
     const engine = body.engine ?? defaultEngine;
+    // Register this as the task's current target — if the bot dies mid-goto,
+    // the death handler poisons this exact spot.
+    ctx.setTargetPos({ x, y, z });
     const result = await movement.goTo(b, { x, y, z, range, timeoutMs, engine }, ctx);
     return { x, y, z, range, reached: true, engine: result.engine };
   }),
@@ -650,6 +826,33 @@ const taskRoutes = {
   '/craft': taskEndpoint('craft', async (b, body, ctx) => {
     if (!body.item) throw new Error('/craft requires "item"');
     return craftItem(b, body.item, body.amount ?? 1, ctx);
+  }),
+  '/recover': taskEndpoint('recover', async (b, body, ctx) => {
+    // deathPos comes from the runner's own state.lastDeath (set by the
+    // b.on('death') handler above) — not the request body. skills.recoverKit
+    // itself calls ctx.setTargetPos(deathPos) so a second death at the same
+    // recovery spot gets poisoned too.
+    const deathPos = state.lastDeath?.pos;
+    if (!deathPos) throw new Error('/recover: no recorded death position (bot has not died this session)');
+    return skills.recoverKit(b, { deathPos, timeBudgetMs: body.timeBudgetMs }, ctx);
+  }),
+  '/staircase': taskEndpoint('staircase', async (b, body, ctx) => {
+    requireNumber(body, 'toY');
+    return skills.buildStaircase(b, { toY: body.toY, direction: body.direction }, ctx);
+  }),
+  '/branchmine': taskEndpoint('branchmine', async (b, body, ctx) => {
+    requireNumber(body, 'y');
+    return skills.branchMine(
+      b,
+      {
+        y: body.y,
+        trunkLength: body.trunkLength,
+        branches: body.branches,
+        branchLength: body.branchLength,
+        direction: body.direction,
+      },
+      ctx
+    );
   }),
 };
 
@@ -735,6 +938,7 @@ async function handleEval(req, res) {
     return sendJson(res, 400, { error: err.message });
   }
   if (typeof body.code !== 'string') return sendJson(res, 400, { error: '/eval requires "code" (string)' });
+  if (!state.connected) return sendJson(res, 503, { error: 'disconnected' });
 
   let task;
   try {
