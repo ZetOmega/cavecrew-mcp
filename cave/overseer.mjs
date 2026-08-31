@@ -146,7 +146,14 @@ try { fs.writeFileSync(PIDF, JSON.stringify({ pid: process.pid, startedAt: new D
 process.on('SIGINT', () => { try { fs.unlinkSync(PIDF) } catch {}; process.exit(0) })
 
 log(`overseer up, watching ${BOTS.length} bots (idle ${IDLE_MS / 1000}s, poll ${POLL_MS / 1000}s)`)
+let lastPhantomPurge = 0
 for (;;) {
   for (const b of BOTS) await tick(b).catch((e) => log(`${b.name} tick error: ${e.message}`))
+  // phantom purge (user decree; gamerule doInsomnia rejected by this server build)
+  if (Date.now() - lastPhantomPurge > 10 * 60_000) {
+    lastPhantomPurge = Date.now()
+    const r = await rconCmd('kill @e[type=phantom]')
+    if (r && !/No entity was found/i.test(r)) log(`phantom purge: ${r}`)
+  }
   await new Promise((r) => setTimeout(r, POLL_MS))
 }
