@@ -1899,6 +1899,27 @@ async function gotoChestBlock(bot, pos, ctx, opts = {}) {
   return block;
 }
 
+// (FIELD BUG, UngaBunga 2026-09-01 — FEEDBACK "bot.openChest windowOpen
+// timeout, one-shot") A single eval-based bot.openChest(chestBlk) call
+// (confirmed chest, ~1 block away) hung and errored "Event windowOpen did
+// not fire within timeout of 20000ms"; an immediate retry on the exact same
+// chest/position worked fine. Reported as seen once, right after a blink
+// restart — flagged low-confidence by its own reporter, not a confirmed
+// recurring bug — so this is cheap defensive hardening, not a rewrite: one
+// retry with a short pause (give the server a beat to catch up after a
+// possible desync/blink), same chest block, before letting the error
+// through. Every openChest call site in this file goes through this now,
+// so the fix lands once instead of needing a per-site try/catch.
+async function openChestRetry(bot, chestBlock, ctx) {
+  try {
+    return await bot.openChest(chestBlock);
+  } catch (err) {
+    ctx?.log?.('warn', `openChestRetry: first bot.openChest(${posKey(chestBlock.position)}) attempt failed (${err.message}), retrying once`);
+    await sleep(500);
+    return await bot.openChest(chestBlock);
+  }
+}
+
 // (6) COUNT SUPPORT — `items` may still be a plain array of name strings
 // (deposit/withdraw everything of that name — the original, unchanged
 // behavior), or entries may be `{name, count}` to move only part of a
@@ -1931,7 +1952,7 @@ export async function depositToChest(bot, opts = {}, ctx = {}) {
 
   const chestBlock = await gotoChestBlock(bot, pos, ctx, { engine: opts.engine });
   ctx.setDetail?.('opening chest to deposit');
-  const win = await bot.openChest(chestBlock);
+  const win = await openChestRetry(bot, chestBlock, ctx);
   const deposited = [];
   try {
     const specs = items && items.length ? normalizeItemSpecs(items) : null;
@@ -1978,7 +1999,7 @@ export async function withdrawFromChest(bot, opts = {}, ctx = {}) {
 
   const chestBlock = await gotoChestBlock(bot, pos, ctx, { engine: opts.engine });
   ctx.setDetail?.('opening chest to withdraw');
-  const win = await bot.openChest(chestBlock);
+  const win = await openChestRetry(bot, chestBlock, ctx);
   const withdrawn = [];
   try {
     const contents = win.containerItems();
@@ -2715,7 +2736,7 @@ export async function ensureTool(bot, opts = {}, ctx = {}) {
   try {
     const chestBlock = await gotoChestBlock(bot, DEPOT_POS, ctx, { engine: opts.engine });
     ctx.setDetail?.('ensureTool: checking depot chest');
-    const win = await bot.openChest(chestBlock);
+    const win = await openChestRetry(bot, chestBlock, ctx);
     let match = null;
     try {
       const contents = win.containerItems();
