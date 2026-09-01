@@ -3,9 +3,10 @@
   "checkpoint_id": "01M1EAE09RC1VFPNWJNF2BH6FN",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 1,
+  "checkpoints_count": 6,
   "files_touched": [
     ".gitignore",
+    "cave/ledger.mjs",
     "cave/runner.js"
   ],
   "sessions": [
@@ -15,13 +16,20 @@
       "compact_transcript": "/0/transcript.jsonl",
       "content_hash": "/0/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/1/metadata.json",
+      "transcript": "/1/full.jsonl",
+      "compact_transcript": "/1/transcript.jsonl",
+      "content_hash": "/1/content_hash.txt",
+      "prompt": "/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 854,
-    "cache_creation_tokens": 630508,
-    "cache_read_tokens": 132861793,
-    "output_tokens": 257173,
-    "api_call_count": 427
+    "input_tokens": 874,
+    "cache_creation_tokens": 643602,
+    "cache_read_tokens": 137588409,
+    "output_tokens": 264403,
+    "api_call_count": 437
   }
 }
