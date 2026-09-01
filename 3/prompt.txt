@@ -1,0 +1,77 @@
+<task-notification>
+<task-id>brgdwffwa</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-phili-tools-cavecrew-mcp/ebb423eb-48a4-4d86-b91c-e8cb33ab9d63/tasks/brgdwffwa.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for chop task to finish (done or failed)" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bfddrondu</task-id>
+<tool-use-id>toolu_01L8KaH4Bhy1nyGbLch5YW1o</tool-use-id>
+<output-file>/tmp/claude-1000/-home-phili-tools-cavecrew-mcp/ebb423eb-48a4-4d86-b91c-e8cb33ab9d63/tasks/bfddrondu.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for deposit task to finish" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b6g0up5l6</task-id>
+<tool-use-id>toolu_01PCUaSrzmxE1maoqBEdmP9g</tool-use-id>
+<output-file>/tmp/claude-1000/-home-phili-tools-cavecrew-mcp/ebb423eb-48a4-4d86-b91c-e8cb33ab9d63/tasks/b6g0up5l6.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for goto to spot 7" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bkx4ukvay</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-phili-tools-cavecrew-mcp/ebb423eb-48a4-4d86-b91c-e8cb33ab9d63/tasks/bkx4ukvay.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for second chop task to finish" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ba2y5hv4r</task-id>
+<tool-use-id>toolu_01UkbEtFM2Wmw6PmsKbPPnEx</tool-use-id>
+<output-file>/tmp/claude-1000/-home-phili-tools-cavecrew-mcp/ebb423eb-48a4-4d86-b91c-e8cb33ab9d63/tasks/ba2y5hv4r.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for goto to chest A" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b0gusclgw</task-id>
+<tool-use-id>toolu_016pMnykoabYYvERMUQapvzp</tool-use-id>
+<output-file>/tmp/claude-1000/-home-phili-tools-cavecrew-mcp/ebb423eb-48a4-4d86-b91c-e8cb33ab9d63/tasks/b0gusclgw.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for goto task to finish (all retries)" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>brgitcwmt</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-phili-tools-cavecrew-mcp/ebb423eb-48a4-4d86-b91c-e8cb33ab9d63/tasks/brgitcwmt.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for route home to finish" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b30ii0d8v</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-phili-tools-cavecrew-mcp/ebb423eb-48a4-4d86-b91c-e8cb33ab9d63/tasks/b30ii0d8v.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for deposit of chief's logs to finish" completed (exit code 0)</summary>
+</task-notification>
