@@ -18,6 +18,13 @@ at a time — read fresh before writing. Orchestrator prunes DONE.
 | 10 | FOOD | Ook first far-range meat run (pigs ~100 west) | Ook | todo |
 | 11 | LABEL | Signs: mine house face, both farm plots, path ends (console signs via orchestrator — bot sign-place broken) | orchestrator | todo |
 | 12 | ECONOMY | Depot audit skill: chest-scan vs ledger reconciliation | code round | idea |
+| 13 | NIGHT | Safety-fix round: reach law, depth/locality/no-go, tree-check, staircase watchdog, recover fix → UNBAN skills | workflow wf_ca98d234 | DOING |
+| 14 | NIGHT | Full Baritone support: headless client + baritone, BariBrute prototype + BARITONE.md | workflow wf_dd72675c | DOING |
+| 15 | NIGHT | Discord status routing: discord.mjs + webhook config (user supplies channel URL) — status→Discord, game chat = real talk only | in safety round | DOING |
+| 16 | NIGHT | SCOREBOARD: tribe evolution metrics (iron banked, deaths, builds, trades, harvests) CAVE vs FEL — scoreboard.mjs + SCOREBOARD.md + in-game sidebar | builder | DOING |
+| 17 | STANDING | Periodic felcrew repo scan (new commits → adopt-worthy findings) — every few hours | orchestrator ticks | law |
+| 18 | STANDING | Fleet policy: ground crew ~6; bots beyond 6 idle w/o sensible task = stop their runners (restart when work exists) | orchestrator ticks | law |
+| 19 | NIGHT | Iron quota: full armor+tools ×8 + 2 backup sets + 128 ingots banked by morning (20 raw in chest, smelting) | Thak commands post-unban | DOING |
 
 ## DONE
 

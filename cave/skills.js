@@ -75,11 +75,15 @@
 // specific message and rechecks the ACTUAL distance to the goal before
 // trusting it as a real failure — see goalTargetInfo() below.
 
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import pathfinderPkg from 'mineflayer-pathfinder';
 import { Vec3 } from 'vec3';
 import * as movement from './movement.js';
 
 const { goals } = pathfinderPkg;
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const SOIL_BLOCKS = new Set([
   'dirt',
@@ -188,6 +192,64 @@ const CARDINALS = {
 
 const CAMP_POS = new Vec3(12, 89, 56); // also the camp crafting table location
 const DEPOT_POS = { x: 11, y: 89, z: 55 };
+
+// (3) CAMP PROTECT RADIUS — same center/radius as overseer.mjs's own CHOP
+// QUARANTINE ENFORCER (reactive: kills a running /chop task after the fact
+// once it notices the bot inside this ring). This constant is used to make
+// chopTrees proactive instead — never even select a tree in here — so the
+// overseer's kill-on-sight is a backstop, not the only line of defense.
+const CAMP_PROTECT_CENTER = { x: 12, z: 56 };
+const CAMP_PROTECT_RADIUS = 60;
+
+// (2c) NO-GO ZONES — read from cave/local.json's {noGoZones:[{x,z,radius,label}]}
+// (2D circles, y ignored — a "zone" here means an x/z footprint on the map,
+// same shape recoverKit and mineBlocks both need), merged with one
+// hardcoded default that ships regardless of local.json's contents: the FEL
+// base. Field-fatal without it — a mining/recover task walked straight into
+// FEL's base and cost 2 PvP deaths. Read once and cached for the process
+// lifetime (same "config read at startup" assumption rconchat.js's own
+// createRconChat() makes about this same file).
+const DEFAULT_NO_GO_ZONES = [{ x: -3, z: 4, radius: 15, label: 'FEL base' }];
+
+let cachedNoGoZones = null;
+function loadNoGoZones() {
+  if (cachedNoGoZones) return cachedNoGoZones;
+  let fromFile = [];
+  try {
+    const raw = fs.readFileSync(path.join(__dirname, 'local.json'), 'utf8');
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed?.noGoZones)) {
+      fromFile = parsed.noGoZones.filter(
+        (z) => z && typeof z.x === 'number' && typeof z.z === 'number' && typeof z.radius === 'number'
+      );
+    }
+  } catch {
+    // no local.json (or unreadable/bad json) — defaults only, same
+    // fall-through rconchat.js's loadRconConfig uses.
+  }
+  cachedNoGoZones = [...DEFAULT_NO_GO_ZONES, ...fromFile];
+  return cachedNoGoZones;
+}
+
+// Never TARGET a position inside a no-go zone — that's the hard minimum this
+// was built to guarantee. (Never PATHING THROUGH one is aspirational: every
+// caller here uses this to filter target *selection*, not to steer
+// pathfinder's/ashfinder's route away from one mid-transit.)
+function isInNoGoZone(pos, ctx) {
+  const zones = loadNoGoZones();
+  for (const z of zones) {
+    const dx = pos.x - z.x;
+    const dz = pos.z - z.z;
+    if (Math.hypot(dx, dz) <= z.radius) {
+      ctx?.log?.(
+        'warn',
+        `no-go zone: ${posKey(pos)} is within ${z.radius} of ${z.label ?? 'zone'} (${z.x},${z.z}) — refusing to target`
+      );
+      return true;
+    }
+  }
+  return false;
+}
 
 // ---------------------------------------------------------------------------
 // small internal helpers
@@ -393,8 +455,61 @@ function assertNotProtected(block) {
   }
 }
 
-async function safeDig(bot, block, ctx) {
+// (1) REACH LAW — mineflayer's own bot.dig()/bot.placeBlock() will happily
+// accept a target far past real survival-mode interaction range (a leftover
+// of the API also serving creative-mode callers) and then just hang waiting
+// on a server-side reject that never resolves cleanly. Vanilla survival
+// reach is ~4.5 blocks; gate at 4.2 to stay clear of the edge, and close the
+// distance to within 2 blocks BEFORE ever handing a block to bot.dig()/
+// bot.placeBlock(). Centralized here — inside safeDig()/safePlaceBlock(),
+// the two choke points every direct dig/place call in this file already
+// goes through (see (12) below) — so every call site gets this for free
+// instead of needing a per-site edit.
+async function ensureWithinReach(bot, block, ctx) {
+  if (!block || !block.position || !bot?.entity) return;
+  const dist = bot.entity.position.distanceTo(block.position);
+  if (dist <= 4.2) return;
+  ctx?.log?.(
+    'warn',
+    `ensureWithinReach: ${dist.toFixed(2)} blocks from ${posKey(block.position)} (>4.2) — closing distance before dig/place`
+  );
+  try {
+    await gotoLoop(
+      bot,
+      new goals.GoalNear(block.position.x, block.position.y, block.position.z, 2),
+      { timeoutMs: 15000, maxAttempts: 3 },
+      ctx
+    );
+  } catch (err) {
+    ctx?.log?.('warn', `ensureWithinReach: could not close distance to ${posKey(block.position)}: ${err.message}`);
+  }
+  // (1b) REACH LAW HARD STOP — a goto that throws (no path) or one that
+  // spuriously "succeeds" without actually landing within reach must never
+  // let the caller fall through to bot.dig()/bot.placeBlock() anyway: vanilla
+  // survival's server doesn't reliably reject an out-of-range dig/place
+  // packet on its own (confirmed live: an 8-block-away safeDig() call
+  // succeeded with the bot never moving, once the approach goto failed with
+  // "No path to the goal!" and this function silently swallowed that). Recheck
+  // real distance regardless of which branch above ran, and refuse the
+  // dig/place outright if still out of reach.
+  const distAfter = bot.entity.position.distanceTo(block.position);
+  if (distAfter > 4.2) {
+    throw new Error(
+      `ensureWithinReach: still ${distAfter.toFixed(2)} blocks from ${posKey(block.position)} after approach attempt — refusing to dig/place out of reach`
+    );
+  }
+}
+
+// Exported (not just internal) so /eval can reach a single-block dig through
+// the same reach-law (ensureWithinReach) + protected-block guard
+// (assertNotProtected) every deterministic skill already goes through —
+// without this, a driver's manual `bot.dig()` via /eval had neither
+// protection: no reach gate (mineflayer will hang past real interaction
+// range) and no chest/furnace/table/bed guard. Behavior is unchanged for
+// every existing internal call site.
+export async function safeDig(bot, block, ctx) {
   assertNotProtected(block);
+  await ensureWithinReach(bot, block, ctx);
   const pos = block.position;
   const expectedName = block.name;
   try {
@@ -414,6 +529,7 @@ async function safeDig(bot, block, ctx) {
 }
 
 async function safePlaceBlock(bot, refBlock, faceVector, ctx, expectedPos) {
+  await ensureWithinReach(bot, refBlock, ctx);
   const checkPos = expectedPos ?? refBlock.position.plus(faceVector);
   try {
     await withTimeoutLocal(bot.placeBlock(refBlock, faceVector), 10000);
@@ -563,6 +679,36 @@ async function collectNear(bot, ctx, radius) {
   return collectDrops(bot, { radius }, ctx);
 }
 
+const LEAVES_RE = /_leaves$/;
+
+// (3) NATURAL TREE CHECK — a *_log column that has no leaves within 4 blocks
+// above its own top log is a built structure (a house pillar, a fence-post
+// core), not a tree. Chopping it has harvested our own house pillars three
+// times in the field. Walks up the contiguous log run first (basePos may not
+// be the top log — findBlock returns whichever log it happened to see) so
+// the leaf search starts from the real top of the trunk.
+function hasLeavesAboveTop(bot, basePos) {
+  let top = basePos;
+  for (;;) {
+    const next = top.offset(0, 1, 0);
+    const b = bot.blockAt(next);
+    if (b && /_log$/.test(b.name)) {
+      top = next;
+    } else {
+      break;
+    }
+  }
+  for (let dy = 1; dy <= 4; dy++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dz = -2; dz <= 2; dz++) {
+        const b = bot.blockAt(top.offset(dx, dy, dz));
+        if (b && LEAVES_RE.test(b.name)) return true;
+      }
+    }
+  }
+  return false;
+}
+
 async function replantSapling(bot, belowPos, ctx) {
   const sapling = bot.inventory.items().find((it) => it.name.endsWith('_sapling'));
   if (!sapling) return false;
@@ -630,6 +776,27 @@ export async function chopTrees(bot, opts = {}, ctx = {}) {
     }
     const key = posKey(base.position);
     const basePos = base.position.clone();
+
+    // (3) CAMP PROTECT RADIUS — never even select a target this close to
+    // camp; matches overseer.mjs's own CHOP QUARANTINE ENFORCER center/
+    // radius exactly, but proactive instead of reactive-kill.
+    const campDx = basePos.x - CAMP_PROTECT_CENTER.x;
+    const campDz = basePos.z - CAMP_PROTECT_CENTER.z;
+    if (Math.hypot(campDx, campDz) < CAMP_PROTECT_RADIUS) {
+      skippedKeys.add(key);
+      ctx.log?.(
+        'warn',
+        `chopTrees: skipping ${key} — inside camp quarantine (<${CAMP_PROTECT_RADIUS} of (${CAMP_PROTECT_CENTER.x},${CAMP_PROTECT_CENTER.z}))`
+      );
+      continue;
+    }
+
+    // (3) NATURAL TREE CHECK — see hasLeavesAboveTop() above.
+    if (!hasLeavesAboveTop(bot, basePos)) {
+      skippedKeys.add(key);
+      ctx.log?.('warn', `chopTrees: skipping ${key} — no leaves within 4 blocks above top log (built structure, not tree)`);
+      continue;
+    }
 
     let watchdog;
     try {
@@ -711,6 +878,65 @@ export async function chopTrees(bot, opts = {}, ctx = {}) {
 // mineBlocks
 // ---------------------------------------------------------------------------
 
+// (2b) VEIN LOCALITY — groups candidate positions into clusters (chebyshev
+// distance <=3 counts as "one vein"), then picks the nearest cluster by a
+// horizontal-biased score (lateral x/z distance weighted over vertical) so a
+// straight-down outlier one block away in y doesn't get chosen over a
+// cluster that's actually much closer to walk to. Field-fatal without this:
+// raw nearest-single-block selection bounced the bot between distant veins
+// one block at a time and stranded 13 iron scattered over 48-block hops.
+// Returns the chosen vein's positions, nearest-first within the vein, or []
+// if nothing usable was found.
+function pickNextVein(bot, block, maxDistance, isUsable) {
+  const candidates = bot
+    .findBlocks({
+      point: bot.entity.position,
+      matching: (b) => b.name === block,
+      maxDistance,
+      count: 128,
+    })
+    .filter(isUsable);
+  if (candidates.length === 0) return [];
+
+  const clusters = [];
+  const seen = new Set();
+  for (const p of candidates) {
+    const key = posKey(p);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const cluster = [p];
+    const stack = [p];
+    while (stack.length) {
+      const cur = stack.pop();
+      for (const other of candidates) {
+        const ok = posKey(other);
+        if (seen.has(ok)) continue;
+        const cheb = Math.max(Math.abs(other.x - cur.x), Math.abs(other.y - cur.y), Math.abs(other.z - cur.z));
+        if (cheb <= 3) {
+          seen.add(ok);
+          cluster.push(other);
+          stack.push(other);
+        }
+      }
+    }
+    clusters.push(cluster);
+  }
+
+  const botPos = bot.entity.position;
+  let best = null;
+  let bestScore = Infinity;
+  for (const cluster of clusters) {
+    for (const p of cluster) {
+      const score = Math.hypot(p.x - botPos.x, p.z - botPos.z) + Math.abs(p.y - botPos.y) * 0.35;
+      if (score < bestScore) {
+        bestScore = score;
+        best = cluster;
+      }
+    }
+  }
+  return best.slice().sort((a, b) => botPos.distanceTo(a) - botPos.distanceTo(b));
+}
+
 export async function mineBlocks(bot, opts = {}, ctx = {}) {
   const block = opts.block;
   const count = opts.count ?? 8;
@@ -733,45 +959,49 @@ export async function mineBlocks(bot, opts = {}, ctx = {}) {
   let iterations = 0;
   let consecutiveStalls = 0;
 
+  // (2b) queue of positions still to mine in the vein currently being
+  // worked, nearest-first; refilled by pickNextVein() whenever it drains.
+  let currentVein = [];
+
+  const isUsable = (p) => !skippedKeys.has(posKey(p)) && !isPoisoned(ctx, p) && !isInNoGoZone(p, ctx);
+
   while (mined.length < count && iterations < maxIterations) {
     iterations++;
     if (ctx.isCancelled?.()) break;
     await checkHealthRetreat(bot, ctx);
     ctx.setDetail?.(`mining ${block} ${mined.length}/${count}`);
 
-    const target = bot.findBlock({
-      point: bot.entity.position,
-      maxDistance,
-      // Same palette-pre-filter gotcha as chopTrees above — b.position can
-      // be null on the first (synthetic) call; guard it before posKey().
-      matching: (b) =>
-        b.name === block && (!b.position || (!skippedKeys.has(posKey(b.position)) && !isPoisoned(ctx, b.position))),
-    });
-    if (!target) {
-      ctx.log?.('warn', `mineBlocks: no reachable ${block} left within ${maxDistance} blocks`);
-      break;
+    if (currentVein.length === 0) {
+      currentVein = pickNextVein(bot, block, maxDistance, isUsable);
+      if (currentVein.length === 0) {
+        ctx.log?.('warn', `mineBlocks: no reachable ${block} left within ${maxDistance} blocks`);
+        break;
+      }
     }
-    const key = posKey(target.position);
-    const targetPos = target.position.clone();
+
+    const targetPos = currentVein.shift();
+    const key = posKey(targetPos);
+    // (2c) NO-GO ZONES / re-check poison — the vein was snapshotted when
+    // picked; a later entry in it could since have been poisoned by a death
+    // elsewhere in the same run. Never TARGET inside a no-go zone or a
+    // poisoned spot, full stop.
+    if (!isUsable(targetPos)) continue;
 
     let watchdog;
     try {
       watchdog = await runTargetWithWatchdog(bot, ctx, 25000, async () => {
-        ctx.setTargetPos?.(targetPos);
-        // (5) SAFE DEPTH GATE — a target more than 4 blocks below the bot's
-        // own feet does not get a direct goto; stairstep down toward its Y
-        // first via safeDescend, or give up on this target cleanly.
+        // (2a) PRE-DESCENT GUARD — must fire BEFORE any movement toward this
+        // target, never after. mineBlocks does not auto-build a staircase to
+        // reach a deep target (that's the separate, deliberate buildStaircase
+        // skill) — a target more than 4 blocks below the bot's own feet is
+        // skipped outright. Field-fatal without this: blind-goto toward a
+        // far-below target let pathfinder route through an open shaft and a
+        // bot fell from y89 to y26.
         const depthBelow = Math.floor(bot.entity.position.y) - Math.floor(targetPos.y);
         if (depthBelow > 4) {
-          try {
-            await safeDescend(bot, { targetY: targetPos.y }, ctx);
-          } catch (err) {
-            throw new Error(`too deep, needs staircase (safeDescend failed: ${err.message})`);
-          }
-          if (Math.floor(bot.entity.position.y) - Math.floor(targetPos.y) > 4) {
-            throw new Error('too deep, needs staircase');
-          }
+          throw new Error('too deep, needs staircase');
         }
+        ctx.setTargetPos?.(targetPos);
 
         let reached = false;
         let lastReachErr = null;
@@ -792,11 +1022,13 @@ export async function mineBlocks(bot, opts = {}, ctx = {}) {
         if (!reached) throw new Error(`unreachable: ${lastReachErr?.message ?? 'unknown'}`);
 
         // Re-equip the best pickaxe per block — equip does not persist between digs.
-        const preDigBlock = bot.blockAt(targetPos) ?? target;
-        try {
-          await bot.tool.equipForBlock(preDigBlock, { requireHarvest: false });
-        } catch (err) {
-          ctx.log?.('warn', `mineBlocks: equip failed for ${block} at ${key}: ${err.message}`);
+        const preDigBlock = bot.blockAt(targetPos);
+        if (preDigBlock) {
+          try {
+            await bot.tool.equipForBlock(preDigBlock, { requireHarvest: false });
+          } catch (err) {
+            ctx.log?.('warn', `mineBlocks: equip failed for ${block} at ${key}: ${err.message}`);
+          }
         }
 
         const freshBlock = bot.blockAt(targetPos);
@@ -832,6 +1064,14 @@ export async function mineBlocks(bot, opts = {}, ctx = {}) {
 
     mined.push(watchdog.result.minedPos);
     collectedAll.push(...(watchdog.result.collected || []));
+
+    // (2b) Vein finished — sweep any drops still lying around this pocket
+    // BEFORE walking off toward the next (possibly distant) vein, so a slow
+    // drop doesn't get abandoned mid-hop.
+    if (currentVein.length === 0) {
+      const { collected: veinSweep } = await collectNear(bot, ctx, 6).catch(() => ({ collected: [] }));
+      collectedAll.push(...veinSweep);
+    }
   }
 
   // (8) End-of-task late-drop sweep — leaf/ore decay drops can lag.
@@ -1017,6 +1257,15 @@ async function gotoChestBlock(bot, pos, ctx) {
   return block;
 }
 
+// (6) COUNT SUPPORT — `items` may still be a plain array of name strings
+// (deposit/withdraw everything of that name — the original, unchanged
+// behavior), or entries may be `{name, count}` to move only part of a
+// stack. Mixed arrays work too. Normalizes both shapes to {name, count},
+// count undefined meaning "all of it".
+function normalizeItemSpecs(items) {
+  return items.map((it) => (typeof it === 'string' ? { name: it, count: undefined } : it));
+}
+
 export async function depositToChest(bot, opts = {}, ctx = {}) {
   const pos = opts.pos;
   const items = opts.items;
@@ -1027,10 +1276,10 @@ export async function depositToChest(bot, opts = {}, ctx = {}) {
   const win = await bot.openChest(chestBlock);
   const deposited = [];
   try {
-    const wanted =
-      items && items.length
-        ? bot.inventory.items().filter((it) => items.includes(it.name))
-        : bot.inventory.items().filter((it) => !isToolLike(it.name));
+    const specs = items && items.length ? normalizeItemSpecs(items) : null;
+    const wanted = specs
+      ? bot.inventory.items().filter((it) => specs.some((s) => s.name === it.name))
+      : bot.inventory.items().filter((it) => !isToolLike(it.name));
 
     const merged = new Map();
     for (const it of wanted) {
@@ -1040,9 +1289,15 @@ export async function depositToChest(bot, opts = {}, ctx = {}) {
       merged.set(k, cur);
     }
     for (const it of merged.values()) {
+      // (6) A count on the matching spec caps how much of this stack moves;
+      // no spec (bare deposit-everything call) or no count on it means the
+      // full merged stack, same as before.
+      const spec = specs?.find((s) => s.name === it.name);
+      const toDeposit = typeof spec?.count === 'number' ? Math.min(spec.count, it.count) : it.count;
+      if (toDeposit <= 0) continue;
       try {
-        await win.deposit(it.type, it.metadata ?? null, it.count);
-        deposited.push({ name: it.name, count: it.count });
+        await win.deposit(it.type, it.metadata ?? null, toDeposit);
+        deposited.push({ name: it.name, count: toDeposit });
       } catch (err) {
         ctx.log?.('warn', `depositToChest: failed to deposit ${it.name}: ${err.message}`);
       }
@@ -1069,13 +1324,19 @@ export async function withdrawFromChest(bot, opts = {}, ctx = {}) {
   const withdrawn = [];
   try {
     const contents = win.containerItems();
-    for (const name of items) {
+    const specs = normalizeItemSpecs(items);
+    for (const spec of specs) {
+      const name = spec.name;
       const matches = contents.filter((it) => it.name === name);
       if (matches.length === 0) {
         ctx.log?.('warn', `withdrawFromChest: ${name} not found in chest`);
         continue;
       }
-      const total = matches.reduce((sum, it) => sum + it.count, 0);
+      const available = matches.reduce((sum, it) => sum + it.count, 0);
+      // (6) A count on the spec caps how much comes out; no count (bare
+      // name string, original behavior) withdraws everything found.
+      const total = typeof spec.count === 'number' ? Math.min(spec.count, available) : available;
+      if (total <= 0) continue;
       const { type, metadata } = matches[0];
       try {
         await win.withdraw(type, metadata ?? null, total);
@@ -1648,6 +1909,46 @@ export async function recoverKit(bot, opts = {}, ctx = {}) {
   if (!deathPos || typeof deathPos.x !== 'number' || typeof deathPos.y !== 'number' || typeof deathPos.z !== 'number') {
     throw new Error('recoverKit: "deathPos" {x,y,z} is required');
   }
+
+  // (5b) DESPAWN GATE — dropped-item entities are gone ~5 minutes after
+  // death; sending the bot back in for kit that's already despawned is pure
+  // risk for zero reward. Accepts either opts.deathAtMs (epoch ms) or
+  // opts.deathTs (ISO string, matching runner.js's state.lastDeath.ts shape)
+  // — skip the whole recovery if either says the death is older than 4min.
+  const deathAtMs =
+    typeof opts.deathAtMs === 'number' ? opts.deathAtMs : typeof opts.deathTs === 'string' ? Date.parse(opts.deathTs) : NaN;
+  if (Number.isFinite(deathAtMs) && Date.now() - deathAtMs > 4 * 60 * 1000) {
+    ctx.log?.(
+      'warn',
+      `recoverKit: death at ${posKey(deathPos)} is ${Math.round((Date.now() - deathAtMs) / 1000)}s old (>4min) — drops have despawned, skipping`
+    );
+    return {
+      deathPos: toPlainPos(deathPos),
+      skipped: true,
+      reason: 'despawned',
+      reachedDeathPos: false,
+      staircased: false,
+      collected: [],
+      timedOut: false,
+    };
+  }
+
+  // (5c) NO-GO ZONES — never send the bot into a forbidden area to fetch its
+  // own kit; a death inside one is a write-off, not a retrieval job.
+  // Field-fatal without this: recoverKit walked a bot into FEL's base and
+  // cost 2 PvP deaths on top of the original one.
+  if (isInNoGoZone(deathPos, ctx)) {
+    return {
+      deathPos: toPlainPos(deathPos),
+      skipped: true,
+      reason: 'no-go zone',
+      reachedDeathPos: false,
+      staircased: false,
+      collected: [],
+      timedOut: false,
+    };
+  }
+
   const timeBudgetMs = opts.timeBudgetMs ?? 90000;
   const deadline = Date.now() + timeBudgetMs;
 
@@ -1661,6 +1962,28 @@ export async function recoverKit(bot, opts = {}, ctx = {}) {
 
   ctx.setDetail?.(`recoverKit: heading to death pos ${posKey(deathPos)}`);
   ctx.setTargetPos?.(deathPos);
+
+  // (5a) SURFACE-FIRST ROUTE — travel to the death x/z on the surface FIRST
+  // via GoalXZ (it doesn't care about y, so pathfinder naturally hugs
+  // walkable terrain instead of caring which shaft it's near), THEN descend
+  // via the staircase pattern once actually above the target. Reversed
+  // order (descend wherever the bot happened to be standing, then beeline
+  // underground toward the death pos) is what let a recovery run wander
+  // through unrelated terrain/bases on the way down.
+  try {
+    const remaining = deadline - Date.now();
+    await withDeadline(
+      gotoLoop(bot, new goals.GoalXZ(deathPos.x, deathPos.z), { timeoutMs: Math.min(remaining, 60000), maxAttempts: 3 }, ctx),
+      remaining
+    );
+  } catch (err) {
+    ctx.log?.('warn', `recoverKit: surface travel to death x/z failed: ${err.message}`);
+  }
+
+  if (Date.now() >= deadline) {
+    result.timedOut = true;
+    return result;
+  }
 
   // (5) SAFE DEPTH GATE, same rule as mineBlocks.
   const feetY = Math.floor(bot.entity.position.y);
@@ -1884,11 +2207,33 @@ export async function buildStaircase(bot, opts = {}, ctx = {}) {
   let steps = 0;
   let torchesPlaced = 0;
 
+  // (4) NET-DESCENT WATCHDOG — every 10 step-attempts, check the NET y-drop
+  // over that window. Real stepped excavation (dig the 2-high step, move
+  // onto it, repeat — already what the loop body below does) should easily
+  // clear 2y per 10 steps; less than that means something is dig-and-not-
+  // actually-descending (a blocked step-forward that keeps re-triggering the
+  // same dig, a sealed pocket, etc.) and grinding on is just burning pickaxe
+  // durability in place — field-fatal: 96 in-place steps burned a pickaxe
+  // with zero real progress. Abort loudly instead of continuing to grind.
+  let windowStartY = bot.entity.position.y;
+  let windowStartStep = 0;
+
   while (bot.entity.position.y > toY && steps < maxSteps) {
     if (ctx.isCancelled?.()) break;
     await checkHealthRetreat(bot, ctx);
     steps++;
     ctx.setDetail?.(`buildStaircase: step ${steps}, y=${Math.floor(bot.entity.position.y)} -> ${toY}`);
+
+    if (steps - windowStartStep >= 10) {
+      const netDrop = windowStartY - bot.entity.position.y;
+      if (netDrop < 2) {
+        throw new Error(
+          `buildStaircase: net-descent watchdog — only ${netDrop.toFixed(2)}y net drop over steps ${windowStartStep + 1}-${steps - 1} (aborting before more tool durability is burned in place)`
+        );
+      }
+      windowStartY = bot.entity.position.y;
+      windowStartStep = steps;
+    }
 
     const pos = bot.entity.position.floored();
     const frontHead = pos.offset(dir.x, 0, dir.z);

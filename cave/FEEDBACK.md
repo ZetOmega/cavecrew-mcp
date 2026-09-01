@@ -175,3 +175,110 @@ displacement. NEEDS FIX before Grog runs the real grand staircase (TODO
 #5) — same bug will burn his kit for zero depth too. Suggest: track net
 vertical delta vs step-attempts and abort with a clear error the moment
 net progress stalls, instead of counting attempted digs as "steps".
+
+## [open] goto false-"reached" + bot.craft(recipe, N>1) only does 1 iteration — Thak, 2026-09-01
+Two separate quirks hit back to back on a routine errand (fetch furnace,
+craft torches, all well within camp bounds):
+
+1. /goto reported {reached:true} multiple times in a row while
+   bot.entity.position (checked fresh via /eval right after) hadn't moved
+   at all, sometimes bit-identical down to the decimal. Confirmed genuine
+   — not a stale /status snapshot, eval read the live position directly.
+   Had real "no path to goal" pockets nearby too (confirmed separately by
+   ashfinder/pf both throwing that explicitly), so this may be the same
+   root pathing trouble surfacing as a false-success instead of a clean
+   failure sometimes. Ended up self-rescuing twice via manual eval
+   pillar-jump climbs (dig ceiling + place block underfoot while jumping)
+   through solid rock pockets with no path out, ~13 blocks vertical total
+   across two separate spots.
+
+2. bot.craft(recipe, N, table) with N>1 crafted exactly one iteration
+   (correct delta: -1 coal, -1 stick, +4 torch) then threw
+   "Error: missing ingredient" on the very next iteration despite tons of
+   both materials left (confirmed via fresh inventory read same tick).
+   Reproduced 2x with different batch sizes. Workaround: loop
+   bot.craft(recipe, 1, table) one at a time, calling
+   bot.recipesFor(...) fresh before each single craft rather than reusing
+   the recipe object or count param — that ran clean for 20+ iterations
+   straight to make 100 torches. Suggests the recipe object mineflayer
+   hands back may not be safe to reuse across multiple internal craft
+   ticks, or count>1 miscounts available ingredients after the first
+   round-trip.
+
+## [open] broken crafting_table sometimes drops nothing — Thak, 2026-09-01
+Placed my own held crafting_table twice to have a workbench mid-errand
+(camp tables were both gone from an earlier canDig incident), used it,
+then broke it with an axe/pickaxe in hand each time to take it back.
+Both times: block confirmed gone (blockAt returns air right after), but
+no item entity ever appeared nearby (checked bot.entities for item drops
+within a few blocks, empty both times) and a /collect sweep found
+nothing. Lost 2 real crafting_table items this way with nothing to show
+for it — normal vanilla behavior is a guaranteed drop on any tool. No
+repro steps beyond "place, use, break" — happened identically twice in a
+row on the same bot/session, so leaning toward a real bug rather than a
+one-off despawn race, but sample size is only 2.
+
+## [shipped] table pocket-craft restoration worked — confirms two fixes — Thak, 2026-09-01
+Team-lead's pocket-craft protocol worked clean on first try: 1 oak_log ->
+4 oak_planks (single craft, exact diff), 4 planks -> 1 crafting_table
+(single craft, exact diff). No void either time — confirms the earlier
+"bot.craft(recipe,N>1)" bug is specifically a batch-count problem; single
+iterations are safe.
+
+Also confirms a placeBlock fix: placed the new table back at canonical
+(12,89,56), which needed 2 floor blocks rebuilt too (dirt at y87/88, hole
+left over from an earlier tunnel mishap). Standing directly in the target
+column and referencing the block straight down from my own feet (face up)
+is what kept timing out all session ("Event blockUpdate did not fire").
+Switched to: stand one block to the SIDE of the target column, reference
+the block one-down-and-beside, face up — all 3 placements (dirt, dirt,
+crafting_table) went through instantly, zero timeouts, zero retries.
+Recommend this as the default placeBlock pattern in skills.js: side-stand
++ side-reference, not self-referencing-straight-down.
+
+## [open] 3-signature stuck-in-place taxonomy — Bonk, 2026-09-01
+Hit all three flavors of "bot won't move" in one session on the same path
+build, each needing a DIFFERENT fix — worth telling apart before reaching
+for any single cure:
+
+1. TORN-GOTO: goto resolves {reached:true} instantly, bot.pathfinder never
+   engages (isMoving/isMining both false, controlState:{} checked right
+   after) — caused by a runner blink loading mid-edit on movement.js
+   (torn code snapshot, same class as the original torn-boot bug). No
+   amount of retrying fixes this; needs the clean blink to land. Confirmed
+   by team-lead's diagnosis.
+
+2. FULL-WEDGE: position stays byte-identical through EVERYTHING — goto,
+   raw setControlState jump/forward, all of it (moved:0 exact). This is
+   the bot's own client-physics frozen, not a pathing problem. Confirmed
+   fix (2/2 so far, Thak + Bonk): needs BOTH a teleport AND a hard runner
+   restart — restart alone doesn't clear it, matches the earlier "survives
+   /relog" entry above.
+
+3. STEP-SNAG: goto fails/stalls on one specific short hop, but raw manual
+   movement (setControlState forward, or forward+jump) DOES produce real
+   partial displacement (not zero) — just slow/inconsistent, sometimes
+   needing several repeated bursts. Two different root causes hit this
+   session, both masquerading identically:
+   - A REAL block obstruction (self-built tread stacked directly above
+     another tread, blocking headroom for the lower one — a build mistake,
+     not an engine bug). Fix: verify actual current blockAt state fresh
+     (topY scans done before walking close can be stale — see the
+     already-logged stale-chunk entry) and rebuild the step with correct
+     spacing, or as team-lead suggested: break + horizontal-reference
+     re-place the tread (matches Thak's placeBlock fix above, 3rd
+     confirmation of that pattern).
+   - Another bot's entity physically standing in a narrow (1-2 wide) path
+     tile. blockAt sees nothing wrong (entities aren't blocks); the fix is
+     checking Object.values(bot.entities) for anything within ~1 block of
+     the stuck position, not touching the terrain at all. Only spotted
+     after exhausting every geometry-based fix — should be the FIRST check
+     for any step-snag, cheaper than rebuilding anything.
+
+Diagnostic order for future stuck-in-place reports: (a) check nearby
+entities first (cheap, rules out the collision case entirely), (b) raw
+setControlState jump/forward test — zero displacement = full-wedge
+(escalate for tp+restart), nonzero/inconsistent = step-snag (rebuild the
+tread or route around), (c) if goto claims reached:true with zero
+displacement AND raw control also does nothing, check whether this
+follows a recent blink — that's torn-goto, just wait for the clean one.

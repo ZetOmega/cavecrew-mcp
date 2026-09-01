@@ -278,3 +278,181 @@ come in under 2 GB each after a real mining session.
 4. `msg` vs `.` alias behavior in HMC 2.10.0 console.
 5. Real working-set RSS after 30 min of `#mine` (updates part-6 table).
 6. Log rotation: does a `/relog` rotate latest.log (tail must reopen).
+
+---
+
+## Upstream status 2026-09-01
+
+Research pass (gh CLI, no installs/launches) into the two blockers hit trying
+to bring PATH 1 up on HMC 2.10.0 / MC 1.21.11: (1) `-lwjgl` render patch hangs
+forever pre-title-screen after spamming "Found unknown and unsupported uniform
+in minecraft:blur/0" through "blur/5"; (2) hmc-specifics' JLine console
+misbehaves when stdio is a plain pipe (no TTY), as the wrapper needs.
+
+### Blocker 1 — `-lwjgl` render hang on blur uniforms
+
+Root cause, near-certain: the exact string "Found unknown and unsupported
+uniform" is **vanilla Mojang code**, not a headlessmc string — confirmed by
+grepping public 1.21.11 decompile mirrors, it lives in
+`com.mojang.blaze3d.opengl.GlProgram`. On a real GPU this line is a harmless,
+non-fatal WARN. The hang is a HeadlessMc-side consequence: `-lwjgl` works by
+bytecode-redirecting LWJGL/GL calls to fake return values instead of talking
+to a real GPU (`headlessmc-lwjgl/.../redirections/LwjglRedirections.java`),
+and that emulation layer is incomplete for the newer RenderPipeline/GPU-device
+abstraction Mojang shipped around 1.21.9-1.21.11 and is still shipping today
+(Mojang has since moved to calendar version numbers — 26.1, 26.1.1, 26.2 all
+come chronologically *after* 1.21.11 in this same codebase's version list).
+
+Evidence the maintainers are actively chasing this exact surface, release by
+release:
+- **2.9.0** (2026-04-04): [PR #407](https://github.com/headlesshq/headlessmc/pull/407)
+  "fix(1.21.11): Fix crash" — fixed `MemoryUtil;memSlice`, which had literally
+  been stubbed to always `return null` ("TODO... null is fairly safe rn"),
+  causing the 1.21.11 boot NPE in
+  [issue #388](https://github.com/headlesshq/headlessmc/issues/388).
+  Sibling [PR #406](https://github.com/headlesshq/headlessmc/pull/406) fixed
+  the same-shaped 1.21.10 crash,
+  [issue #389](https://github.com/headlesshq/headlessmc/issues/389).
+- **2.10.0** (2026-07-13): [PR #426](https://github.com/headlesshq/headlessmc/pull/426)
+  "fix(26.2): Fixed lwjgl headless launching for 26.2" — fixed `DeviceLimits`/
+  `GPUDevices` emulation gaps for the version right after 1.21.11.
+- 1.21.11's own build support was gated on
+  [headlesshq/mc-runtime-test#116](https://github.com/headlesshq/mc-runtime-test/issues/116)
+  (unimined tooling), closed 2026-04-04 — separate from the runtime bugs above.
+- No release newer than 2.10.0 exists; commits on `main` since the 2.10.0 tag
+  are chore-only (logo, CI) — nothing queued that would fix this.
+- Exhaustive search (issues/PRs/commits/discussions/code-search, org-wide) for
+  "blur" or "uniform" turns up **nothing** else — the only unrelated hit is
+  `hmc.lwjgl.uniformoffsetalignment` (`GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT`,
+  a buffer-alignment constant, not the blur pipeline's uniform names). **This
+  exact hang is unreported upstream as of 2.10.0 / today.**
+- No LwjglProperties flag exists to selectively skip RenderPipeline/uniform
+  validation while staying in `-lwjgl` mode. `hmc.lwjgl.ignore.classes`
+  exists but excluding a class from redirection while headless just crashes
+  it against a real GL call with no context — not a usable escape hatch.
+
+**Workaround that should fix it today: stop using `-lwjgl`.** HeadlessMc's
+own README says outright: "You can also achieve headless mode without
+patching lwjgl by running headlessmc with a virtual framebuffer like Xvfb."
+More to the point for us: BariBrute's host is a normal Windows desktop with a
+real GPU and display, not a headless VM — there is no rendering gap to paper
+over in the first place. Launching fabric 1.21.11 *without* `-lwjgl` uses
+real, unpatched LWJGL against the real GPU driver, so the blur-uniform WARN
+gets handled exactly as on any normal player client (logged once, harmless,
+game keeps rendering) because it never touches headlessmc's incomplete
+redirection layer at all.
+- hmc-specifics' console (`msg`, `connect`, `gui`, `click`) is confirmed to
+  work identically with or without `-lwjgl` — see maintainer replies in
+  [issue #230](https://github.com/headlesshq/headlessmc/issues/230) and
+  [issue #390](https://github.com/headlesshq/headlessmc/issues/390). Baritone
+  chat-command control (part 3 of this doc) is unaffected by dropping the
+  flag.
+- Trade-off: a real (small, minimizable) game window per bot instance, and a
+  sliver of real GPU/VRAM per client instead of zero. JVM heap budget in part
+  6 is unaffected (that's CPU RAM, not GPU).
+- If this stack ever moves to a true headless Linux box with no GPU at all,
+  the Linux-native equivalent is Xvfb + Mesa llvmpipe (software GL) in front
+  of an un-patched launch — a working docker recipe is in
+  [issue #249](https://github.com/headlesshq/headlessmc/issues/249) (needs
+  the `x11-xserver-utils` package per maintainer 3arthqu4ke, plus
+  `LIBGL_ALWAYS_SOFTWARE=1`). Not directly usable on bare Windows (no X11);
+  would need WSL2. Untested by this pass — field-verify separately if needed.
+- If dropping `-lwjgl` is rejected and true headless is a hard requirement:
+  this bucket is "fixable soon, not now" — file a new upstream issue with the
+  exact blur/uniform log lines + HMC 2.10.0 + MC 1.21.11 fabric. The
+  maintainers (okafke, 3arthqu4ke) have a strong track record on this exact
+  bug family — #388/#389 to merged fixes #406/#407 the same day.
+
+### Blocker 2 — JLine console over a plain pipe (no TTY)
+
+Confirmed root cause + confirmed fix, from
+[issue #390](https://github.com/headlesshq/headlessmc/issues/390)
+"Hmc-Specifics messes up command line" (non-interactive-shaped terminal,
+reporter on a Raspberry Pi): the maintainer's own prescribed and
+reporter-confirmed fix is setting **`hmc.jline.enabled=false`** in
+`HeadlessMC/config.properties` (also documented in the README's Termux
+section — "Disable JLine, as we could not get it to work on Termux for now").
+
+Caveat from that same thread: the reporter *also* had the deprecated
+`-commands` runtime flag active alongside hmc-specifics, which caused a
+separate "every second command works" flakiness. Maintainer's explicit
+guidance: never combine `-commands` with hmc-specifics — hmc-specifics alone
+is the console surface. PATH 1 in this doc already avoids `-commands` — stay
+that way.
+
+`headlessmc-jline/.../JLineProperties.java` exposes finer-grained flags no
+one in the tracker has field-tested for this exact scenario but which read as
+a more surgical fix than fully disabling JLine:
+- `hmc.jline.dumb.when.no.console=true` — auto-fall-back to JLine's
+  dumb-terminal mode only when no real console/TTY is detected (exactly our
+  "wrapper pipes stdio" case), keeping normal JLine behavior everywhere else.
+- `hmc.jline.dumb=true` — force dumb mode unconditionally, the blunter
+  version of the above.
+
+No mention anywhere in the org (issues, discussions, code) of node-pty or
+ConPTY wrapping — that is **not** a known/documented HMC pattern. The
+maintainer-endorsed route is purely the config-property route above; no
+reason to stand up a pty shim.
+
+**Recommended order:** try `hmc.jline.dumb.when.no.console=true` first
+(least invasive); fall back to `hmc.jline.enabled=false` (the confirmed fix
+from #390) if commands still misbehave over the wrapper's plain pipe.
+
+### Alternatives sanity check
+
+- **Automatone** ([Ladysnake/Automatone](https://github.com/Ladysnake/Automatone),
+  active, last updated 2026-07-10) — confirmed dead end for this stack, as
+  suspected. It's a **server-side Fabric mod**: you attach Baritone pathing to
+  any entity via a Java `EntityComponentFactory` registered server-side
+  (`BaritoneAPI.getProvider().getBaritone(entity)`), driven entirely by
+  in-process Java API calls. There is no protocol-level or console/chat
+  control surface at all — mineflayer (an external protocol client) has
+  nothing to hook into. Not usable, full stop.
+- No other maintained "real headless Java client + baritone" project exists
+  for 1.21.x besides HeadlessMc + hmc-specifics + official Baritone (PATH 1,
+  already chosen). Official Baritone itself is healthy and current:
+  [cabaletta/baritone releases](https://github.com/cabaletta/baritone/releases)
+  show v1.16.0 (1.21.9/1.21.10), **v1.17.0 (1.21.11 — ours)**, v1.18.0 (26.1),
+  v1.19.0 (26.2) — all four pushed 2026-08-31, one release per MC version,
+  no drama.
+- `Nevarielle/baritone-1.21.11` (community fork) still exists but is now
+  redundant — official v1.17.0 covers 1.21.11 directly. Matches this doc's
+  existing "obsolete — skip" call, no change needed.
+
+### Verdict
+
+- **Blocker 1 (render hang): fixable now, not via any HMC flag/release, but
+  via a launch-config change — drop `-lwjgl`, run BariBrute's client with a
+  real (minimized) window on the real GPU.** This sidesteps HeadlessMc's
+  incomplete RenderPipeline/uniform emulation, the near-certain cause, which
+  is not fixed or even filed upstream for the blur pipeline specifically
+  (2.9.0/2.10.0 only fixed the neighboring memSlice-NPE and 26.2 DeviceLimits
+  gaps). If a fully invisible process is a hard requirement, this drops to
+  "fixable soon" — file upstream and wait; track record is good but nothing
+  to point to yet.
+- **Blocker 2 (JLine over plain pipe): fixable now** via config property, no
+  pty wrapper needed — `hmc.jline.dumb.when.no.console=true` first, else the
+  confirmed `hmc.jline.enabled=false` from issue #390. Keep never using
+  `-commands` alongside hmc-specifics.
+- **Alternatives: no change to PATH 1.** Automatone is confirmed unusable
+  (server-side Java-API-only, no external-bot hook); official Baritone
+  v1.17.0 for 1.21.11 remains current and healthy.
+
+### Exact next actions
+
+1. Drop `-lwjgl` from the `launch fabric:1.21.11 ...` line in parts 2 and 4.
+   Keep `-offline`. Add a small window size and OS-level minimize/off-screen
+   placement in the wrapper's boot sequence in place of the render patch.
+2. Add `hmc.jline.dumb.when.no.console=true` to HMC's `config.properties` (or
+   as a launch `-D` JVM arg). Only if console commands still misbehave over
+   the wrapper's stdio pipe, switch to `hmc.jline.enabled=false` instead.
+3. Do not add `-commands` anywhere — hmc-specifics alone is the console
+   surface (maintainer guidance, issue #390).
+4. If `-lwjgl` is ever required again (e.g. a true headless Linux box with no
+   GPU), come back to this section and pursue Xvfb + Mesa llvmpipe per the
+   docker recipe in issue #249 — untested by this pass, field-verify
+   separately.
+5. Optional, only if committed to keeping true `-lwjgl` headless long-term:
+   file a new issue on headlesshq/headlessmc with the exact blur/uniform log
+   excerpt + HMC 2.10.0 + MC 1.21.11 fabric, citing the memSlice/DeviceLimits
+   precedent in this section to speed triage.
