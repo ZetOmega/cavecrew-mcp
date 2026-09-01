@@ -300,3 +300,7 @@ Prompt text (reflection):
 ---
 
 longer term idea, move base to 252 94 131 ish, that area in the plains next to village maybe?
+
+---
+
+ich hab kein anthropic key, das muss dann tatsächlich viadeepseek laufen, key dazu ist in 1password. allerdings da api ksoten, hier nur claude abo, also nur nutzen wo muss, aber gerne deepseek direkt die api nutzen mit flash v4
