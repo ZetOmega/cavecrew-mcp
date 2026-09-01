@@ -18,6 +18,10 @@ pids/
 # Per-bot death ledgers (cave/deaths/<name>.json)
 deaths/
 
+# Per-bot machine-readable DEPOT ledgers (cave/ledger/<name>.jsonl) —
+# runtime-generated, per-machine, same as logs/pids/deaths above.
+ledger/
+
 # Audit tool's last-run chest snapshot (cave/audit.mjs) — machine/session
 # local runtime state, not a durable record; the diff it prints/logs each
 # run is the thing worth keeping, not the raw snapshot itself.

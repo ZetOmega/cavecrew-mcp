@@ -133,6 +133,40 @@ function getRconChat() {
 // "!" branch — check before ever calling bot.chat.
 const DECHAT_PREFIXES = /^(TRADE |USING |FREE |LEASE-BREAK |BASE |CLAIM |HELLO |OFFER |DEPOT )/;
 
+// MACHINE-READABLE DEPOT LEDGER (foundation-grade, team-lead 2026-09-01) —
+// DEPOT lines live only in the Discord feed since the de-chat decree;
+// scoreboard.mjs's old chat-scrape is dead (nothing left to scrape), and
+// audit.mjs only diffs point-in-time snapshots, it has no record of FLOW.
+// One primitive fixes all three: every DEPOT-shaped line that passes
+// through announce()'s status branch (the single choke point ALL DEPOT
+// lines funnel through — DECHAT_PREFIXES forces any style down to
+// 'status' first, so a fancy/rainbow DEPOT line still lands here) also
+// gets appended as one JSON line to cave/ledger/<BotName>.jsonl.
+//
+// DEPOT_TRIGGER_RE decides "is this DEPOT-shaped at all" (loose — matches
+// the FEEDBACK.md-documented DEPOT ledger prefix); DEPOT_PARSE_RE extracts
+// the exact DRIVER_GUIDE.md format (`DEPOT +N item (chest X)` /
+// `DEPOT -N item (chest X)`). A trigger-match that fails the stricter
+// parse still gets logged — {ts, bot, raw, parsed:false} — never silently
+// dropped, per the file's own "never unexplained again" standard.
+const DEPOT_TRIGGER_RE = /^DEPOT [+-]\d+ /;
+const DEPOT_PARSE_RE = /^DEPOT ([+-]\d+) (\S+) \(([^)]+)\)$/;
+
+function appendLedgerLine(text) {
+  const raw = String(text);
+  if (!DEPOT_TRIGGER_RE.test(raw)) return;
+  const ts = new Date().toISOString();
+  const m = DEPOT_PARSE_RE.exec(raw);
+  const entry = m
+    ? { ts, bot: name, delta: parseInt(m[1], 10), item: m[2], chest: m[3], raw }
+    : { ts, bot: name, raw, parsed: false };
+  try {
+    fs.appendFileSync(ledgerFilePath, JSON.stringify(entry) + '\n');
+  } catch (err) {
+    logLine('warn', `ledger append failed: ${err?.message ?? err}`);
+  }
+}
+
 // announce(style, text) — style: 'status' (grey, default for routine lines),
 // 'fancy', or 'rainbow'. Always resolves, never throws: an rconchat failure
 // (no local.json, RCON down, a bad send) falls back to bot.chat with the
@@ -156,6 +190,11 @@ async function announce(style, text) {
   // not routine narration. No webhook configured (current default state) ->
   // falls straight through to the existing tellraw-grey path.
   if (style === 'status') {
+    // Ledger write happens unconditionally here, before the Discord/log
+    // dispatch below and regardless of whether it succeeds — this is the
+    // one place EVERY DEPOT-shaped status line passes through exactly
+    // once, so it's the right (and only) place to hook the append.
+    appendLedgerLine(text);
     // CHAT-SILENCE HARDENING (chief decree v2, 2026-09-01): routine status
     // NEVER touches the game — not as white chat, not as tellraw grey. It
     // goes to the Discord status feed when configured, otherwise only to the
@@ -284,12 +323,15 @@ const CAVE_DIR = __dirname;
 const LOG_DIR = path.join(CAVE_DIR, 'logs');
 const PID_DIR = path.join(CAVE_DIR, 'pids');
 const DEATHS_DIR = path.join(CAVE_DIR, 'deaths');
+const LEDGER_DIR = path.join(CAVE_DIR, 'ledger');
 fs.mkdirSync(LOG_DIR, { recursive: true });
 fs.mkdirSync(PID_DIR, { recursive: true });
 fs.mkdirSync(DEATHS_DIR, { recursive: true });
+fs.mkdirSync(LEDGER_DIR, { recursive: true });
 
 const logFilePath = path.join(LOG_DIR, `${name}.log`);
 const pidFilePath = path.join(PID_DIR, `${name}.json`);
+const ledgerFilePath = path.join(LEDGER_DIR, `${name}.jsonl`);
 
 function logLine(level, msg) {
   const line = `[${new Date().toISOString()}] ${String(level).toUpperCase()} ${msg}`;
