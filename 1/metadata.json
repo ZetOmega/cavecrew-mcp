@@ -1,0 +1,74 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "01M1EH80XCPVFZMKXQ4MGYAD5H",
+  "session_id": "7992c114-e9b3-4ed9-984d-93f64f08e2fd",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-01T13:06:29.374484004Z",
+  "branch": "main",
+  "checkpoints_count": 2,
+  "save_step_count": 2,
+  "files_touched": [
+    "cave/CIV.md",
+    "cave/TODO.md",
+    "cave/schematics/convert-v3-to-v2.mjs",
+    "cave/schematics/github_samurai-house.schem",
+    "cave/schematics/github_samurai-house.v3-original.schem",
+    "cave/schematics/github_v2_house.schem",
+    "cave/schematics/sites_classic-village-house.schem",
+    "cave/schematics/sites_classic-village-house.v3-original.schem",
+    "cave/schematics/sites_cozy-cabin.schem",
+    "cave/schematics/sites_cozy-cabin.v3-original.schem",
+    "cave/schematics/sites_rustic-farmhouse.schem",
+    "cave/schematics/sites_rustic-farmhouse.v3-original.schem"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-5",
+  "turn_id": "ba204577ff38",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 1182,
+    "cache_creation_tokens": 622185,
+    "cache_read_tokens": 166905916,
+    "output_tokens": 149745,
+    "api_call_count": 591
+  },
+  "session_metrics": {
+    "turn_count": 3
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-01T13:06:29.207453997Z",
+    "agent_lines": 136,
+    "agent_removed": 5,
+    "human_added": 2,
+    "human_modified": 2,
+    "human_removed": 0,
+    "total_committed": 140,
+    "total_lines_changed": 145,
+    "agent_percentage": 97.24137931034483,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 17,
+      "user_lines_removed": 2,
+      "agent_lines_added": 203,
+      "agent_lines_removed": 25,
+      "user_added_per_file": {
+        "cave/goals.json": 4,
+        "cave/panel-data.mjs": 13
+      },
+      "user_removed_per_file": {
+        "cave/goals.json": 1,
+        "cave/panel-data.mjs": 1
+      }
+    }
+  ]
+}
