@@ -185,6 +185,12 @@ spread, not a surveyed plan.
 
 ## Goal ladder
 
+> Not the same thing as the overseer's **goal engine** (`cave/goals.json`)
+> — that's per-bot auto-dispatch for idle bots (iron chain, torch
+> crafting, cobble mining, tool re-kit), tried before the old role-default
+> rotation. See DRIVER_GUIDE.md's "Goal-directed idle" section for what it
+> means for you as a driver.
+
 Progress the tribe as a whole, in order:
 
 1. **Wood age** — punch/chop starter wood, craft a crafting table and

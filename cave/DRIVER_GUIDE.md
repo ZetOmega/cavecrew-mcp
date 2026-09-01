@@ -200,6 +200,59 @@ back". Keep lines short.
   line through `/chat` exactly as documented, unchanged format; only the
   destination moved, same as DEPOT already did.
 
+## Goal-directed idle (overseer)
+
+Since 2026-09-01, an idle bot (no running task for 120s+) may get more than
+the old per-bot role-default rotation — the overseer now tries
+`cave/goals.json` first: a curator-edited list of small, self-contained
+jobs (smelt iron, craft a torch, mine cobble, branch-mine deep iron,
+re-kit a worn pickaxe) plus a couple of always-on deficit checks (a wood
+buffer chop while logs run low). It picks the highest-priority goal your
+bot is currently eligible for — right tools/materials on hand, right zone,
+pick durability above the goal's floor — claims it, and fires it through
+the exact same endpoint you'd call yourself (`/chop`, `/mine`,
+`/branchmine`, `/smelt`, `/craft`, `/ensureTool`). If nothing in
+`goals.json` is eligible, the bot falls back to its old role default
+exactly as before.
+
+- **One-commander still holds.** The engine only ever fires on a bot with
+  **no running task**, and it never sends `force`. If you're actively
+  driving a bot, it is never touched — same guarantee as the old
+  role-default fallback, just a smarter fallback now.
+- **Miners are no longer exempt.** The old blanket "no auto-mine" for
+  Thak/Durk/Mog only ever lived in the role-default rotation. The goal
+  engine has no per-bot exclusion, so any bot — miners included — can now
+  auto-receive a dig-shaped goal (`mine`/`branchmine`) the instant it's
+  idle and eligible. This is a deliberate 2026-09-01 policy lift, not a
+  bug: see `overseer.mjs`'s header comment for the root-cause fixes that
+  made it safe (canDig:false, mine zone filter, branch-mine corridor
+  safety) — the engine adds no new safety logic of its own, it only ever
+  calls the same endpoints you do, which still run every dig-law check a
+  driver-issued call would.
+- **What you'll see on `/status`.** `currentTask.kind` will match one of
+  `goals.json`'s `kind` values, same shape as if you'd called it
+  yourself. `currentTask.source` is **not** a reliable tell — engine-fired
+  tasks don't set it, so it reads the same unset/`http` value a plain
+  driver call would (this predates the goal engine; the old role-default
+  and chore rotations never tagged a source either). The actual tell is
+  the **Discord status feed**: every engine fire posts a grey
+  `(overseer) idle→goal: <id>` line the moment it happens, and every fire
+  (any bot, any goal) is appended to `cave/goal-picks.jsonl` — timestamp,
+  bot, goal id, kind, priority, task id — a local, gitignored audit trail
+  if you need to check what the engine has been doing.
+- **Yielding it.** A goal-engine task in progress is not special — treat
+  it exactly like a running role-default. Want the bot for something
+  else right now? `POST /stop` (the engine notices next tick and releases
+  its claim, same as any abandoned task) or send your own task with
+  `"force": true` to preempt it outright. You never need to ask
+  permission or wait for the engine to "give it back" — the instant you
+  act, one-commander is yours again.
+- **You don't edit `goals.json` yourself** unless the team-lead asks —
+  it's curator-maintained (priorities, `requires` clauses, which goals are
+  even active). If a goal fires with a bad body or against a zone it
+  shouldn't, report it per the Escalation rule rather than hand-editing
+  the file mid-session.
+
 ## DEPOT ledger
 
 Once cavecrew has its own chests (goal ladder step 6 in `CIV.md`), every
