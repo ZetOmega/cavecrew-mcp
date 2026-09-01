@@ -223,7 +223,10 @@ guaranteed), then table→sticks→axe. Watchdog worked perfectly here (loud
 fail instead of eternal running). Supersedes/refines the "chopTrees dies
 with stalled" entry below.
 
-## [open] chopTrees dies with "stalled" mid-tree, no auto-retry — UngaBunga, 2026-09-01
+## [shipped] chopTrees dies with "stalled" mid-tree, no auto-retry — UngaBunga, 2026-09-01
+SHIPPED: skills.js chopTrees (~1371-1380) skips just the stalled tree and
+moves to the next candidate; only 3 CONSECUTIVE stalls fail the task, any
+successful tree in between resets the counter. Matches the suggested fix.
 /chop task failed outright with result.error:"stalled" while at "chopping
 tree 1/12" (south wood zone, z=109, well clear of camp). Bot did not
 recover on its own; sat at idle-guard cycling with zero logs gained until
@@ -780,7 +783,10 @@ same fix as Ook's entry: a one-time sweep/overseer check for any bot
 sitting in a pre-fix pocket, since it's now hit 2/2 bots that had a
 goto route pass through the vulnerable window.
 
-## [open] pointed_dripstone wedges bot, not in NUISANCE_BLOCKS self-clear set — Krug/TestRock, 2026-09-01
+## [shipped] pointed_dripstone wedges bot, not in NUISANCE_BLOCKS self-clear set — Krug/TestRock, 2026-09-01
+SHIPPED: skills.js:123 NUISANCE_BLOCKS already includes pointed_dripstone.
+(Missed this one in the earlier doc pass despite having it on my checked
+list — correcting now.)
 TestRock full-wedged at (18.9,102,120.9) in the dripstone ravine belt:
 pointed_dripstone occupied BOTH his feet and head tiles, raw look-wake
 forward+jump burst = moved 0.000 (real collision box, real wedge — the
@@ -845,7 +851,9 @@ Suggest: whoever owns BASE.md next should re-verify chest A by ground-truth bloc
 the registry, and consider a canDig:false / no-dig-near-furniture regression check across all camp
 chests, not just A.
 
-## [open] chopTrees camp-quarantine (radius 60) blocks the planted grove too, not just structures — UngaBunga, 2026-09-01 08:57
+## [shipped] chopTrees camp-quarantine (radius 60) blocks the planted grove too, not just structures — UngaBunga, 2026-09-01 08:57
+SHIPPED: commit 54168da (GROVE FIX) — grove_1 zone in zones.json +
+isInGroveZone() carve-out in the camp-quarantine check (skills.js).
 /chop {"count":4,"maxDistance":48} from camp (10.5,89,56.5) finished "done" with chopped:0,
 trees:[], collected:[] — /events showed EVERY single candidate position it considered (~30,
 tight box x9-19,z52-60,y89-97, all real oak_log blocks — camp's own log pillars/lamp posts)
@@ -1045,6 +1053,31 @@ session for other chest reads too (not just these two), so any of my earlier "ch
 numbers in this log or in BASE.md should be treated as possibly a single-stack undercount rather
 than gospel until re-verified by audit.mjs.
 
+## [open] A/B TEST RESULT: new crop-blocksToAvoid PASSES for /goto+pf, but /collect still tramples farmland — Zug, 2026-09-01 10:52
+Requested test: does the new pathfinder crop-avoidance (wheat/carrots/potatoes/beetroots added to
+blocksToAvoid) stop a goto whose straight-line target crosses farm_1? PASS, cleanly: forced
+`engine:"pf"` from (9,89,62) to chest C (16,89,54) — dead straight line goes right through the
+z58-61 plot — and the bot instead arced wide east out to (22.3,93,58.5) before curving back,
+verified zero tiles reverted afterward across all 17. Good fix, holds up under a real test.
+
+BUT: immediately after, using `/collect {"radius":6}` to sweep drops from a harvest 2 tiles away
+walked the bot straight onto tile (7,59) — a live, actively-growing (age 2) crop we hadn't even
+touched this cycle — and trampled it to bare dirt, crop destroyed outright (not even a seed
+recovered, since it wasn't ripe). `/collect`'s internal movement apparently isn't wired to the same
+blocksToAvoid list `/goto` now respects — same trample mechanic as the original camp-door incident
+and the goto-tramples entry above, just a THIRD trigger vector now (own footsteps during harvest →
+fixed by discipline; goto passing through → just fixed by blocksToAvoid; /collect's own pathing →
+still open). Recovered same session: re-hoed + replanted (7,59), reverified age:0.
+
+Fix needed: whatever movements config gained blocksToAvoid for goto should also apply to
+collectDrops' internal pathfinder instance (skills.js), not just the driver-facing /goto endpoint —
+they're presumably separate Movements objects. Until that lands: DON'T use `/collect` near a farm
+plot to sweep harvest drops — stayed off /collect for the rest of this session's harvest and instead
+just let passive proximity pickup happen (worked partially — see the "wheat drops shared with nearby
+bots" note in the round-1 farm report; whatever isn't auto-picked up either lands on a nearby
+fleet-mate, who isn't a loss, or needs a manual reach-only nudge, never a /collect call, while
+working a farm plot.
+
 ## [open] bot.dig() gives a FALSE-SUCCESS "air" read when called via /eval from way outside reach — Zug, 2026-09-01
 Hand-rolling a wheat harvest via /eval (no dedicated /harvest skill exists, so this bypasses
 safeDig's reach law entirely — see skills.js REACH LAW comment, which already warns raw
@@ -1083,6 +1116,25 @@ through the plot for an unrelated reason. Until that lands: any driver routing *
 working *in*) a farm plot should sanity-check the goto's likely path or box a wide waypoint around
 it, and re-verify tile state after any travel task that passes near one.
 
+## [shipped] dig-law zones.json has no zone covering Thak's own mine field workstation — Thak, 2026-09-01
+SHIPPED: commit eedca25 added the mine_field surface-ore zone to zones.json.
+Dispatched surface-ore mission (TODO #1 iron for all): scanned x18-40,z58-80,y85-95 around Thak's
+own DRIVER_GUIDE.md workstation (24,90,64) — 0 iron_ore in that band (all iron is deep, y46-50,
+40+ below feet, 3 clusters at (25-26,49-50,66-67)/(38-39,47-48,59-60)/(23-24,46-47,77-79), logged
+for whoever plans the branchmine). Found 93 coal_ore + 13 copper_ore candidates in the surface
+band though. First `/mine coal_ore` call hard-failed: "coal_ore at 21,88,65 is outside dedicated
+mine zones (dig law) — nearest zone \"rescue_ramp\" (8,84,56)-(15,91,58), ~12 blocks away". Checked
+zones.json directly: only mine_stair (z54-60, Grog's live corridor, off-limits to me anyway this
+mission per anti-clump), mine_grid (y45-62 deep branchmine layer), rescue_ramp, test_yard — none
+cover Thak's assigned surface workstation at all. Not a flaky/retry bug, not bypassing via eval —
+per skills.js comment this is a deliberate chief decree (blink #2, 2026-09-01). Gap: the dig-law
+landed without a zone for every bot's own DRIVER_GUIDE.md workstation, so any surface-ore task
+outside mine_stair/mine_grid is now structurally impossible until zones.json gets a matching
+entry. Suggest a "mine_field" zone (e.g. x18-40,y83-95,z60-80, or tighter around the actual ore
+clusters found: coal x20-29,y85-89,z63-77 + copper x28-31,y89-91,z69-70). Reported to team-lead,
+holding at workstation with idle-guard off rather than grinding a blocked task or eval-bypassing
+the law.
+
 ## [shipped] ad-hoc driver chest reads mid-mission can misreport — audit.mjs is the ledger ground truth now — Engineer, 2026-09-01
 The "chest D 18->14 iron_ingot" and "logs 74->12 / torches 83->15" ledger-drain
 scare (see Grog's self-correction entry above, single-stack `.find()` read
@@ -1102,3 +1154,23 @@ f1a839e): /goto is fire-and-forget like every task endpoint (must poll
 /status, not assume the POST blocks until the walk finishes), and /eval's
 success shape is `{result: <return value>, task}` (was read at the wrong
 nesting level). Both confirmed fixed via 2 clean consecutive live runs.
+
+## [shipped] torch placeBlock verification bug: placed torches become "wall_torch", not "torch" — Grog, 2026-09-01 11:01
+GRAND STAIRCASE mission, lighting a freshly-carved bottom room: 5 straight torch placements all
+reported "failed" (blockUpdate timeout, my usual `check.name==="torch"` verify came back false)
+against a target cell that a moment later checked out as a REAL block anyway. Re-read the target
+cells fresh: every single one was actually `wall_torch`, not `torch` — the placement genuinely
+worked every time, my verification just checked the wrong block name and reported false failures.
+Wasted several extra torches re-attempting placements that had already succeeded (each "retry" on
+an already-filled cell either no-ops or throws, but doesn't consume real progress — just burns
+inventory count and time). Root cause: torch is one of a handful of vanilla items that resolve to
+a DIFFERENT block id depending on the face it's attached to — floor-standing = `torch`, attached
+to any vertical/side face = `wall_torch`. A verify script written as `blockAt(target).name===
+"torch"` will false-negative on every wall-mounted torch. Fix for any driver/skill verifying a
+torch placement: check `name==="torch" || name==="wall_torch"` (or just check `name!=="air"` and
+trust placeBlock's own resolved face), not a single hardcoded name. Distinct from the two other
+already-logged torch/placeBlock quirks this session (the NORTH lamppost torch that genuinely never
+landed, and the general placeBlock slow-confirm/false-timeout family) — this one is specifically a
+driver-side verification bug, not an engine bug, but worth flagging since it looks IDENTICAL to a
+real failure from the outside (blockUpdate timeout, target reads "not what I expected") until you
+check the actual resolved block name.
