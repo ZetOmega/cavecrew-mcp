@@ -206,6 +206,30 @@ async function smartChat(text) {
   await announce('status', msg);
 }
 
+// CHAT MIRROR (chief order): every line this bot actually SENDS to real MC
+// chat is also mirrored to a second Discord webhook — config key
+// discord.chatMirrorWebhookUrl in cave/local.json; key absent/placeholder ->
+// feature silently off. The existing discord.webhookUrl status feed is
+// untouched. Outbound-only by construction: this hooks the SEND side
+// (bot.chat), never chat events heard from others, so no FEL lines can ever
+// leak into the mirror. Wired by wrapping b.chat inside wireBot() — native
+// runner code re-applied on every (re)connect, unlike felcrew's /eval
+// monkeypatch that dies on relog — which catches every outbound path in one
+// place: smartChat's '!' and protocol branches, announce()'s fancy/rainbow
+// fallback, skills' bare-ctx fallbacks, and driver /eval chat. Best-effort
+// same as postStatus: a mirror failure logs a warn and never delays or
+// breaks the real chat send.
+function mirrorOutboundChat(text) {
+  const msg = String(text);
+  if (msg.startsWith('/')) return; // never mirror slash-commands
+  const cfg = getLocalConfig();
+  const url = cfg?.discord?.chatMirrorWebhookUrl;
+  if (typeof url !== 'string' || url.trim().length === 0 || url === 'CHANGE_ME') return;
+  postStatus({ botName: name, color: teamColor, text: msg, webhookUrl: url }).then((ok) => {
+    if (!ok) logLine('warn', `chat mirror post failed (best-effort, not retried): ${msg.slice(0, 80)}`);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // directories + logging (set up before anything else can throw)
 // ---------------------------------------------------------------------------
@@ -769,6 +793,18 @@ async function tryLoadOptionalAsync(b, label, fn) {
 }
 
 function wireBot(b) {
+  // CHAT MIRROR wrap — see mirrorOutboundChat above. Applied before anything
+  // else can hold a reference to b.chat, on every fresh bot instance.
+  const origChat = b.chat.bind(b);
+  b.chat = (msg) => {
+    try {
+      mirrorOutboundChat(msg);
+    } catch {
+      // the mirror must never break the real chat send
+    }
+    return origChat(msg);
+  };
+
   b.loadPlugin(pathfinderPkg.pathfinder);
   b.loadPlugin(toolPkg.plugin);
   b.loadPlugin(collectBlockPkg.plugin);
