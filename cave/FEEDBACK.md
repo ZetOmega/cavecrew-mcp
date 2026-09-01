@@ -1910,3 +1910,28 @@ clear of hazards) but would be a real problem for a goto that needs an exact arr
 Suggest: wrapper-side stuck-goto detection (N consecutive identical "No path found" lines with no
 position change → auto `/stop` + flag in `/status`, same pattern as the no-go watchdog) rather than
 relying on the driver to eyeball log repetition.
+
+## [shipped] BariBrute iron job real count resolved via server Ledger DB + role pivot to tunnel-borer — BariBrute/team-lead, 2026-09-01
+Follow-up to the "zero mine-count telemetry" entry above. Team-lead pulled BariBrute's actual haul
+manifest from the server's Ledger DB (every item pickup logged server-side, independent of Baritone
+chat): **0 iron_ore, 11 dirt, 9 pointed_dripstone, 97 pathing-digs** for the whole ~21 min /
+~790-block free-range mine job. Confirms the wrapper-log approach genuinely could not have reported
+a count (there was nothing to find in chat either way) — Ledger DB is the real workaround for "how
+many did it actually mine" until a wrapper `/inventory` endpoint exists. Root cause of the 0 iron
+(not a bug): `legitMine true` (permanent no-cheat law, part 5a settings) only ever targets VISIBLE
+ore — the 790-block wander was Baritone honestly chasing iron_ore candidates it could see from a
+distance/through gaps but could never actually path to (matches the repeated "Unable to find any
+path to ... blacklisting presumably unreachable closest instance" log lines from the live run). Not
+a wrapper failure or a Baritone bug — a real, correctly-enforced capability boundary: legit-mining
+alone is a bad fit for hunting buried ore that hasn't been exposed yet.
+
+**Resulting role pivot (team-lead call):** BariBrute's actual superpower per this data is
+`/tunnel` — deterministic corridor-digging that HONESTLY exposes ore (no visibility trick needed,
+since the corridor itself opens line-of-sight), after which mineflayer bots mine the exposed veins
+and haul. `/mine` free-range search stays available but is now understood as unsuitable for "find
+me buried ore" jobs specifically — fine for surface/near-surface/cave-exposed targets where
+legitMine's visibility requirement is naturally satisfied. Next BariBrute job: `/tunnel` access
+corridors toward known iron clusters (candidate: y49 from the staircase hub) rather than another
+open-ended `/mine` count job. Navigation/safety half of this session stands fully proven regardless
+(zero no-go breaches, y-clamp held, clean 790-block return, ground-truth confirmed at both ends) —
+this pivot is purely a task-shape lesson, not a wrapper-safety one.
