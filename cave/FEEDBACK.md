@@ -31,7 +31,7 @@ Set allowParkour=false, maxDropDown=3, allow1by1towers=false,
 allowSprinting=false, infiniteLiquidDropdownDistance=false, scafoldingBlocks=[].
 Also stops ugly self-built dirt towers on landscape.
 
-## [open] ledger lines must stay REAL white chat — FEL intel, 2026-09-01
+## [shipped] ledger lines must stay REAL white chat — FEL intel, 2026-09-01
 tellraw system msgs don't fire chat events — other bots parse DEPOT/TRADE/USING
 lines from real chat. Grey wiring must EXCLUDE protocol-prefixed lines
 (DEPOT |TRADE |USING |FREE |LEASE-BREAK |BASE |CLAIM |HELLO |OFFER ).
@@ -43,6 +43,18 @@ still enforced. Drivers keep sending DEPOT lines via /chat as before, format
 unchanged. Known consequence: cave/scoreboard.mjs parses "DEPOT " out of the
 server latest.log CHAT lines only, so its depot accounting goes silent until
 repointed at the new feed.
+UPDATE 2026-09-01 (chief decree, TOTAL DE-CHAT): this entry's original law —
+"ledger lines must stay REAL white chat" — is now SUPERSEDED, not just the
+DEPOT exemption above. Inter-tribe transport of protocol/ledger lines moved
+off public chat entirely to the claims registry + repo/Discord (coordination
+live in monkeorg/cavecrew-mcp#1); nothing outside the crew needs TRADE/USING/
+FREE/LEASE-BREAK/BASE/CLAIM/HELLO/OFFER off real chat anymore. runner.js's
+PROTOCOL_PREFIX constant is deleted (had no other reader); smartChat's
+protocol branch collapsed into the same announce('status') route DEPOT
+already used. Drivers keep sending every ledger line via /chat unchanged;
+only the destination moved, fleet-wide. Same scoreboard.mjs-style known
+consequence as DEPOT's: any tooling still grepping real chat for these
+prefixes goes silent until repointed at the Discord feed / claims registry.
 
 ## [open] health<8 panic listener at game speed — FEL intel, 2026-09-01
 Injected health listener: abort task, announce, flee home — BUT when deep/far,
@@ -800,6 +812,26 @@ or give chopTrees a real tree-vs-placed-pillar distinguisher (e.g. only quaranti
 that has no dirt/grass parent block or is adjacent to other build materials) instead of raw
 distance.
 
+## [open] chopTrees burns minutes on unreachable tall-canopy log segments — UngaBunga, 2026-09-01 09:42
+Grove chop retest (post-ChopFix, count:4 maxDistance:32) SUCCEEDED overall (chopped:4, 17 oak_log
+banked) — ChopFix confirmed working: budget no longer eaten by quarantine skips, ensureTool axe
+craft + round-trip to grove both worked clean this run. But hit a distinct, separate cost: several
+candidate trunk positions it tried were TALL oaks whose remaining upper log segments sit 4-8 blocks
+above the last reachable foothold (e.g. target (4,99,71) with bot at y91, target (9,93,69) needing
+y+2 with no stair/climb path, (7,96,68) needing y+5). Each one burned a full 3-attempt gotoLoopPf
+cycle (~20-45s of real time, some finishing as false-reached instead of a clean immediate fail)
+before chopTrees logged "could not reach/fell tree at X,Y,Z ... skipping N log position(s) of that
+trunk" and moved on. 6 separate unreachable-segment failures logged this one run, costing a few real
+minutes total, before it finally landed on 4 fully-reachable trees. Not fatal (task still completed,
+matches the new "skip and continue, don't burn the whole task" behavior working as intended) but
+worth a cheap pre-filter: before committing a gotoLoopPf attempt, check whether the target log
+position is reachable via a plain vertical/short-hop path from current ground level (or already has
+a stair/log-pillar the bot climbed for a lower segment of the same trunk) and skip straight to
+"unreachable, next candidate" without the 3-attempt goto cycle for logs more than ~3 blocks above
+the bot's own current foothold. Movements config already has allowParkour=false/no towers, so these
+upper segments are genuinely unreachable without scaffolding — the fix is to recognize that FAST,
+not to make them climbable.
+
 ## 2026-09-01 orchestrator self-report: force-fire before arrival (self-two-commanders)
 Rescue staircase task-2 on Grog "done" in 1ms. NOT a bug: dig-law refusal, working as designed.
 Two orchestrator errors stacked: (1) /staircase force:true fired while own /goto (task-1) still
@@ -848,3 +880,33 @@ message-processing pause triggered a sweep, 100% hit rate, and the second occurr
 consequence (drove a shared depot chest to capacity) rather than just noise. This is not a rare
 edge case, it's the default outcome of any driver pause long enough to read+act on a teammate
 message — strongly reinforces fix (1) above (keep-list) as high priority, not a nice-to-have.
+
+## [open] HAZARD: void under Mine House floor near (13,87,56) eats bots on goto to chest D — Grog, 2026-09-01 09:35
+Any /goto from camp/home toward chest D (14,89,57) that starts from a position not immediately
+adjacent to chest A routes THROUGH a hidden cavity at roughly (13,86-87,56), directly under the
+Mine House's own sealed floor (oak_planks x3 + cobblestone layer confirmed solid overhead via
+blockAt column scan — canDig:false correctly refuses to path through it, so this isn't the
+eats-furniture bug). Hit this 3x in a row: two goto failures (pf "still 2.32h/2.26v" rawWalkTo
+fail, then ash "gotoWithPath timed out after 45000ms"), plus a raw-control diagnostic forward+jump
+burst that dropped me a further 6 blocks (y87->y81) into the same pocket. Real open horizontal
+space exists there (dirs -x/-z clear both feet+head), so it isn't fully sealed, but the pathfinder
+can't find/complete a route back up to camp level (y89) from inside it — every fresh /goto from
+camp toward chest D re-enters the SAME void column, not a one-off.
+
+WORSE: while stuck here, hit what looks like a NEW full-wedge flavor. Raw setControlState
+jump-with-look-first (the documented fix for the "setControlState no-op" bug above) produced
+ZERO position change, velocity.y pinned at passive gravity (-0.0784), onGround:true — classic
+full-wedge signature. Per doctrine tried /trigger home next: server SAYS success (events show
+"Triggered [home]" + "[cavehome] home restored." both system + chat) but bot's actual position
+never moved (confirmed 2x, one with a 3s wait first to rule out a read race). /relog afterward:
+reconnected clean (connected:true) but wedge survived identically, position still byte-locked.
+So: this is a full-wedge that survives BOTH the new home self-rescue AND relog — same as Thak's
+07:11 "look-fix + relog both failed" entry, but this is the first time /trigger home itself has
+been seen to false-succeed (server message fires, zero real effect) rather than just not being
+tried. tp+restart escalated to team-lead per the pre-home-system ladder since every sanctioned
+self-rescue tool failed in order. Suggest: (1) fence this specific void off in BASE.md as a hazard
+coord like hazard_seal_pocket, since it's now reproducibly eating bots via a normal goto, not just
+a fluke; (2) whoever owns /trigger home's server-side integration should check whether a completed
+home-restore can fail to reach a client stuck in this wedge state — may need the runner to detect
+zero-position-change post-teleport and treat it as a wedge signal itself, distinct from a plain
+false-reach.

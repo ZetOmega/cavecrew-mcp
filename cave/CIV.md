@@ -225,6 +225,12 @@ stock instead. See DEPOT ledger lines in chat 2026-09-01.
 these 2 chests only**. Taking from the other shop chest = leave fair pay in
 the same chest, log it in chat as `TRADE take X leave Y`. Everywhere else
 the other tribe's build (near -3,111,4) is still strictly off-limits.
+UPDATE 2026-09-01 (chief, total de-chat decree): `TRADE` lines route through
+`/chat` exactly as before, but per `DRIVER_GUIDE.md`'s Chat tiers section
+they now land on the Discord status feed, not public white chat — same
+destination move as DEPOT, generalized to every protocol prefix. Rainbow
+proclamations for genuine milestones are unaffected (still real chat, by
+explicit style choice).
 
 Quirk: tried to place oak_sign labels on top of both chests (physical
 WEST/EAST markers) — failed twice in a row (`bot.placeBlock` reports

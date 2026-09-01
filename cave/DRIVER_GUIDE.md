@@ -173,28 +173,32 @@ back". Keep lines short.
   target block stays `air`), fall back to chat + a note in `CIV.md`/
   `TRADE.md` instead of retrying indefinitely; report the placement
   failure per the escalation rule so it gets a real fix.
-- **Chat tiers (grey / white / rainbow) — now auto-classified.** The
-  default `/chat` style (`"talk"`, or no `style` at all) routes through
-  the runner's `smartChat`: a line starting with `!` is stripped of the
-  `!` and sent as **important white** real chat; a line starting with a
-  protocol-ledger prefix (`TRADE `, `USING `, `FREE `,
-  `LEASE-BREAK `, `BASE `, `CLAIM `, `HELLO `, `OFFER `) is sent
-  **verbatim as real white chat**, unchanged, because other bots/tribes
-  parse chat for those exact prefixes; everything else becomes **grey**
-  routine narration automatically. You don't need to pick a style for
-  ordinary narration ("heading out to chop wood") or for a DEPOT ledger
-  line — just `/chat` it and the classification happens for you. Use
-  `"style":"status"` to force grey regardless of content, or
-  `"style":"rainbow"` for tribe-wide proclamations (a goal-ladder
-  milestone, a new pact like the trading post no-touch exception).
-- **DEPOT is no longer a white-chat prefix (chief, 2026-09-01).** `DEPOT `
-  was removed from the protocol-ledger list above: depot lines are our own
-  bookkeeping, not an inter-tribe protocol, and at fleet scale they were the
-  loudest thing in public chat. They now classify as ordinary narration, so
-  they ride the **Discord status feed** (grey in-game) instead. Nothing
-  changes for you as a driver — keep sending `DEPOT` lines through `/chat`
-  exactly as documented below; only the destination moved. Every other
-  ledger prefix still goes out as real white chat, unchanged.
+- **Chat tiers (real talk vs everything else) — now auto-classified.** The
+  default `/chat` style (`"talk"`, or no `style` at all) routes through the
+  runner's `smartChat`: a line starting with `!` is stripped of the `!` and
+  sent as **important white** real chat — an announcement worth every
+  bot/player noticing; everything else (routine narration AND every
+  protocol/ledger line — `DEPOT `, `TRADE `, `USING `, `FREE `,
+  `LEASE-BREAK `, `BASE `, `CLAIM `, `HELLO `, `OFFER `) becomes **grey**
+  narration routed to the Discord status feed, never public game chat. You
+  don't need to pick a style for ordinary narration ("heading out to chop
+  wood") or for a DEPOT/protocol ledger line — just `/chat` it and the
+  classification happens for you. Use `"style":"status"` to force grey
+  regardless of content, or `"style":"rainbow"` for a genuine tribe-wide
+  proclamation (a goal-ladder milestone, a new pact) — those still go out as
+  real chat, deliberately, since you asked for it by name.
+- **TOTAL DE-CHAT (chief, 2026-09-01) — game chat is real talk only, full
+  stop.** Every protocol-ledger prefix above (`TRADE `/`USING `/`FREE `/
+  `LEASE-BREAK `/`BASE `/`CLAIM `/`HELLO `/`OFFER `) used to go out as real
+  white chat, verbatim, because other tribes parsed public chat for those
+  exact prefixes — that stopped being true once inter-tribe coordination
+  moved to the claims registry + repo/Discord
+  ([monkeorg/cavecrew-mcp#1](https://github.com/monkeorg/cavecrew-mcp/issues/1)).
+  This supersedes the earlier "ledger lines must stay REAL white chat" law
+  and generalizes the DEPOT de-chat decree below to every prefix, not just
+  DEPOT. Nothing changes for you as a driver — keep sending every ledger
+  line through `/chat` exactly as documented, unchanged format; only the
+  destination moved, same as DEPOT already did.
 
 ## DEPOT ledger
 
@@ -203,9 +207,10 @@ deposit or withdrawal against a cavecrew chest gets a ledger line so the
 whole tribe can follow the ledger.
 
 > **2026-09-01 (chief):** these lines go to the **Discord status feed**, not
-> public white chat — see the DEPOT de-chat note under Chat tiers above. You
-> still send them the same way (`/chat`, format unchanged); the runner
-> classifies and routes them.
+> public white chat — see TOTAL DE-CHAT under Chat tiers above, which now
+> covers every protocol/ledger prefix, not just DEPOT. You still send them
+> the same way (`/chat`, format unchanged); the runner classifies and routes
+> them.
 
 ```
 DEPOT +N item (chest X)
@@ -491,11 +496,11 @@ curl.exe -s -X POST http://127.0.0.1:3201/chat `
 
 Body: `{message, style?}`. `style` defaults to `"talk"`, which now
 auto-classifies via the runner's `smartChat` — see Chat tiers above:
-`!`-prefixed and protocol-ledger-prefixed (`TRADE `/`USING `/
-`FREE `/`LEASE-BREAK `/`BASE `/`CLAIM `/`HELLO `/`OFFER `) lines go out
-as real white chat verbatim, everything else becomes grey narration
-automatically (`DEPOT ` included since 2026-09-01 — see Chat tiers).
-Pass `"style":"status"` to force grey, `"fancy"` for a
+only `!`-prefixed lines go out as real white chat verbatim; everything
+else, protocol-ledger prefixes included (`TRADE `/`USING `/`FREE `/
+`LEASE-BREAK `/`BASE `/`CLAIM `/`HELLO `/`OFFER `/`DEPOT `), becomes grey
+narration automatically since the 2026-09-01 total de-chat decree (see
+Chat tiers). Pass `"style":"status"` to force grey, `"fancy"` for a
 gold accent, or `"rainbow"` for a tribe-wide proclamation.
 
 ### `POST /autoeat`

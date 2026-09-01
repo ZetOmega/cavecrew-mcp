@@ -173,37 +173,36 @@ async function announce(style, text) {
   }
 }
 
-// PROTOCOL_PREFIX / smartChat — protocol-prefix-aware narration router
-// (adapted from felcrew-mcp survey findings: their graychat.js gets this
-// same classification by monkeypatching bot.chat itself via an /eval payload
-// that dies on every bot restart; here it's native runner code on the same
-// narration paths runner.js already owns, so it can never go missing).
-// Classification, in order:
+// smartChat — narration router. Classification, in order:
 //   1. starts with "!" -> IMPORTANT WHITE: strip the "!" and send verbatim
-//      real chat — an announcement worth every bot/player noticing.
-//   2. matches a protocol-ledger prefix (TRADE/USING/FREE/LEASE-BREAK/
-//      BASE/CLAIM/HELLO/OFFER) -> REAL WHITE, sent verbatim, UNCHANGED —
-//      other bots/tribes/parsers grep real chat for these exact prefixes, so
-//      they must never be recolored or routed through tellraw.
-//   3. anything else -> routine narration, routed through announce('status',
-//      ...) (grey, team-colored name, falls back to bot.chat on any rconchat
-//      trouble — see announce() above).
+//      real chat — an announcement worth every bot/player noticing. This is
+//      the ONLY path left that still touches real game chat.
+//   2. anything else (including former protocol-ledger lines, see decree
+//      below) -> routine narration, routed through announce('status', ...)
+//      (Discord status feed when configured, else runner log only — see
+//      announce() above).
 //
-// DEPOT DE-CHAT (chief decree, 2026-09-01): "DEPOT " was removed from this
-// list. Depot ledger lines are OUR OWN bookkeeping, not an inter-tribe
-// protocol — nobody outside the crew ever needed to read them off public
-// chat, and at fleet scale they were the loudest thing in the channel. They
-// now fall through to case 3, which means they ride announce('status') into
-// the Discord status feed (grey in-game, if rconchat is up at all) instead of
-// spamming white chat. Everything else in FEEDBACK's "ledger lines must stay
-// REAL white chat" entry is unchanged and still enforced above; drivers keep
-// sending DEPOT lines exactly as before, via /chat — only the destination
-// moved. KNOWN CONSEQUENCE, flagged to team-lead: cave/scoreboard.mjs parses
-// "DEPOT " out of the server's latest.log CHAT lines (its CHAT_RE only
-// matches real `<[CAVE] Name> ...` chat), so its depot ledger accounting goes
-// silent until it is repointed at the new feed.
-const PROTOCOL_PREFIX = /^(TRADE |USING |FREE |LEASE-BREAK |BASE |CLAIM |HELLO |OFFER )/;
-
+// TOTAL DE-CHAT DECREE (chief, 2026-09-01): game chat = real talk only, full
+// stop. Protocol-ledger lines (TRADE/USING/FREE/LEASE-BREAK/BASE/CLAIM/
+// HELLO/OFFER) used to be a distinct case here — REAL WHITE CHAT, sent
+// verbatim, because other bots/tribes parsed public chat for these exact
+// prefixes. That is no longer true: inter-tribe coordination moved to the
+// claims registry + repo/Discord (monkeorg/cavecrew-mcp#1), so nothing
+// outside the crew needs these off public chat anymore, and that branch
+// collapsed into case 2 above — same announce('status', ...) route DEPOT
+// already got in the earlier, narrower DEPOT DE-CHAT decree. The
+// PROTOCOL_PREFIX regex that used to gate that branch had no other reader
+// in this codebase (checked: `rg PROTOCOL_PREFIX`, only this function used
+// it) and is deleted along with the branch, not left dead. This is an
+// EMIT-side change only — the runner's INBOUND chat parsing (hearing FEL's
+// own protocol lines off real chat) is untouched, we still LISTEN, we just
+// stop EMITTING these prefixes as white chat ourselves. Drivers keep
+// sending every ledger line exactly as before, via /chat, unchanged format
+// — only the destination moved, identical to the DEPOT precedent. KNOWN
+// CONSEQUENCE (same shape as DEPOT's): any downstream tooling that greps the
+// server's real chat log for these prefixes (scoreboard.mjs already had this
+// problem for DEPOT) goes silent on protocol lines too until repointed at
+// the Discord feed / claims registry.
 async function smartChat(text) {
   const msg = String(text);
   if (msg.startsWith('!')) {
@@ -212,14 +211,6 @@ async function smartChat(text) {
       bot?.chat?.(stripped);
     } catch {
       // ignore — no bot to talk through either, nothing more to do
-    }
-    return;
-  }
-  if (PROTOCOL_PREFIX.test(msg)) {
-    try {
-      bot?.chat?.(msg);
-    } catch {
-      // ignore
     }
     return;
   }
@@ -623,8 +614,8 @@ function makeCtx(task) {
     },
     // Grey narration passthrough for skills.js's own routine chat lines (e.g.
     // ensureTool's DEPOT ledger line on an automatic depot withdrawal, which
-    // since the DEPOT de-chat decree rides this path into the Discord status
-    // feed — see PROTOCOL_PREFIX and announce() above, which already falls
+    // since the DEPOT/total de-chat decrees rides this path into the Discord
+    // status feed — see smartChat and announce() above, which already falls
     // back to bot.chat internally on any rconchat failure). Optional on ctx
     // by design: a bare ctx built by
     // /eval or a test has no runner to route through, and skills.js falls
@@ -1453,10 +1444,10 @@ async function idleGuardCycle(task, ctx) {
             idleGuardDepositFailStreak = 0;
             // DEPOT ledger, one line per item, in the DRIVER_GUIDE DEPOT format.
             // Still emitted through smartChat and still worded identically —
-            // but since the DEPOT de-chat decree (2026-09-01, see
-            // PROTOCOL_PREFIX above) "DEPOT " no longer matches the protocol
-            // branch, so these now route through announce('status') to the
-            // Discord status feed instead of public white chat.
+            // but since the DEPOT de-chat decree (2026-09-01) and now the
+            // total de-chat decree (see smartChat above), every non-"!" line
+            // routes through announce('status') to the Discord status feed
+            // instead of public white chat, protocol lines included.
             for (const d of deposited) {
               await smartChat(`DEPOT +${d.count} ${d.name} (chest A)`);
             }
