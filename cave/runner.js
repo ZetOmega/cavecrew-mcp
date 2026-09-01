@@ -793,17 +793,28 @@ async function tryLoadOptionalAsync(b, label, fn) {
 }
 
 function wireBot(b) {
-  // CHAT MIRROR wrap — see mirrorOutboundChat above. Applied before anything
-  // else can hold a reference to b.chat, on every fresh bot instance.
-  const origChat = b.chat.bind(b);
-  b.chat = (msg) => {
-    try {
-      mirrorOutboundChat(msg);
-    } catch {
-      // the mirror must never break the real chat send
-    }
-    return origChat(msg);
+  // CHAT MIRROR wrap — see mirrorOutboundChat above. b.chat does NOT exist
+  // yet at wireBot() time: mineflayer's core chat plugin injects async after
+  // createBot() returns (took the whole fleet down on 2026-09-01 — the eager
+  // `b.chat.bind(b)` threw on undefined for every connect attempt). Wrap
+  // lazily once the plugin has injected; 'inject_allowed' fires before
+  // 'spawn', with a spawn-time fallback in case injection ordering shifts.
+  const wrapChatForMirror = () => {
+    if (typeof b.chat !== 'function' || b.chat.__mirrorWrapped) return;
+    const origChat = b.chat.bind(b);
+    b.chat = (msg) => {
+      try {
+        mirrorOutboundChat(msg);
+      } catch {
+        // the mirror must never break the real chat send
+      }
+      return origChat(msg);
+    };
+    b.chat.__mirrorWrapped = true;
   };
+  wrapChatForMirror();
+  b.once('inject_allowed', wrapChatForMirror);
+  b.once('spawn', wrapChatForMirror);
 
   b.loadPlugin(pathfinderPkg.pathfinder);
   b.loadPlugin(toolPkg.plugin);
