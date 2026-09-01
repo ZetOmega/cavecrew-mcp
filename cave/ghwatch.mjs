@@ -30,8 +30,9 @@ const POLL_MS = 120_000;
 const DISCORD_TIMEOUT_MS = 3000;
 
 const REPOS = [
-  { full: 'ZetOmega/cavecrew-mcp', short: 'ours' },
+  { full: 'monkeorg/cavecrew-mcp', short: 'ours' },
   { full: 'felsenuboot/felcrew-mcp', short: 'felcrew' },
+  { full: 'monkeorg/botnet-tasks', short: 'board' },
 ];
 
 // ---------------------------------------------------------------------------
