@@ -2396,13 +2396,23 @@ async function ensureTreadFoundation(bot, treadPos, ctx) {
 }
 
 // True once the bot's real feet are inside stepPos (floored position match)
-// or close enough to its center (<0.7) to count as arrived — used by both
-// advanceIntoStep's pulse loop and the post-backup recheck below it.
+// or close enough to count as arrived — used by both advanceIntoStep's pulse
+// loop and the post-backup recheck below it.
+//
+// (CALIBRATION) horizontal dist <0.6 AND feet y in [stepY, stepY+0.3] —
+// field trace (Thak) proved the old single 3D distanceTo(<0.7) check was too
+// tight for a legit 1-down landing: a diagonal-corner landing alone can put
+// the bot up to ~0.707 blocks from center horizontally, and folding the y
+// term into that same 3D distance pushed a real, valid landing past the 0.7
+// cutoff. Horizontal and vertical are now checked separately instead.
 function isInStepCell(bot, stepPos) {
   const feet = bot.entity.position.floored();
   if (feet.x === stepPos.x && feet.y === stepPos.y && feet.z === stepPos.z) return true;
-  const center = new Vec3(stepPos.x + 0.5, stepPos.y, stepPos.z + 0.5);
-  return bot.entity.position.distanceTo(center) < 0.7;
+  const pos = bot.entity.position;
+  const dx = pos.x - (stepPos.x + 0.5);
+  const dz = pos.z - (stepPos.z + 0.5);
+  const horizDist = Math.hypot(dx, dz);
+  return horizDist < 0.6 && pos.y >= stepPos.y && pos.y <= stepPos.y + 0.3;
 }
 
 // (STEP-ADVANCE FIX) — field trace with bot Thak proved the pathfinder
@@ -2417,14 +2427,22 @@ function isInStepCell(bot, stepPos) {
 // own), and re-measure REAL position after every single pulse — a resolved
 // promise is never trusted alone (same lesson as movement.js's own THE
 // DRAGON). Never throws; returns whether it actually landed in stepPos.
+//
+// (CALIBRATION) aim target's y is the bot's OWN current eye height, not
+// stepPos.y+1.62 — for a 1-down step, stepPos.y+1.62 sits a full block below
+// the bot's own eye level, forcing a steep downward pitch on every pulse.
+// Recomputed every iteration (not once up front) so it tracks the bot's
+// real eye height as it descends. Horizontal x/z only drive yaw; matching
+// the eye y keeps pitch ~0 so the forward pulse walks off the ledge instead
+// of catching the step's face/edge.
 async function advanceIntoStep(bot, stepPos, ctx) {
-  const target = new Vec3(stepPos.x + 0.5, stepPos.y + 1.62, stepPos.z + 0.5);
   const steppingUp = stepPos.y > Math.floor(bot.entity.position.y);
   const deadline = Date.now() + 4000;
   try {
     while (Date.now() < deadline) {
       if (isInStepCell(bot, stepPos)) return true;
       if (ctx.isCancelled?.()) return isInStepCell(bot, stepPos);
+      const target = new Vec3(stepPos.x + 0.5, bot.entity.position.y + 1.62, stepPos.z + 0.5);
       try {
         await bot.lookAt(target, true);
       } catch {

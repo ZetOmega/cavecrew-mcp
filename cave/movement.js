@@ -98,24 +98,34 @@ function sleep(ms) {
 //
 // Returns null when `goal` doesn't expose enough of x/y/z to ground-truth
 // (e.g. a pure GoalY) — callers should skip verification in that case.
+//
+// (CALIBRATION) horizDist/vertDist split out separately from the old single
+// 3D `dist` — field logs (Grog + Bonk) showed the combined-3D check flagging
+// a real, close success as a false-reach whenever a GoalNear had a vertical
+// offset baked in (mining/staircase targets almost always do): a bot well
+// within lateral range but 1+ block above/below the goal's y got its 3D dist
+// inflated past range+0.75 by the y term alone. horizDist now carries the
+// x/z-only distance (what the range margin is actually meant to gate), and
+// vertDist carries the y-only distance, checked against its own generous
+// fixed slack — see call sites below. `dist` (full 3D) is kept for the one
+// caller that still wants a plain "how close is close enough to bother with
+// rawWalkTo" heuristic, unrelated to the reached/not-reached verdict.
 function goalGroundTruth(bot, goal) {
   if (typeof goal?.x !== 'number' && typeof goal?.z !== 'number') return null;
   const pos = bot.entity.position;
   const range = typeof goal.rangeSq === 'number' ? Math.sqrt(goal.rangeSq) : 0;
-  let distSq = 0;
+  let horizDistSq = 0;
   if (typeof goal.x === 'number') {
     const dx = pos.x - (goal.x + 0.5);
-    distSq += dx * dx;
+    horizDistSq += dx * dx;
   }
   if (typeof goal.z === 'number') {
     const dz = pos.z - (goal.z + 0.5);
-    distSq += dz * dz;
+    horizDistSq += dz * dz;
   }
-  if (typeof goal.y === 'number') {
-    const dy = pos.y - goal.y;
-    distSq += dy * dy;
-  }
-  return { dist: Math.sqrt(distSq), range };
+  const horizDist = Math.sqrt(horizDistSq);
+  const vertDist = typeof goal.y === 'number' ? Math.abs(pos.y - goal.y) : 0;
+  return { dist: Math.hypot(horizDist, vertDist), horizDist, vertDist, range };
 }
 
 // Last-resort fallback once bot.pathfinder's own goto() has been caught
@@ -123,7 +133,8 @@ function goalGroundTruth(bot, goal) {
 // still ground-truthed as actually close (<6 blocks — see call site).
 // Bypasses pathfinder entirely: look at the target, pulse forward+jump in
 // short (300ms) bursts, re-measuring real position after every pulse, until
-// ground-truth distance clears range+0.75 or 15s elapses. Deliberately dumb
+// ground-truth horizontal distance clears range+1.0 (vertical within 1.5) or
+// 15s elapses. Deliberately dumb
 // (no obstacle avoidance, no digging) — only meant for the "goal is right
 // there, pathfinder just isn't moving" case, never general navigation.
 async function rawWalkTo(bot, goal, range, ctx) {
@@ -138,7 +149,7 @@ async function rawWalkTo(bot, goal, range, ctx) {
       if (ctx.isCancelled?.()) throw new Error('rawWalkTo: cancelled');
       if (ctx.isStaleGeneration?.()) throw new Error('rawWalkTo: stale generation');
       const check = goalGroundTruth(bot, goal);
-      if (check && check.dist <= check.range + 0.75) return;
+      if (check && check.horizDist <= check.range + 1.0 && check.vertDist <= 1.5) return;
       try {
         await bot.lookAt(targetPos, true);
       } catch {
@@ -159,9 +170,9 @@ async function rawWalkTo(bot, goal, range, ctx) {
     }
   }
   const finalCheck = goalGroundTruth(bot, goal);
-  if (!finalCheck || finalCheck.dist > finalCheck.range + 0.75) {
+  if (!finalCheck || finalCheck.horizDist > finalCheck.range + 1.0 || finalCheck.vertDist > 1.5) {
     throw new Error(
-      `rawWalkTo: still ${finalCheck ? finalCheck.dist.toFixed(2) : '?'} blocks from goal after 15s raw-walk`
+      `rawWalkTo: still ${finalCheck ? `${finalCheck.horizDist.toFixed(2)}h/${finalCheck.vertDist.toFixed(2)}v` : '?'} blocks from goal after 15s raw-walk`
     );
   }
 }
@@ -339,10 +350,16 @@ export async function gotoLoopPf(bot, goal, opts = {}, ctx = {}) {
       await withTimeout(bot.pathfinder.goto(goal), timeoutMs);
       // DRAGON GUARD: goto() resolving is not proof the bot moved (see the
       // goalGroundTruth comment above) — ground-truth it before trusting it.
+      // (CALIBRATION) horizontal-only margin vs range+1.0, vertical checked
+      // separately within 1.5 — the old combined-3D check vs range+0.75 was
+      // flagging real near-goal successes as false (Grog/Bonk field logs:
+      // "resolved success but bot is X blocks from goal" firing when the
+      // bot was actually <1 block away, and a vertical-offset GoalNear got
+      // its y term double-counted into the same margin as range).
       const check = goalGroundTruth(bot, goal);
-      if (check && check.dist > check.range + 0.75) {
+      if (check && (check.horizDist > check.range + 1.0 || check.vertDist > 1.5)) {
         lastErr = new Error(
-          `false-reached caught: goto resolved success but bot is ${check.dist.toFixed(2)} blocks from goal (range ${check.range})`
+          `false-reached caught: goto resolved success but bot is ${check.horizDist.toFixed(2)} blocks horiz / ${check.vertDist.toFixed(2)} vert from goal (range ${check.range})`
         );
         ctx.log?.('warn', `gotoLoopPf: ${lastErr.message}`);
         try {
