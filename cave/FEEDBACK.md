@@ -674,6 +674,11 @@ no partial amounts. Cost chest A's whole wood buffer briefly (had to
 withdraw-then-redeposit the full stack to fix it). If you need an exact
 count, skip the HTTP endpoint and go straight to /eval with
 `bot.openChest(block)` + `chest.withdraw(item.type, null, exactCount)`.
+STALE (see Ook's DOC CORRECTION entry further down, same session-day):
+per-item `{name, count}` support landed after this was written —
+`/withdraw`/`/deposit` DO support an exact count now, the /eval-only
+workaround above is no longer necessary. DRIVER_GUIDE.md's API reference
+updated to show `{name, count}` as the primary form.
 
 ## [shipped] chop task claims progress while full-wedged — no task-level watchdog — team-lead, 2026-09-01
 SHIPPED: skills.js chopTrees/mineBlocks both wrapped in runTargetWithWatchdog
@@ -1174,3 +1179,339 @@ landed, and the general placeBlock slow-confirm/false-timeout family) — this o
 driver-side verification bug, not an engine bug, but worth flagging since it looks IDENTICAL to a
 real failure from the outside (blockUpdate timeout, target reads "not what I expected") until you
 check the actual resolved block name.
+
+## [open] /branchmine endpoint doc mismatch + corridor-step fall triggered a real panic — Grog, 2026-09-01 11:04
+API shape: POST /buildStaircase returned 404 earlier this session (real endpoint: /staircase,
+already logged). Same family here: POST /branchMine (as written in DRIVER_GUIDE/team-lead's
+mission text) returns {"error":"not found"} — real endpoint is lowercase /branchmine. First call
+with `{}` failed clean with `{"error":"requires numeric \"y\""}` (good, self-documenting). Second
+call `{"y":47}` from the staircase hub (45,54,57) started fine (task kind "branchmine").
+
+Then a real incident: within ~15-20s the bot dropped from y54 to y37 — 17 levels, well past the
+target y47 — and health crashed from 20 to 6 almost instantly (event log: two
+"gotoLoopPf: false-reached caught" lines immediately before "health dropped to 6"). Read: branchMine's
+internal corridor-travel step uses the same goto primitive that has the documented false-reach bug
+(resolves reached:true without real position match) — here it looks like that false-reach let the
+skill's internal logic treat a ledge as "arrived", continue its digging/movement routine, and the
+bot walked/fell off an edge for a ~17-block drop. Panic fired correctly at health 6 (task
+cancelled, no further damage), but the seal-in-place response only partially worked
+("sealStairCell: no solid neighbor found" 2x before a 3rd attempt reported sealed:6) — ground
+truth after showed 3 of 4 sides dirt-walled, one side still open air, though no mobs were in range
+so it wasn't exploited. Health fully self-regenerated to 20 within ~30s (full food helped), no
+death, no item loss. Landed at y37, z62 — OUTSIDE the mine_grid zone's y45-62 floor (zone stated
+by team-lead as x14-80,y45-62,z35-80), meaning the fall also pushed the bot out of the legal dig
+corridor bounds; did not resume branchmine/staircase digging from here without checking zone
+compliance first.
+
+SEPARATE bug in the same incident: panic-response's emergency-eat step failed with
+"emergencySeal: eat attempt failed: Item switched early to: wheat_seeds!" — the auto-eat logic
+apparently tried to consume whatever's first in inventory / a wrong slot pick, grabbing
+wheat_seeds (not edible, can't be eaten) instead of the 5 bread actually held. If health had
+stayed critical instead of regenerating on its own, this bug would have left the bot unable to
+self-heal via the panic reflex's own eat fallback. Suggest: emergencySeal's food-item selection
+needs an edible-only filter (check foodPoints/isFood, not just "first non-tool item" or whatever
+picked wheat_seeds here).
+
+Fix suggestions: (1) branchMine's internal corridor-goto needs the same false-reach hardening as
+plain /goto, or a hard vertical-drop guard (abort/reconfirm before any >3-block unplanned y
+change) so a false-reach can't turn into a real fall; (2) fix emergencySeal's eat-item selection
+to filter for actual food items only.
+
+## [shipped] DOC CORRECTION: /withdraw and /deposit DO support per-item count now, DRIVER_GUIDE + earlier FEEDBACK entry are stale — Ook, 2026-09-01
+The "no count param, always grabs the whole stack" gotcha logged above (line ~670, same
+session-day) is now WRONG — skills.js withdrawFromChest/depositToChest both read a `count` off
+each item spec (see the "(6)" comments in cave/skills.js ~L2008/2052): `typeof spec?.count ===
+'number'` caps the move, falls back to full-stack only when count is omitted. Confirmed live this
+session: `{"items":[{"name":"stick","count":2}]}` on POST /withdraw pulled exactly 2 sticks, not
+the full stack of 12. Bit me for real before I found this — first withdraw call this run used the
+bare-string form (`"items":["torch"]`) per DRIVER_GUIDE's API reference examples, which are ALL
+bare strings with no count example anywhere in the doc, and it grabbed all 59 torches from chest B
+(needed 8), had to redeposit 51 back. Same for a stick withdraw (grabbed all 12, needed ~2).
+Fix: DRIVER_GUIDE.md's `/withdraw` and `/deposit` sections should show the `{name, count}` object
+form as the primary example, not just bare item-name strings — the count-capped form is the actual
+recommended usage for any withdraw/deposit that isn't "give me everything."
+
+## [open] far-range /goto (pf and ash both) breaks down in dripstone-cave terrain — false-reach, timeout, and one genuine multi-minute wedge — Ook, 2026-09-01
+FAR MEAT RUN mission, ranging west from camp toward x-90. A `/goto` toward a hillside waypoint
+(-48,89,55 — 60 blocks out) surfaced a large vertical gap the driver didn't know about (target y=89
+assumed camp-level ground, but real hillside terrain there was y~93-103) — first ash timed out,
+then pf failed with "still 1.80h/5.00v blocks from goal" (a real, not false, gap — the fixed-y
+target itself was bad, not a runner bug on that one). Lesson for other drivers: **don't hardcode a
+flat camp-level y for far-range waypoints** — probe the column height first (scan blockAt down
+from ~y120 for the first `boundingBox==="block"`) and target that +1, or the goto will legitimately
+fail on hillside/mountain terrain regardless of engine.
+
+Separate, real bug: continuing west, both engines (ash then pf) pathed the bot DOWN into an
+unplanned dripstone cave (skyLight 0, ~50 blocks below the surface it was aiming for) while
+targeting what should have been a normal above-ground valley waypoint — no lava, no damage taken
+getting in, but this was clearly the wrong side of "prefer pf on open ground / ash for tight cave
+nav," since neither call was asked to go underground. Once in the cavern, the bot got **genuinely
+wedged** standing on/between `pointed_dripstone` blocks: position byte-identical across 3+
+`/status` polls ~15s apart, `/stop` + re-`/goto` (pf) failed 5/5 attempts stationary, raw
+`setControlState` forward+jump for 2s moved it 0.02 blocks total (full-wedge signature per the
+chop-wedge entry above). `blockAt` on all 6 neighbors showed `pointed_dripstone` above, below, and
+one horizontal side. Self-rescue that worked: `/eval` dug the surrounding pointed_dripstone/
+dripstone_block blocks by hand (not tool-protected, safe to clear) — freed movement, but a second
+goto attempt from the same cavern later false-reached again ("3.02 blocks horiz / 37.00 vert from
+goal") and a follow-up ash call took 90s, dealt 2 damage (dripstone fall-damage spike, self-healed),
+and STILL didn't clear the cave. Escalated per doctrine to `/trigger home` (HOME SYSTEM) after
+confirmed self-rescue attempts failed twice — worked cleanly, zero HP/item loss, bot back at camp
+home instantly. Suggest: (1) `/goto`'s engine choice (or a pre-check) should avoid dropping into
+unplanned underground pockets when the caller's target y is clearly at/near surface level for that
+column; (2) pointed_dripstone/dripstone_block terrain is a known wedge hazard for the pathfinder —
+worth a driver-facing callout in DRIVER_GUIDE alongside the existing wedge-detection nuisance-block
+note, even though dripstone isn't safe to auto-clear fleet-wide (it can carry a real fall below it,
+unlike leaf_litter/torch/snow) so this stays a manual /eval judgment call, not a new auto-clear
+entry.
+
+UPDATE 11:20Z — REPRODUCED 2/2 after a runner restart that shipped OTHER fixes (allowSprinting
+off, panic-eat food-selection now picks real food). Same exact sequence, same EXACT landing coords
+(36,37,62) down to the integer, within 6 SECONDS of task start this time (task started 11:19:56,
+health hit 5 at 11:20:02) — faster and worse than the first hit (health 5 vs 6). This is not
+timing-sensitive or a fluke, it's a deterministic dig-out at a fixed early step in the corridor
+route from this hub. Confirms Engineer's read that maxDropDown was already correctly configured
+and the real bug is branchMine's OWN corridor-dig removing floor out from under/beside the bot,
+independent of the Movements safety caps (which are now fully set and didn't help). Sealing was
+WORSE this run: 0/? sealed (all 3 "no solid neighbor found", vs partial 6 sealed last time) —
+left the bot fully exposed for several seconds at 5 HP, only survived because nothing but passive
+bats were nearby; a real mob in range at that moment could have killed it. Panic-eat DID
+correctly grab bread this time (food-selection fix confirmed working), but a NEW smaller issue
+appeared: "Eating timed out with a time of 3000 milliseconds!" — the eat action itself didn't
+complete in time, likely because it's attempted mid-fall/mid-chaos. A 15s driver poll cadence
+cannot catch or prevent this — the whole fall-to-panic sequence completes in ~6s, faster than any
+reasonable poll interval, so "poll and /stop on a big drop" is not a viable mitigation for this
+specific failure; the fix has to be in branchMine's dig-ahead logic itself (don't remove the floor
+block the bot is currently standing on or adjacent to without confirming a safe landing surface
+first, or don't dig at all until the bot has genuinely arrived at the intended cell). Recommend
+holding /branchmine entirely from this hub until that specific fix ships, rather than re-running
+for more data points — the two hits so far are identical and conclusive.
+
+## [open] ash engine silently freezes on long-distance goto over the camp-post hillside, short hops fine — Bonk, 2026-09-01 11:00
+Trade-path mission (TODO #7). Long single `/goto` calls with `engine:"ash"` over the camp→trading-post
+hillside climb (~10+ blocks horiz + vert in one call) froze THREE separate times this session,
+twice at the exact same coordinate (16.7,95,47.3): task stayed `state:"running"` for 50+ seconds,
+position byte-identical across 2 full polls (no drift at all, not even sub-block), no error, no
+`/events` progress lines between task-start and my own `/stop`. Diagnosed per my own 3-signature
+taxonomy (FEEDBACK entry below, "3-signature stuck-in-place"): raw `bot.setControlState("jump")`
+right after stopping the task produced a REAL 1.17-block y-rise — rules out full-wedge, this is a
+pathfinder-computation stall, not a physics/client freeze. Contrast: the exact same terrain, same
+direction, broken into short ~5-10 block hops with `engine:"ash"` worked fast and clean essentially
+every time (a few individual hops false-failed with "did not reach goal (search status was
+\"found\")" while already within the requested range — see the entry below, a range-precision
+issue, not a real block). Suggest: ash's path search may be timing out/hanging silently on long
+routes over natural uneven terrain instead of erroring — needs either a hard internal timeout that
+surfaces as a real task failure, or the goto endpoint itself should auto-chunk a long-distance
+request into shorter internal hops rather than trusting one big ashfinder search. Workaround every
+driver can use today: for any hillside/natural-terrain leg longer than ~10 blocks, issue a chain of
+short (~5-8 block) goto hops instead of one long call — reliable in every trial this session.
+
+## [open] ashfinder "did not reach goal (search status found)" fires while already within requested range — Bonk, 2026-09-01 11:00
+Companion quirk to the entry above, hit repeatedly during the same mission: several `/goto` calls
+with a small `range` (1-3) returned `state:"failed"`, `error:"ashfinder: did not reach goal after
+gotoWithPath (search status was \"found\")"`, but the bot's actual position (checked immediately via
+the same failed task's `pos` in `/status`) was already within the requested range of the goal
+(e.g. dist ~1.5-1.7 vs range:2). A same-target retry with a slightly larger range (or just retrying
+the identical call) then reported `reached:true` with the SAME unchanged position. So this looks
+like a real bug in the reached-check (computed before the final settle tick, or comparing against a
+stale/rounded distance) rather than the bot actually failing to arrive — same false-fail family as
+the already-logged false-reach-report bugs, just manifesting as a hard `failed` instead of a wrong
+`reached:true`. Workaround: on this exact error string, re-check `/status` position against the
+goal before treating it as a real failure/retry-from-scratch — if already within range, just
+re-issue the same goto once (usually returns reached:true immediately) rather than replanning.
+
+## [open] one-tile placeBlock curse, 2nd coordinate confirmed, 2 different ref techniques both failed — Bonk, 2026-09-01 11:00
+3rd data point on Grog's already-logged "one-tile placeBlock curse, hyper-local" entry (different
+coordinate, same signature). Building the trade-path fix at (7,104,31): tried (a) side-reference off
+an adjacent solid cobblestone block, face vector pointing at the target, and (b) vertical reference
+off the solid natural ground one block below, face up — BOTH attempts, fresh equip each time, both
+failed identically with `Event blockUpdate:(7, 104, 31) did not fire within timeout of 5000ms`,
+target confirmed genuinely `air` after each (not a slow-confirm illusion — polled 4x/400ms). The
+very next block over on the SAME build (7,106,31), placed minutes later with an equivalent
+technique, worked first try, no retry. Per escalation rule (2x fail, same objective) stopped
+retrying and routed around it — built a 1-wide connector instead of the intended 2-wide, matching
+the existing z31 tread's own already-1-wide precedent, so no net style regression. Adds to the
+"per-coordinate curse, independent of ref/face/technique" pattern Grog already flagged — worth
+someone checking for a listener-dedup-keyed-on-coords bug in placeBlock/blockUpdate plumbing, now
+2 different bots/coordinates/techniques deep.
+
+## [open] chest A (11,89,55) hit hard 27/27 slot cap, deposit silently failed with no items moved — Bonk, 2026-09-01 11:09
+Went to bank 40 leftover cobblestone after the trade-path fix. `/deposit {x:11,y:89,z:55,
+items:["cobblestone"]}` returned `state:"done"` with `result.deposited:[]` — task completed
+"successfully" but moved zero items (ground-truth confirmed: inventory still held all 40 after).
+Direct `/eval` diagnostic (open chest, read `containerItems().length`) confirmed 27/27 slots full,
+`win.deposit()` throwing `"destination full"` explicitly when called raw. Matches the exact capacity
+scenario Grog logged earlier this session (idle-guard sweep drove chest A to 27/27). The HTTP
+`/deposit` endpoint doesn't surface "destination full" as an error or partial-result — it just
+reports an empty `deposited` array with `ok:true`/`state:"done"`, indistinguishable at a glance from
+"nothing of that item type was found to deposit" (a normal, harmless outcome). A driver not
+diffing inventory before/after could easily read this as success and walk away leaving materials
+undeposited with no banked record. Suggest: `/deposit` should surface a `full` or `skipped` reason
+per item (mirroring the "not found in chest" warn path withdrawFromChest already has) so an empty
+`deposited:[]` isn't silently ambiguous between "chest full" and "you don't have that item".
+Workaround used: redirected to chest B (12,90,54), had room, deposited clean.
+
+Bonus minor gotcha same incident: right after the failed raw `win.deposit()` throw, a same-eval-call
+read of `bot.inventory.items().filter(name==="cobblestone").reduce(...)` came back `0` — but the
+NEXT `/status` poll (a few seconds later) correctly showed `cobblestone:40` still held, confirming
+nothing was actually lost, just a transient stale/optimistic-client read immediately after a failed
+container transaction. Low sample size (1x), flagging in case another driver hits the same scare —
+trust `/status` over an inventory read taken in the same eval call as a just-failed chest op.
+
+## [open] driver-lesson: hand-building a multi-block staircase via /eval placeBlock needs horizontal offset per riser, not vertical stacking — Bonk, 2026-09-01 11:05
+Not a runner/skills bug — a real mistake worth flagging so the next driver hand-building stairs via
+`/eval` doesn't repeat it. First attempt at bridging the z31→z30 gap placed 3 new blocks straight up
+in the SAME (x,z) column, each referencing the one below with face `(0,1,0)`. Looked fine in the
+moment (each individual `blockAt` verify passed, real cobblestone landed) but a follow-up headroom
+check (`blockAt` at tread-top+1 and tread-top+2 in that same column) showed each new block had
+buried the standability of the one below it — block N+1 sat exactly where block N's own
+feet-standing space needed to be air, so only the TOPMOST block of the pillar was actually usable,
+and it sat 2 full blocks above the last real tread — not a valid single jump, the "staircase"
+would have been unclimbable despite every individual placement reporting success. Caught it before
+declaring the task done by explicitly checking `blockAt` at tread+1 AND tread+2 for every new block
+(not just the tread itself), dug the offending block back out, and rebuilt using a proper diagonal
+offset (each new tread exactly Δ1 vertical AND Δ1 horizontal from the previous, alternating which
+axis/column, referencing off a DIFFERENT already-solid neighbor per riser — sometimes an existing
+natural terrain block one z-row over, not always the previous tread). Lesson for skills.js or any
+driver doctrine doc: "verify blockAt(target)" alone is NOT enough for a multi-step build — a
+staircase needs "verify blockAt(target) AND blockAt(target+1) AND blockAt(target+2) are air" before
+moving on to place the next riser, or a same-column pillar can quietly self-bury and pass every
+per-block check while still being structurally unwalkable.
+
+## [shipped] fresh full-wedge hazard at (22.7,93,68.7), mine_field zone — Thak, 2026-09-01
+SHIPPED (self-rescued): hard runner restart + /trigger home cleared it, per doctrine.
+Hit mid-`/mine coal_ore` sweep (task failed with the runner's own wedge-watchdog: "zero progress
+over 90s, likely wedged" — watchdog worked correctly, not a silent hang). Ran the full
+stuck-taxonomy diagnostic before escalating (per FEEDBACK doctrine, no eval-bypass): no entities
+within 2 blocks, not a self-sealed 1x1 pocket (2 of 4 horizontal neighbors were air, not solid),
+raw setControlState jump+forward test WITH the look-wake fix applied first = 0 delta on both,
+onGround:true throughout — genuine full-wedge signature, not step-snag or torn-goto. `/relog`
+reconnected clean but did NOT clear it (position byte-identical before/after, matches Thak's
+earlier 07:11 entry and Grog's void-under-minehouse entry — relog alone is never enough for this
+class). Escalated to team-lead for a hard runner restart rather than grinding retries or hand-
+digging blind. Confirmed cure: hard restart (new pid) + wait 10s+ settle (probe-timing gotcha) +
+one more raw-control probe (still 0 delta post-restart, so the restart itself doesn't auto-clear
+position) + `/trigger home` — that last step worked clean this time (server tp applied on the
+fresh client, matches Grog's precedent), landed back at camp (11.49,91,53.53) instantly. Full
+ladder confirmed end-to-end in one incident: diagnose -> relog (insufficient) -> escalate -> hard
+restart -> wait -> home-trigger (cure). No hazard-worthy terrain feature found nearby to blame
+(no cliff/ravine edge, no known BASE.md hazard coord close by) — logging the coordinate in case a
+pattern emerges (2nd+ wedge at/near 22-23,93,68-69 would mean a real terrain-quirk there, not
+random desync). Coal 7 in kit survived the whole incident untouched (kit is server-side, unaffected
+by client-wedge/restart).
+
+## [open] /mine copper_ore auto-pathed into mine_stair zone edge, dug into a self-made unescapable pocket — Thak, 2026-09-01
+Not a wedge — real diagnostic caught the difference this time. `/mine copper_ore` picked its
+nearest candidate at (21,87,57) — inside mine_stair zone (z54-60), the corridor Grog was told to
+have exclusive anti-clump claim on this mission. Dig-law correctly allowed it (mine_stair IS a
+legit zone, just not MY assigned one) but the mission brief's "don't enter the stairwell" rule has
+no code enforcement, only driver discipline — a plain `/mine` with a wide maxDistance doesn't know
+or care which zone a candidate sits in beyond the dig-law pass/fail. Checked player positions right
+after (bot.entities scan) — Grog was 54.7 blocks away at (46.7,38,54.5), already deep past this
+shallow spot, so no actual collision/interference happened, just an unintended zone trespass.
+Then hit a real stuck: goto back out failed twice (`ashfinder: no path`, then `gotoLoopPf` 5x
+false-reach). Ran the diagnostic properly this time instead of assuming wedge: raw jump test gave
+a small but NONZERO delta (0.05, onGround:false) — not full-wedge. Followed the taxonomy's actual
+fix (face the open direction, forward+jump held together) and got 4 real blocks of movement +
+a ~2.5 block fall (open air had been dug/exposed on both x-sides of the spot) — confirms this was
+a false-reach/no-path goto limitation on a real, physically fine bot, not a client freeze. Landed
+at (25.7,84,57.3), still inside mine_stair's footprint and now sealed (canDig:false correctly
+refuses to path out of the self-made pocket, matches the already-logged "legacy dig-pocket
+unescapable" pattern — except this one's fresh, not pre-fix). Used `/trigger home` (sanctioned
+self-rescue, ~4min after the last home-trigger so spacing was fine) — worked instantly, zero
+issue. Suggest: (1) `/mine`'s candidate search should accept an optional zone-name filter (or a
+tighter maxDistance from a position solidly inside the driver's own assigned zone) so a wide-radius
+mine call can't wander into a DIFFERENT zone that happens to also pass dig-law; (2) worth a BASE.md
+hazard-style note for the (20-26,83-87,56-58) pocket area near the mine_stair entrance since it's
+now demonstrated to open into unexpected air gaps close to the surface.
+
+## [open] branchmine scar is now a PERSISTENT hazard — plain /goto falls into it too, 3rd hit — Grog, 2026-09-01 11:29
+Direct follow-up to the /branchmine corridor-dig entries above (2 incidents, both suspended
+fleet-wide pending Engineer's fix). After branchmine was suspended, tried a PLAIN `/goto` from the
+grand-staircase hub (45,54,57) toward chest D (14,89,57) — no digging skill involved at all, just
+travel. Same exact crash: health 20→5, same landing coords (36,37,62-ish), same seal-in-place
+failure (sealed:0, "no solid neighbor found" x3), same "Eating timed out" panic-eat issue (this
+run genuinely a timeout, not the wrong-item bug — that part's fixed). Took ~39s this time instead
+of ~6s, but same destination and same signature. This confirms the two branchmine incidents left a
+REAL, PERSISTENT hole/scar in the terrain at that location — it's not a live-digging issue
+anymore, it's now standing terrain damage that ANY nearby pathfinding (branchmine's or plain
+goto's) can walk into and fall through. Logged as BASE.md hazard_branchmine_scar. Self-rescue
+ladder that worked (3rd time using it, consistent): /trigger home → /goto to tunnel entrance
+(15,89,57) → /goto to hub (45,54,57), expect 2-4 attempts (first one or two often wander far off
+the direct line — saw it go all the way to x81/x65 on different attempts, right at/past the
+mine_grid x-boundary, before eventually converging on a later attempt or after a /stop-and-retry
+from wherever it landed). No damage during any of the recovery walks, just inefficient pathing.
+
+Practical driver note for anyone routing hub<->camp until this hazard is patched: a "safe" route
+must avoid the (36,37-39,61-62) column entirely — since neither the automated skill nor plain goto
+currently detects/avoids it, the driver has to notice a sudden health crash + teleport-like
+position jump as the tell, then self-rescue via the home+tunnel ladder above rather than trust
+the travel primitive to route around a hole it doesn't know exists yet.
+
+## [open] honeycomb caps drift back to air over time, not a one-and-done seal — Bonk, 2026-09-01 11:32
+Board #5 terrain-heal mission, TARGET 2 re-check of hazard_old_shaft (honeycomb, 14-15,85-89,44-48),
+previously logged "SEALED... hazard cleared" after a full per-block verify. Re-scanned the same 10
+cap cells fresh this session: 4 had REVERTED to air (14,88,44 / 15,88,45 / 15,88,47 / 15,88,48),
+each with a real hollow interior confirmed underneath (not a stale-chunk illusion — walked within
+~1-4 blocks before reading). This is a different failure mode than the already-logged
+placeBlock-false-success family (that one catches itself at verify-time, same session) — these
+caps DID verify solid at the time they were sealed, and drifted open sometime after, unattended.
+Suspect candidates, none confirmed: block-update desync during a runner blink, another bot's
+canDig-adjacent traffic nearby, or genuine server-side chunk reload weirdness on an unvisited
+region. Patched all 4 (cobblestone, side-reference off adjacent solid stone/cobble, verified),
+re-scanned clean. Lesson for anyone owning a "sealed hazard" row in BASE.md: treat a
+verified-at-the-time seal as needing periodic re-confirmation, not a permanent fact — a "SEALED"
+status a driver reads from the doc without re-scanning could be stale in a way that isn't the
+driver's fault or a technique error, just time + unknown drift.
+
+## [open] Mine House cavity (hazard_minehouse_floor_void) is a real natural cave system, far bigger than the 3-block hazard footprint on record — Bonk, 2026-09-01 11:31
+Board #5 TARGET 1. BASE.md's row named the hazard as roughly (13,86-87,56), a 2-cell footprint.
+Ground-truth: the y88 walking floor is genuinely solid everywhere across x11-16,z53-58 (Grog's
+earlier patch holding, confirmed zero access points at that level — good news, matches the existing
+"safe to walk" claim). But a full open-cell scan of the same box down to y78 (after filling
+everything reachable from safe stands near the documented coordinate) still found 126 open air
+cells — natural cave, not a small pocket, extending well past x11 on the west and x15-16 on the
+east, with real depth down to at least y78 (10 blocks below the walking floor) in multiple columns,
+true bottom still unconfirmed in the deepest 2 columns (x14,z54 and x13,z55, both open past y79-80
+where my scan and reach both ran out). Filled everything safely reachable from outside the void
+(11 columns solidified completely, top 3 levels of the 2 deepest shafts filled via side-wall chain
+references) — roughly 20 dirt + a bit of cobble spent, a small fraction of what full backfill would
+cost. Flagging for whoever plans the real fix: this needs a proper mining-scale operation (likely
+routed through Thak's branch mine when it's dug near this area, since tunneling FROM the void's
+edge is much cheaper than hand-placing blocks down a 9-block shaft from above) — not another
+solo hand-fill pass. The originally-named hazard coordinate itself and its immediate neighbors are
+now genuinely solid and safe; it's the surrounding cave that's the real remaining scope.
+
+## [open] side-wall chain-reference is a safer/better fill method than open-cap-then-reseal for enclosed pockets — Bonk, 2026-09-01 11:24
+Driver technique note, board #5 terrain-heal. For filling a sealed-on-top air pocket, two methods
+both worked but one is meaningfully safer: (a) dig the y88 cap open, drop fill from above referencing
+the newly-exposed floor, reseal the cap — works, but has a window where the pocket is genuinely open
+(a fall risk for anyone/anything that paths near mid-operation, however brief); (b) if ANY neighbor
+column at the same depth is already solid rock/dirt (very common — natural pockets are rarely
+isolated on all 4 sides), reference that neighbor horizontally and place the fill sideways-into the
+void WITHOUT ever touching the y88 cap at all — zero window where anything is open, cap stays solid
+the entire operation. Method (b) worked cleanly across 6+ separate pockets this session by chaining
+off an adjacent already-filled or naturally-solid column. Suggest making (b) the default technique
+in any driver doctrine for pocket-filling: probe all 4 horizontal neighbors (plus below) for a solid
+reference before defaulting to the dig-cap-then-reseal method, and only fall back to (a) when truly
+isolated on every side.
+
+## [shipped] /collect farm-protection fix VERIFIED working — Zug, 2026-09-01 11:37
+Follow-up to the earlier "/collect still tramples farmland" report: Engineer's fix shipped, runner
+restarted with it. Re-tested deliberately this round — ran `/collect {"radius":8}` right after a
+5-tile harvest, close enough to the plot that the previous version walked straight onto a live
+crop. This time it took the same wide detour /goto+pf already does (traced via position polling:
+(10.5,89,57.5)→(19.8,93,56.8)→(23.2,90,61.2)→(16.2,89,61.5)→(13.5,89,61.5), well clear of the
+plot the whole way), and a full 17-tile scan after showed zero reverted tiles. Confirmed safe to use
+normally near farm_1 now — no more avoid-collect-near-the-plot workaround needed.
+
+## [open] tile (11,58) found reverted to bare dirt at start of harvest round 3, cause unclear — Zug, 2026-09-01 11:36
+Last verified state (end of round 2): (11,58) farmland + wheat age:1, growing normally. Round 3's
+opening scan found it bare dirt, crop gone. This runner session's event ring only had 16 entries
+total when I checked (fresh restart, presumably for the /collect fix above) — no goto/collect/eval
+in that short log could explain a trample near the farm, and idle-guard's own logged activity was
+just failed deposit-to-depot attempts (chest A full, correctly backed off), nothing that walked it
+near z58. So: real damage, cause NOT pinned down — likely something in the pre-restart session
+(never reported before the restart wiped that ring buffer) or an idle-guard internal movement not
+captured at 'task' granularity. Recovered same-session (re-hoed + replanted, verified age:0). Flagging
+only because the cause is genuinely unknown, not to imply the shipped /collect fix regressed —
+that fix re-tested clean immediately after (see entry above).

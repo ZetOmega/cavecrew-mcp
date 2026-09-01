@@ -466,25 +466,36 @@ Body: `{player, range?=3}`.
 
 ### `POST /deposit`
 
+Give each item an exact `count` to move a partial stack — this is the
+normal form; omitting `count` moves the whole matching stack:
+
 ```powershell
 curl.exe -s -X POST http://127.0.0.1:3201/deposit `
   -H "Content-Type: application/json" `
-  -d '{"x":10,"y":65,"z":20,"items":["cobblestone"]}'
+  -d '{"x":10,"y":65,"z":20,"items":[{"name":"cobblestone","count":32}]}'
 ```
 
-Body: `{x, y, z, items?}` — omit `items` to deposit everything except
-tools. Send a `DEPOT +N item (chest X)` chat line per item afterward.
+Body: `{x, y, z, items?}` — each entry is `{name, count?}` (`count`
+omitted = the entire matching stack); a bare string (`"cobblestone"`) is
+shorthand for `{"name":"cobblestone"}`, same "whole stack" meaning —
+mixing shorthand and full form in the same array is fine. Omit `items`
+entirely to deposit everything except tools. Send a
+`DEPOT +N item (chest X)` chat line per item afterward, using the actual
+count the response reports as deposited, not the count you asked for.
 
 ### `POST /withdraw`
 
 ```powershell
 curl.exe -s -X POST http://127.0.0.1:3201/withdraw `
   -H "Content-Type: application/json" `
-  -d '{"x":10,"y":65,"z":20,"items":["iron_ingot"]}'
+  -d '{"x":10,"y":65,"z":20,"items":[{"name":"iron_ingot","count":8}]}'
 ```
 
-Body: `{x, y, z, items}`. Send a `DEPOT -N item (chest X)` chat line per
-item afterward.
+Body: `{x, y, z, items}` (required, non-empty) — same `{name, count?}` /
+bare-string-shorthand shape as `/deposit` above. `count` must be a whole
+number `>= 1` (a fractional or zero count is rejected at the endpoint,
+before any walk to the chest, rather than silently no-op'ing). Send a
+`DEPOT -N item (chest X)` chat line per item afterward.
 
 ### `POST /craft`
 
