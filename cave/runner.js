@@ -1142,8 +1142,33 @@ function wireBot(b) {
       m.maxDropDown = 3;
       m.infiniteLiquidDropdownDistance = false;
       m.scafoldingBlocks = [];
+      // FARM AVOID (FEEDBACK "goto ROUTES STRAIGHT ACROSS live farmland",
+      // Zug 2026-09-01) — no bot should ever step ON a crop tile anywhere;
+      // farmers work from the adjacent path row, same reach-law discipline
+      // as every other skill. Read mineflayer-pathfinder's own move-cost
+      // source (node_modules/mineflayer-pathfinder/lib/movements.js) to
+      // find the actually-effective cell rather than guessing:
+      // getMoveForward/getMoveDiagonal only run safeOrBreak() — the
+      // function blocksToAvoid gates — against the FEET/HEAD (body-space)
+      // cells (blockB/blockC in getMoveForward, ~line 361-374); the FLOOR
+      // block one down (blockD) is checked ONLY for .physical (can I stand
+      // on it), never passed through safeOrBreak, so blocksToAvoid on it is
+      // a structural no-op. farmland (id, boundingBox:'block') IS that
+      // floor block — adding it here would do nothing, confirmed by
+      // tracing the source, not left in. The block that DOES occupy the
+      // feet cell when a tile is planted is the CROP itself (wheat/
+      // carrots/potatoes/beetroots, all boundingBox:'empty' — normally
+      // freely walkable, which is exactly why putting them in
+      // blocksToAvoid is what actually changes pf's cost function).
+      // Known gap, not solved by this: a BARE (unplanted/freshly-hoed)
+      // farmland tile has no crop block above it, so it isn't covered —
+      // flagged to team-lead, not silently claimed as complete.
+      for (const cropName of ['wheat', 'carrots', 'potatoes', 'beetroots']) {
+        const cropId = mcData?.blocksByName?.[cropName]?.id;
+        if (typeof cropId === 'number') m.blocksToAvoid.add(cropId);
+      }
       b.pathfinder.setMovements(m);
-      logLine('info', 'safety Movements applied (no-dig travel)');
+      logLine('info', 'safety Movements applied (no-dig travel, crop-avoid)');
     } catch (err) {
       logLine('warn', `safety Movements failed: ${err.message}`);
     }
