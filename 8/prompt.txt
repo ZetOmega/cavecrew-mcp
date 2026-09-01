@@ -398,3 +398,59 @@ If this event is something the user would act on now, send a PushNotification. R
 <event>hb t+392s "lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=34,y=49,z=60} to GoalComposite[GoalBreak{x=28,y=49,z=60}, GoalBreak{x=28,y=50,z=60}]. 6 nodes considered"</event>
 If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
 </task-notification>
+
+---
+
+<task-notification>
+<task-id>bw4e8suko</task-id>
+<summary>Monitor event: "BariBrute tunnel dig watch: nogo/disconnect/stuck alerts, breach detection, progress heartbeat"</summary>
+<event>hb t+437s "lastBaritoneLine":"Done building"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bw4e8suko</task-id>
+<summary>Monitor event: "BariBrute tunnel dig watch: nogo/disconnect/stuck alerts, breach detection, progress heartbeat"</summary>
+<event>hb t+482s "lastBaritoneLine":"Done building"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bw4e8suko</task-id>
+<summary>Monitor event: "BariBrute tunnel dig watch: nogo/disconnect/stuck alerts, breach detection, progress heartbeat"</summary>
+<event>hb t+527s "lastBaritoneLine":"Done building"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bw4e8suko</task-id>
+<summary>Monitor event: "BariBrute tunnel dig watch: nogo/disconnect/stuck alerts, breach detection, progress heartbeat"</summary>
+<event>hb t+572s "lastBaritoneLine":"Done building"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bw4e8suko</task-id>
+<summary>Monitor event: "BariBrute tunnel dig watch: nogo/disconnect/stuck alerts, breach detection, progress heartbeat"</summary>
+<event>CAP: tunnel watch window elapsed t+587s -- check /status manually
+TUNNELWATCH_DONE t+587s</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bw4e8suko</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-phili-tools-cavecrew-mcp/ebbc4e8d-d11a-41a2-8798-d7e515350594/tasks/bw4e8suko.output</output-file>
+<status>completed</status>
+<summary>Monitor "BariBrute tunnel dig watch: nogo/disconnect/stuck alerts, breach detection, progress heartbeat" stream ended</summary>
+</task-notification>
