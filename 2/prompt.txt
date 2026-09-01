@@ -552,3 +552,23 @@ If this event is something the user would act on now, send a PushNotification. R
 <event>poll 3: state=running pos=24.70,90.00,63.56</event>
 If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
 </task-notification>
+
+---
+
+<task-notification>
+<task-id>b2wigazvp</task-id>
+<summary>Monitor event: "watching collect sweep of coal drops in open mine_field"</summary>
+<event>poll 1: state=done coal=4
+TASK_ENDED: done coal=4</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b2wigazvp</task-id>
+<tool-use-id>toolu_01QEukzQAWS8sbQzvzydXNqK</tool-use-id>
+<output-file>/tmp/claude-1000/-home-phili-tools-cavecrew-mcp/952b8146-8aa4-4409-997b-890cd344ce7a/tasks/b2wigazvp.output</output-file>
+<status>completed</status>
+<summary>Monitor "watching collect sweep of coal drops in open mine_field" stream ended</summary>
+</task-notification>
