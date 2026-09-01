@@ -586,9 +586,7 @@ const ALLOWED_HOSTS = new Set([
 ]);
 // Tailscale CGNAT IPs (100.64.0.0/10) are legitimate Host values when a
 // tailnet device opens the panel by IP.
-const TAILNET_HOST_RE = new RegExp(
-  '^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.\d{1,3}\.\d{1,3}:' + PANEL_PORT + '$'
-);
+const TAILNET_HOST_RE = new RegExp('^100([.][0-9]{1,3}){3}:' + PANEL_PORT + '$');
 
 function hostAllowed(req) {
   const host = req.headers.host;
