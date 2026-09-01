@@ -47,14 +47,25 @@ executes it top-down at its own pace. Delete when R2 complete.
       interactive `entire login`. Fan-out blocked on this per chief order.
 - [ ] TODO.md prune + ISSUES.md rollup seed (repo hygiene round)
 
-## R1 — relaunch (after teammate reset ~11:20 Berlin + entire login)
+## R1 — relaunch (REWRITTEN 2026-09-01 ~08:50Z: chief ordered a ONE-TIME
+## sanctioned teleport of all 8 bots to safety (17,96,47) + logout. The
+## pocket rescue below is OBSOLETE — nobody is trapped. Relaunch doctrine is
+## now RE-LEARNING RAMP per cave/LAUNCH.md: start 1 bot + 1 driver, build
+## confidence, scale gradually to 8. Homes unset — sethome early per bot.)
 
 1. Boot fleet 8 runners + overseer (NEW code, fresh process, idle-defaults on).
 2. Resume 4 paired drivers by SendMessage (transcripts hold their laws+lanes).
-3. RESCUE convoy, one commander (BuildDriver drives Grog):
-   goto (9,90,57) → VERIFY arrival → /staircase {"toY":85,"direction":"east"}
-   → breach pocket → "!RESCUE RAMP OPEN" → each pair driver walks own bots up
-   → sethome ritual at yard (12,93,50) for ALL EIGHT → convoy done.
+3. RESCUE — solved on paper 2026-09-01 (scan + analysis in git):
+   SEVEN bots are in the pocket (Grog too). GrogDriver's old tread shelf
+   already descends z56/z57 to y86-88; the only gap is two support columns.
+   Grog carries 85 cobble + 91 dirt + iron tools. Plan: run the staged eval
+   scratchpad ev-bridge.json on Grog (places 5 blocks: (10,82,56),(10,83,56),
+   (9,82,56),(9,83,56),(9,84,56), multi-support fallback, per-block verify)
+   → then plain /goto surface per bot walks the ramp out. placeBlock root
+   cause hypothesis: body-clip of target cell — targets at z56 clear a bot
+   standing in z55. If eval placements still fail server-side, escalate to
+   chief before any workaround.
+   Then sethome ritual at camp surface for ALL EIGHT → convoy done.
 4. Thak → entrance (15,89,57) → /staircase toY:54 → branchmine y54 → iron.
 
 ## R2 — standing-goal grind
