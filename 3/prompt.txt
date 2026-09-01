@@ -434,3 +434,7 @@ Use PushNotification when the loop can't move further without the user, or when 
 ---
 
 DISCORD HEARTBEAT (terse!): ONE small embed to CaveLead webhook (orchestratorWebhookUrl in cave/local.json). HARD RULES: max 3-4 Zeilen, NUR echte Deltas/Signal seit letztem Post (Milestone, Zahl verändert, Problem) — kein Lane-Durchlauf, kein "läuft noch", kein Wiederholen. Wenn seit letztem Post nichts Berichtenswertes: EINE Zeile ("⚙️ alles läuft, nichts Neues") oder ganz skippen. Farbe nach Lage. Milestones weiterhin sofort als eigener kompakter Ping.
+
+---
+
+okay how it going
