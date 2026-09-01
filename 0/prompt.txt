@@ -195,3 +195,9 @@ DISCORD HEARTBEAT (chief standing order): post a small colorful status "Zettel" 
 ---
 
 DISCORD HEARTBEAT (chief standing order): post a small colorful status "Zettel" to the CaveLead Discord webhook (orchestratorWebhookUrl in cave/local.json). Gather cheap ground truth first (bot /status polls on 3201/3202+ for pos/task/hp, note what each teammate lane is doing from your context). Format: Discord embed, color-coded (green 0x2ecc71 win / amber 0xf39c12 progress / red 0xe74c3c problem), emojis per lane (⛏️ mining, 🌲 wood/grove, 🔧 engineering, 📊 panel, 🤝 FEL/trade, 🤖 bots), bold highlights, short lines, casual tone. Content: what runs RIGHT NOW, anything cool since last heartbeat, next up. Keep it a small Zettel, not a wall. If a milestone landed since last post (release/big fix/rescue), lead with it. Do not restate stale news twice.
+
+---
+
+mach mal seltener daboss spam und weniger verboss das ganze da
+
+und wie ist das baritone fazit? gut was gesammelt? lohnt es sich? performance impact vs regular bots. decision ob ein paar bots gegen baritone taudchen, oder sogar alle bis auf 1,2
