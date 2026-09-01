@@ -3,7 +3,7 @@
   "checkpoint_id": "01M1EHSSGGX21NEVNBV4DF335G",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 9,
+  "checkpoints_count": 10,
   "files_touched": [
     "cave/DRIVES-SPEC.md"
   ],
@@ -21,13 +21,20 @@
       "compact_transcript": "/1/transcript.jsonl",
       "content_hash": "/1/content_hash.txt",
       "prompt": "/1/prompt.txt"
+    },
+    {
+      "metadata": "/2/metadata.json",
+      "transcript": "/2/full.jsonl",
+      "compact_transcript": "/2/transcript.jsonl",
+      "content_hash": "/2/content_hash.txt",
+      "prompt": "/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 930,
-    "cache_creation_tokens": 619900,
-    "cache_read_tokens": 92504443,
-    "output_tokens": 178706,
-    "api_call_count": 465
+    "input_tokens": 950,
+    "cache_creation_tokens": 642105,
+    "cache_read_tokens": 94453593,
+    "output_tokens": 187968,
+    "api_call_count": 475
   }
 }
