@@ -8,6 +8,25 @@ cycles consume open entries. Format:
 symptom / evidence / suggested fix
 ```
 
+## [open] ash routed bot into a sealed natural cave pocket during long-distance overland goto — UngaBunga, 2026-09-01 12:42
+Ranged wood-run leg toward (35,90,80)/(40,90,85) from camp: pf stalled twice at the exact same spot
+(21.5,90,77.3) with identical false-reach distance (14.36 — matches Grog's already-logged
+stale-distance bug). Switched to ash, which DID make real progress (33.67,89,76.57) but the next
+attempt from there failed "no path (goal unreachable)", again zero movement. Ground-truth scan
+found why: bot was sitting 6+ blocks BELOW the real surface, own head-height blocked by solid stone
+1 block up (col: y88 dripstone_block floor, y89-90 air, y91 solid stone ceiling), and a 16-block-
+radius wider scan found solid ground at y95-96 in every direction with no gap — genuinely sealed in
+a natural dripstone-floor cave pocket (matches the dripstone cavern Ook mapped on the west scout,
+apparently this cave system extends this direction too). Ash's "partial" path search must have
+routed through a cave entrance it found further back and just dead-ended here rather than staying
+surface-level for an overland trip. Did NOT hand-dig out (canDig:false doctrine — blind tunnel risk
+is exactly what that's for). Escalated straight to /trigger home per HOME SYSTEM doctrine, worked
+clean. Suggest: for surface/overland goto legs specifically (not intentional cave travel), a
+"prefer-surface" or "avoid-underground" hint on /goto would prevent ash from opportunistically
+diving into cave systems that dead-end; until then, drivers doing long blind overland travel should
+expect this failure mode and budget for a home-rescue mid-route, or travel in shorter hops with a
+position/altitude sanity check between each (a sudden y-drop of several blocks mid-leg is the tell).
+
 ## [open] pf engine total fail on hillside climb, ash instant success — UngaBunga, 2026-09-01 10:02
 Long trading-post leg (camp ~(10.5,91,66.5) to post (7,112,23), ~44 horiz / +21 vert, open-air
 hillside per CIV.md's own trading-post note, not underground). engine:"pf" with timeoutMs:90000:
@@ -1935,3 +1954,228 @@ corridors toward known iron clusters (candidate: y49 from the staircase hub) rat
 open-ended `/mine` count job. Navigation/safety half of this session stands fully proven regardless
 (zero no-go breaches, y-clamp held, clean 790-block return, ground-truth confirmed at both ends) —
 this pivot is purely a task-shape lesson, not a wrapper-safety one.
+
+## [open] /collect still tramples farmland under retry pressure — 4th incident, different trigger than the [shipped] fix — Zug, 2026-09-01 12:39
+The [shipped] /collect farm-safety fix (earlier today) verified clean twice in easy conditions
+(drop sitting in open reach, one clean sweep). This round it broke down under a HARDER case: 2
+drops landed right on/near a just-replanted tile (12,61), close together. Event log (seq 454-466)
+shows `/collect` genuinely struggling — 3x "arrived near drop but it is still there — not picked
+up" (0.34/1.53/2.04 blocks off) plus repeated `gotoLoopPf: No path to the goal!` retries chasing
+those same 2 drops. Somewhere in that retry storm it stepped onto tile (10,61) — a DIFFERENT tile
+than the ones it was chasing, already fully harvested+replanted (verified age:0 minutes earlier) —
+and trampled it to bare dirt. So the crop-avoidance holds for a normal/single-attempt collect (as
+verified twice), but under repeated pathfinding failures against a stuck drop, some retry/fallback
+branch inside `collectDrops` still steps onto protected ground it wasn't even targeting. Recovered
+same session (re-hoed+replanted, verified age:0). The 2 original stuck drops were NOT recovered by
+the retries either — abandoned in place (on our own land, low value, not worth another attempt) —
+until a later unrelated `/goto{engine:"ash"}` incidentally picked them up passing nearby.
+Recommend: whichever fix shipped for the simple case needs to also cover collectDrops' retry/
+fallback path, not just its primary route-finding — the bug moved, didn't fully die.
+
+## [open] /goto (pf) failed 5/5 "No path to the goal!" from deep inside the now-25-tile plot — Zug, 2026-09-01 12:39
+Standing at (10.65,89,61.5) — surrounded by planted tiles on multiple sides after the farm_1
+expansion to 25 tiles — a plain `/goto` to chest C (16,89,54) failed outright, 5/5 attempts, both as
+a direct call and via `/deposit`'s internal goto (10 total failed attempts). Switched to
+`engine:"ash"` and it worked immediately, clean route, zero trample. Suspect cause: pf's crop-
+avoidance is strict enough now that from certain interior positions boxed in by planted tiles on
+several sides, it can no longer find ANY legal first step out (every adjacent cell is either
+protected crop or otherwise blocked) — this is a plausible side-effect of the farm getting denser
+(17→25 tiles) making more positions "interior" rather than edge-adjacent. Not filed as urgent since
+ash is a working fallback (per the existing engine-choice doctrine), but worth knowing: as farm_1
+keeps growing, expect pf goto failures to get more common from inside the plot, and ash to be the
+reliable escape hatch, not just the cave-pathing specialist it was originally noted for.
+
+## [open] genuinely undug rock corridor near cluster 3 → mineBlocks/buildStaircase both false-reach loop instead of digging through → real drowning incident — Thak, 2026-09-01
+Cluster 3 (23-24,y46-47,77-79) sits 4-5 blocks past a wall of SOLID, NEVER-DUG stone from the
+nearest reachable position — ground-truth blockAt scan confirmed z74-76 at x24,y45-49 were 100%
+stone, no existing tunnel/cavity at all, not degraded terrain. Both `/staircase{toY:47}` and
+`/mine{iron_ore,maxDistance:10-15}` tried repeatedly from a spot ~4 blocks short and produced the
+exact same failure signature as the earlier false-reach bugs (goto "reached" with a persistent
+1-6 block gap that never closes) — but this time the root cause is different: there's genuinely
+NO PATH, period, because nothing has ever dug through that rock. Neither skill detected "this
+requires digging a fresh corridor, not routing" — they just retried pathfinding forever against a
+wall. Escalation-rule fix that worked: manual /eval `bot.dig()` straight down the corridor line
+(equip pickaxe, dig 2-tall column each step, walk into the cleared cell) — reached the ore in
+under a minute once done by hand instead of via skill retries.
+
+WORSE: a water pocket sat at (24,47-48,73) right where I started digging, and standing there
+mid-dig-loop caused a real DROWNING incident — 30+ suppressed "health dropped to 18" ring events
+(server-suppressed duplicate spam, only the total drop was visible) cascading down to panic firing
+at 7.67hp (`panic reflex firing`, health event 444). Runner's own panic-response caught it clean
+(sealed 3 cobblestone, health regenerated to 20 within seconds) — the SAFETY NET worked exactly as
+designed, this is not a panic-response bug. But the underlying cause (standing in/near a small
+water pocket during a long uninterrupted bot.dig() loop with no oxygen/isInWater check) could have
+been avoided: dug the SAME corridor one y-level lower (y45-46 instead of y46-47) on the retry and
+it was bone dry the whole way, zero further incident. Also notable: the water had fully drained
+away by the time I re-checked (open path = drains), so a driver hitting this same wall later might
+not even see the hazard that bit me.
+
+Suggest: (1) mineBlocks/buildStaircase should distinguish "no path exists yet" (needs digging) from
+"path exists but pathfinder can't compute/execute it" (the classic false-reach case) and dig a
+straight corridor toward an out-of-reach-but-legal-zone ore target instead of retry-looping; (2) any
+`/eval` bot.dig() loop that runs more than a couple seconds should check `bot.entity.isInWater` /
+`bot.oxygenLevel` between steps and bail/surface if either goes bad, rather than trusting the panic
+reflex as the only safety net; (3) worth an isInWater/oxygenLevel check added to the generic
+
+## [open] /collect can't reach a drop 1-2 blocks away + full-wedge #3 same session, coal run — Grog, 2026-09-01 12:47-12:51
+Dug 4 coal_ore by hand (`bot.dig`, bypassing `/mine`'s pathing after it looped on an unreachable
+z71-73 cluster — see earlier entry this file). All 4 confirmed `ok:true`. Launched `/collect
+{"radius":10}` to sweep the 4 drops. It ran 8 monitor polls (~140s) stuck at coal=3 (no gain),
+never finishing. Stopped it manually — event log showed the real cause: `collectDrops: could not
+reach drop 11765 at 21,88,66 (exact voxel + 6 neighbors all failed): gotoLoopPf: cancelled`. That's
+a drop sitting IN a spot I had just dug open myself (1-block-deep pit), not buried, not walled off
+— should be trivially reachable, but the pathfinder failed the exact voxel AND all 6 neighbor
+offsets.
+
+By the time I ground-truth-scanned entities near the site, the drop was gone entirely (not just
+unreachable) — matches the known ~5min despawn timer, real loss not a new bug, but the failed
+`/collect` burned enough time that despawn caught up before a retry could land.
+
+Then tried a fresh `/goto {"x":21,"y":88,"z":66,"maxDistance":2}` from ~3-4 blocks away (should be
+trivial) to reposition for the next vein — position frozen dead (24.3,89,64.3 → identical after
+14s "running"). Ran the standard ladder: raw jump probe (moved=0, onGround=true) → `/relog` →
+re-probe (moved=0 again). Full-wedge #3 this session, escalated to team-lead for hard restart per
+established ladder.
+
+Silver lining ground-truthed mid-incident: digging the original 4 coal_ore exposed a fresh 7-block
+coal_ore layer directly below at y87 — (20,87,66) (20,87,67) (21,87,65) (21,87,66) (21,87,67)
+(22,87,66) (22,87,67). Plan on recovery: dig by hand again, but walk onto each drop's tile myself
+immediately after digging instead of calling `/collect` — avoids both the reach-fail and the
+despawn race.
+
+Suggest: (1) `collectDrops`'s "6 neighbors" reachability check for a drop sitting in a pit the bot
+itself just carved open is suspicious — worth checking whether the neighbor-offset set assumes open
+sky/flat ground and fails inside a 1-tall dug pocket; (2) same false-reach root cause as the
+already-logged mine_field entry may extend to short-range `/goto` too now, not just long-range —
+this one was ~3-4 blocks with no obstruction in the scan.
+runTargetWithWatchdog used by staircase/branchmine/mineBlocks too, same reasoning.
+
+## [open] ashfinder "no path (goal unreachable)" for a leg pf can walk cleanly — stale navmesh cache suspected — Bonk, 2026-09-01 12:52
+Cycle-4 (chest A → grove geometry fix). Dug a fresh 2-block gap in the camp shelter's north wall
+(11,89-90,54, oak_planks removed, verified air via blockAt) to give chest A's pocket a legal exit.
+pf could reach the gap/chest-A pocket reliably (3+ clean successes, real position deltas each time).
+ash, tested on the EXACT SAME short leg (door pocket → z52, ~2 blocks) immediately after, failed
+outright with `"ashfinder: no path (goal unreachable)"` — not a timeout, a clean "impossible" verdict,
+for a route that pf had just walked. Best explanation: ashfinder builds/caches its own navmesh and
+doesn't see a block change (wall dug seconds earlier) without some invalidation step pf doesn't need.
+Suggest: check whether ashfinder has a cache-bust/rebuild call that needs firing after a build/dig
+near a route it's about to be asked to use, or whether it needs a full reconnect to pick up terrain
+edits. Workaround for now: prefer pf immediately after digging a new gap/connector; don't trust ash's
+"no path" verdict right after a fresh terrain change without also trying pf.
+
+## [open] pf goto oscillates back toward a blocked "closer-looking" route instead of taking a working detour — Bonk, 2026-09-01 12:53
+Same cycle-4 session. Standing right in the new north-door pocket next to chest A, asked pf to go to
+BOTH the grove (far) and just the plain exterior 2 blocks away (trivial) — both times pf's actual
+walk immediately headed AWAY from the open door and back toward the shelter's original south-door
+side (the blocked-by-farmland direction, several times reproduced), landing in an unrelated interior
+pocket and getting stuck there instead. This happened even for the trivial 2-block case where the
+correct route (through the door I was standing right next to) was objectively the only legal one.
+Looks like pf's heuristic weights "toward the target's rough direction" heavily enough that it
+commits to exploring the geometrically-closer-looking route first and either doesn't backtrack to
+try the detour or times out mid-exploration before reaching it. Not confirmed root cause, just the
+reproducible symptom — worth a look by whoever owns movement.js's pf wrapper. Practical driver
+workaround: if pf beelines toward a known-blocked direction from a spot with only one real exit,
+don't trust "reached"/"stuck" as the final word — try physically walking the correct exit first via
+raw eval control to confirm it's real, then retry goto FROM further along the confirmed-good route
+rather than from the pinch point itself.
+
+## [open] full-wedge survived BOTH /relog AND /trigger home this time — 3rd confirmed case needing hard restart — Bonk, 2026-09-01 12:57
+Cycle-4, testing the new north-door gap right next to chest A (a very tight 1-wide pinch — the gap
+is directly adjacent to chest A's own hitbox, zero buffer). Got genuinely wedged mid-test: jump-only
+raw-control probe (with fresh look-wake, retried twice for good measure) read `moved:0` exact, real
+full-wedge signature, not the jump-alone-false-read gotcha logged earlier this session (that one
+needed forward+jump together to unstick — tried that too here, also 0). Ran the full self-rescue
+ladder in order: (1) `/relog` — reconnected clean (`connected:true`) but wedge unchanged, identical
+`moved:0` after a 10s+ settle wait (respecting the probe-timing gotcha); (2) `/trigger home` — this
+one is new data: the server-side teleport was REAL and confirmed (`/status` position jumped from
+11.49,89,55.3 all the way to the saved home 13.5,94,49.46, a genuine ~30-block displacement, not a
+no-op) — but the CLIENT remained wedged afterward, `moved:0` again post-teleport. This matches
+Grog's earlier-logged "full-wedge that survives BOTH the new home self-rescue AND relog" entry
+almost exactly (same symptom: real server-side teleport, client desync persists) — this is now a
+confirmed repeat of that pattern, not a one-off. Per that entry's resolution, the only known cure is
+a hard runner process restart (teleport/relog alone don't resync client+server state). Escalated to
+team-lead for the restart rather than continuing to poke at it. Suggest: this specific pinch (a
+newly-dug 1-wide gap directly touching an existing furniture hitbox with zero buffer) may be an
+easy way to REPRODUCE this wedge class on demand if anyone wants to debug the root desync — every
+other full-wedge report this session was incidental/hard to reproduce, this one has a concrete
+recipe (approach a chest-adjacent 1-wide doorway at a slight off-center angle and push forward).
+
+## [shipped] Tunnel Job 1 complete — y49 access tunnel x40→28 bored, exposes cluster-2 iron, no breach — BariBrute, 2026-09-01 14:48
+Bored the pivot-proving tunnel per team-lead's brief. Started at (44,49,60) per brief but the
+facing field-test (below) drifted the working start to x=40 before the real dig kicked off, so
+depth was cut from the specified `d:16` to `d:12` to preserve the intended endpoint — final line
+ran clean **x=40→28, y=49-50 (h:2,w:1), z=60**, straight through the cluster-2 iron band
+(38-39,y47-48,z59-60). Log evidence: composite goal `GoalComposite[16x GoalBreak...]` shrank
+monotonically over ~5.5 min (BetterBlockPos progression 40→39→37→35→34→done), ended clean with
+"Done building" then `#eta`→"No process in control" (genuine finish, not a self-cancel-on-stall).
+No lava/water/fall/damage/exception lines anywhere in the dig window. **Breach check**: could not
+block-scan the final cavity via neighbor-eval (both Zug and UngaBunga were busy on their own
+driver's tasks the whole window — genuine contention, not a bug) — reporting UNCONFIRMED rather
+than guessing; no hazard indicators in the log either way. Ore was deliberately left unmined per
+brief (harvest crew's job).
+
+**FACING field-verify (deliverable)**: `#tunnel` digs in whatever direction Baritone is currently
+facing — there is no dedicated aim/look/turn chat command, and the wrapper's `/console` whitelist
+(`#eta #proc #goal #version #pause #resume`) doesn't expose one either. Tested empirically: a
+short ~1-block `#goto` hop west did NOT reliably set yaw toward west (ended ~1.8°, not ~90°) —
+falsifies the naive "any short goto sets facing" assumption. A longer ~4-block `#goto` hop DID
+converge yaw toward the travel direction (179.85°→1.8°→75.6° across successive tests), though not
+exactly precise. **Working recipe: fire a `#goto` several blocks (4+) in the intended tunnel
+direction before `#tunnel`, not a 1-block nudge.**
+
+Two more quirks found riding along on this job:
+1. **Composite-goal planning delay reads as a false stall.** Right after issuing `#tunnel` with a
+   large footprint, `#eta` returns `NaN` and position telemetry sits frozen for 60-120s while
+   Baritone computes the full `GoalComposite[...]` node list — this is real compute time, not a
+   stuck bot. Confirmed via block-state ground-truth (open cavern, solid iron floor, no physical
+   obstruction) plus a full log-tail read (found the composite had just finished building). Don't
+   `/stop` on this signature alone — check the log for "Finished finding a path" before assuming
+   stuck.
+2. **`positionSource: "goal-poll"` reports the ACTIVE GOAL TARGET, not the bot's real position.**
+   Caught red-handed on the return `/goto {"x":20,"y":90,"z":60}`: `/status` showed
+   `position:{x:20,y:90,z:60}` **the instant the goto was issued**, 90+ seconds before the bot
+   could plausibly have covered that distance (41 y-levels + 13 x-blocks). Root cause: goal-poll
+   is parsing the `Goal: GoalBlock{x=20,y=90,z=60}` chat echo as if it were a position report, not
+   an actual position sample. This makes `/status`'s `position` field **completely untrustworthy
+   whenever any goal is active** (goto/mine/tunnel) — it'll show the destination, not progress,
+   from tick one. Combined with the earlier-logged "position sometimes never updates during a
+   whole task" entry, the real fix recommendation is the same: `/status` needs a genuine
+   entity-position poll (e.g. periodic bare `#pos`-equivalent if one exists, or parsing movement
+   packets) decoupled from whatever `#goal`/`#eta` happen to print.
+
+**Return leg + the "silent arrival" pattern**: the return `/goto` self-cleared to "No process in
+control" (confirmed via both `#eta` and `#proc`) ~2min7s after issue, with ZERO intermediate chat
+lines (no replan spam, no "Finished finding a path", no arrival announcement) — worrying at first
+glance given the earlier session's identical-looking silent self-cancel-on-ascend-refusal failure
+(see below). Disambiguated by re-issuing the same `/goto`: it produced NO "Starting to search for
+path from BetterBlockPos{...}" line at all before immediately going idle again — Baritone only
+skips path search when already standing in the goal cell. Two goes at this exact same clean
+signature = confident read that the goto genuinely arrived, just never announced it (consistent
+with this session's standing "near-zero completion telemetry" theme). Ground-truth neighbor-eval
+was unavailable both times (Zug/UngaBunga both busy on their own tasks) — noting the confirmation
+method used instead (re-issue-and-check-for-skipped-pathsearch) as a new trick worth keeping
+alongside the `#eta` probe for exactly this ambiguous-silence situation.
+
+**Real anomaly hit mid-return**: the FIRST attempt at the return `/goto {"x":20,"y":90,"z":60}`
+(fired right after tunnel completion, from (33,49,60)) found a full 30384-node path fine but then
+hit 8x "Too far to the side to safely sprint ascend" / "Skipping traverse to straight ascend" and
+silently self-cancelled without ever taking a single step (position never left x=33) — same
+failure signature as this session's very first `/goto` anomaly (already logged above). Fix that
+worked: `/stop` to clear the stale task, then a plain retry of the identical `/goto` — second
+attempt replanned differently and completed clean. Two-for-two now on "stop + blind retry" as the
+correct response to this specific silent-ascend-refusal pattern — worth promoting from "anomaly
+response" to "standard first move" when a fresh goto shows repeated ascend-refusal spam then goes
+quiet with zero position change.
+
+**legitMine live-flip blocker (chief ruling 2026-09-01)**: attempted `POST /console
+{"cmd":"#set legitMine false"}` per team-lead's instruction to flip it live mid-session — rejected
+outright: `{"error":"command not whitelisted","allowed":["#eta","#proc","#goal","#version",
+"#pause","#resume"]}`. The wrapper's `/console` whitelist does not include `#set` at all, so the
+"works mid-session" assumption doesn't hold through the documented HTTP API as-is — would need
+either a wrapper code change (extends the whitelist, a safety-relevant surface) or a full relaunch
+to take effect, neither attempted mid-tunnel-job. Applied the PERSISTENT half only: settings.txt
+template in `baritone-runner.mjs` and `cave/BARITONE.md` part 5a both updated
+(`legitMine true`→`false`), all other safety settings untouched. Low urgency noted: `legitMine`
+only gates `#mine`'s visibility-based targeting, not `#tunnel`'s deterministic dig-in-place
+behavior, so it had zero effect on this job either way. Live effect deferred to BariBrute's next
+natural relaunch.
