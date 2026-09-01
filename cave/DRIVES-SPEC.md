@@ -87,12 +87,19 @@ D. **De-chat law adaptation** (chief decree total de-chat stands):
 E. **Overseer/goal-engine**: overseer SKIPS enrolled bots (drive engine
    owns their idle). Overseer keeps serving non-enrolled bots. Retirement
    decision after pilot.
-F. **LLM infra**: `@anthropic-ai/sdk` (to install). Models:
-   `claude-haiku-4-5-20251001` (decision), `claude-sonnet-5`
-   (escalation after 2 fails + reflection). Key: `ANTHROPIC_API_KEY` env
-   or `cave/local.json` `anthropic.apiKey`. **Currently MISSING on this
-   box — chief must provide before pilot can run.** Engine must degrade
-   cleanly without key: log once, stay dormant, no crash, no retry storm.
+F. **LLM infra (v2, chief ruling 2026-09-01: NO Anthropic key — DeepSeek
+   API)**: use the `openai` npm package (DeepSeek is OpenAI-compatible),
+   `baseURL: "https://api.deepseek.com"`. Key: `cave/local.json` under
+   `deepseek.apiKey` (gitignored) or env `DEEPSEEK_API_KEY` — chief holds
+   it in 1Password and pastes it in; NEVER commit/log it. Models fully
+   config-driven in `cave/drives.json`: `decisionModel` (chief asked for
+   "flash v4" — at startup GET the provider's model list, match the
+   configured name; if configured name absent, log the available list
+   ONCE and stay dormant — never guess-spend on a wrong model),
+   `escalationModel` + `reflectionModel` (default: same flash model —
+   chief wants API cost minimal, "nur nutzen wo muss"). Engine must
+   degrade cleanly without key: log once, stay dormant, no crash, no
+   retry storm.
 G. **Cost guards**: needs computed every 5s (code only); decision call
    only on (idle AND no drive goal running) or immediately after a fail;
    min 20s between calls per bot; per-bot hourly cap 60 calls; global
