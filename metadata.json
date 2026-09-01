@@ -3,9 +3,11 @@
   "checkpoint_id": "01M1EFBZBF9P4ZRYEATSV2PB7Q",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 4,
+  "checkpoints_count": 7,
   "files_touched": [
-    "cave/CIV.md"
+    "cave/BASE.md",
+    "cave/CIV.md",
+    "cave/TODO.md"
   ],
   "sessions": [
     {
@@ -26,6 +28,13 @@
     {
       "metadata": "/3/metadata.json",
       "prompt": ""
+    },
+    {
+      "metadata": "/4/metadata.json",
+      "transcript": "/4/full.jsonl",
+      "compact_transcript": "/4/transcript.jsonl",
+      "content_hash": "/4/content_hash.txt",
+      "prompt": "/4/prompt.txt"
     }
   ],
   "token_usage": {
