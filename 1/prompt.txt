@@ -531,3 +531,12 @@ If this event is something the user would act on now, send a PushNotification. R
 <event>T120s task="task":{"kind":"goto","x":20,"y":27,"z":66,"at":1788271302132} aborted="aborted":null conn="connected":true pos="position":{"x":22,"y":90,"z":63}</event>
 If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
 </task-notification>
+
+---
+
+<task-notification>
+<task-id>bp9t38gf0</task-id>
+<summary>Monitor event: "BariThak goto pocket (20,27,66) — 40s cadence, watch workzone/nogo/disconnect"</summary>
+<event>T160s task="task":{"kind":"goto","x":20,"y":27,"z":66,"at":1788271302132} aborted="aborted":null conn="connected":true pos="position":{"x":22,"y":90,"z":63}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
