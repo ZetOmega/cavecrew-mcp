@@ -19,16 +19,48 @@
 // See FEEDBACK: "CONFIRMED: overseer idle-default /collect caused the furniture
 // damage". 120s sits above normal driver latency and still catches real stalls.
 //
-// DIG LAW — miners excluded. Thak, Durk and Mog get NO auto-mine default.
-// Mining happens only in dedicated zones, via /buildStaircase + /branchMine,
-// under explicit driver command. Their idle default is a /goto back to their
-// own workstation / wait sector (anti-clump law), which is a cheap no-op walk
-// when they are already parked there.
+// DIG LAW — miners excluded from the ROLE-DEFAULT fallback specifically:
+// Thak, Durk and Mog get NO auto-mine entry in BOTS[].defaults below (that
+// array is untouched by the goal engine, see the block below). Their default
+// is still a /goto back to their own workstation / wait sector (anti-clump
+// law), a cheap no-op walk when they are already parked there. See the GOAL
+// ENGINE block below for the 2026-09-01 lift of this exclusion one layer up.
 //
 // ONE COMMANDER — the overseer pushes defaults ONLY to bots with no running
 // task, and never uses `force`. It never cancels, preempts, or fights a
 // driver's running task; if a driver is working the bot, the overseer stays
 // silent. Drivers command; the overseer only fills dead air.
+// ---------------------------------------------------------------------------
+//
+// 2026-09-01 — GOAL ENGINE landed (goals.json, below); the miner auto-mine
+// EXCLUSION IS LIFTED at this new dispatch layer (lead policy call). Before
+// today, Thak/Durk/Mog's BOTS[].defaults entries were the ONLY source of
+// unattended work, and those entries deliberately never included /mine or
+// /branchmine for the three miners (see the DIG LAW paragraph above) — a
+// blanket ban born of two incidents (Grog chased ore straight down a ravine
+// to his death; Grog tunneled 8 blocks below his own feet, a depth-law
+// breach). The goal engine below runs BEFORE that role-default fallback and
+// dispatches goals.json entries to WHICHEVER bot is eligible — no per-bot-
+// name restriction baked in — so a miner CAN now auto-receive a dig-shaped
+// goal (branchmine, mine) the instant one is eligible and the bot is free.
+//
+// Why this is safe now, when it wasn't before: the root causes are fixed,
+// not routed around. /mine now takes an optional zone filter so a wide
+// maxDistance can no longer wander into the wrong zone (0dca76b), branchmine
+// corridor stepping refuses to walk into an unsecured void (0b2eee7), and
+// Movements runs canDig:false fleet-wide (see the SAFE DEFAULTS block
+// above) — the same three fixes that let idle-defaults themselves come back
+// on. The goal engine adds NO safety logic of its own: it only ever calls
+// EXISTING endpoints, which still run every skills.js dig check (dig zones,
+// no-go zones, depth gate) exactly as a driver-issued call would. What's
+// lifted is the overseer's own blanket refusal to hand a miner that work
+// automatically — not any world-safety check underneath it, and BOTS[]
+// itself for Thak/Durk/Mog is not edited by this change (still no /mine
+// there — still the final fallback when no goal is eligible).
+//
+// cave/goal-picks.jsonl (one line per goal the engine actually fires, any
+// bot) is the audit trail for this policy: "did the engine send a miner
+// mining, and why" reads that file, not this log.
 // ---------------------------------------------------------------------------
 import fs from 'node:fs'
 import path from 'node:path'
@@ -168,6 +200,271 @@ const api = async (port, ep, body, method = 'POST') => {
   } catch { return null }
 }
 
+// ---------------------------------------------------------------------------
+// GOAL ENGINE (2026-09-01) — see the header POLICY block above for what this
+// lifts and why. Tried in tick(), BEFORE the BOTS[].defaults fallback below;
+// that fallback is unchanged and still fires whenever nothing here is
+// eligible. goals.json is curator-edited by hand and mtime-cached here so
+// edits land live, no overseer restart needed — see loadGoals().
+//
+// Per-bot in-memory tracking lives on the SAME `state` Map every other
+// per-bot field already uses (idleSince, lastPos, ...): s.activeGoalId /
+// s.activeGoalTaskId (the goal + task this bot is currently running, if
+// any) and s.lastGoalId (the last goal id actually fired for this bot, for
+// the anti-repeat pick below). All reset to undefined across an overseer
+// restart, by design — reconcileGoalClaims()'s file-based stale-claim sweep
+// is what stays correct across a restart, not this in-memory state.
+// ---------------------------------------------------------------------------
+const GOALS_FILE = path.join(HERE, 'goals.json')
+const GOAL_PICKS_FILE = path.join(HERE, 'goal-picks.jsonl')
+const GOAL_ZONE_PAD = 24 // requires.nearZone: "within ~24 blocks of that zone's box"
+const STALE_CLAIM_MS = 5 * 60_000 // restart-safety unclaim threshold
+
+// requires.minDurability checks THIS tool for THIS goal kind — mirrors
+// skills.js's own ensureTool() kind vocabulary (pickaxe|axe are the only two
+// it understands). A goal kind with no entry here can never satisfy a
+// minDurability requirement: no known tool to check means "not eligible",
+// never "assume it's fine".
+const GOAL_TOOL_KIND = { mine: 'pickaxe', branchmine: 'pickaxe', staircase: 'pickaxe', chop: 'axe' }
+
+let goalsCache = { mtimeMs: 0, data: { goals: [] } }
+let goalsLoadErrLogged = false
+// mtime-cached load — cheap enough to call every tick per bot; only actually
+// re-reads+re-parses when the file's mtime moved since the last good load.
+// Missing/corrupt file: keeps serving the last-known-good cache (starts as
+// {goals:[]}, so a fresh checkout or a mid-edit save never breaks boot).
+function loadGoals() {
+  try {
+    const fst = fs.statSync(GOALS_FILE)
+    if (fst.mtimeMs !== goalsCache.mtimeMs) {
+      const parsed = JSON.parse(fs.readFileSync(GOALS_FILE, 'utf8'))
+      if (!parsed || !Array.isArray(parsed.goals)) throw new Error('missing/invalid "goals" array')
+      goalsCache = { mtimeMs: fst.mtimeMs, data: parsed }
+      goalsLoadErrLogged = false
+      log(`goals.json reloaded (${parsed.goals.length} goal(s))`)
+    }
+  } catch (e) {
+    if (!goalsLoadErrLogged) {
+      log(`goals.json load failed (${e.message}) — using last-known-good (${goalsCache.data.goals.length} goal(s))`)
+      goalsLoadErrLogged = true
+    }
+  }
+  return goalsCache.data
+}
+
+// Read-modify-write with a dirty-check: reloads fresh from disk right before
+// mutating, so a concurrent lead edit landed between our last read and now
+// is never clobbered by writing back a possibly-stale in-memory copy.
+// `mutate(fresh)` mutates in place and returns whether anything changed;
+// only then does this write, and only the freshly-reloaded object — never
+// the caller's own possibly-stale snapshot.
+function mutateGoalsFile(mutate) {
+  let fresh
+  try {
+    fresh = JSON.parse(fs.readFileSync(GOALS_FILE, 'utf8'))
+  } catch (e) {
+    log(`goals.json write skipped: reload failed (${e.message})`)
+    return false
+  }
+  if (!fresh || !Array.isArray(fresh.goals)) {
+    log('goals.json write skipped: invalid shape on reload')
+    return false
+  }
+  if (!mutate(fresh)) return false
+  try {
+    fs.writeFileSync(GOALS_FILE, JSON.stringify(fresh, null, 2) + '\n')
+    const fst = fs.statSync(GOALS_FILE)
+    goalsCache = { mtimeMs: fst.mtimeMs, data: fresh }
+  } catch (e) {
+    log(`goals.json write failed (${e.message})`)
+    return false
+  }
+  return true
+}
+
+function claimGoal(goalId, botName) {
+  let ok = false
+  mutateGoalsFile((fresh) => {
+    const g = fresh.goals.find((x) => x.id === goalId)
+    if (!g || g.claimedBy) return false
+    g.claimedBy = botName
+    g.claimedAt = new Date().toISOString()
+    ok = true
+    return true
+  })
+  return ok
+}
+
+function unclaimGoal(goalId, expectBotName) {
+  mutateGoalsFile((fresh) => {
+    const g = fresh.goals.find((x) => x.id === goalId)
+    if (!g || g.claimedBy !== expectBotName) return false
+    delete g.claimedBy
+    delete g.claimedAt
+    return true
+  })
+}
+
+function removeGoal(goalId, expectBotName) {
+  mutateGoalsFile((fresh) => {
+    const idx = fresh.goals.findIndex((x) => x.id === goalId)
+    if (idx === -1 || fresh.goals[idx].claimedBy !== expectBotName) return false
+    fresh.goals.splice(idx, 1)
+    return true
+  })
+}
+
+let cachedGoalZones = null
+function loadGoalZones() {
+  if (cachedGoalZones) return cachedGoalZones
+  try {
+    const parsed = JSON.parse(fs.readFileSync(path.join(HERE, 'zones.json'), 'utf8'))
+    cachedGoalZones = Array.isArray(parsed?.zones) ? parsed.zones : []
+  } catch {
+    cachedGoalZones = []
+  }
+  return cachedGoalZones
+}
+
+function withinZonePad(pos, box, pad) {
+  if (!pos || !box) return false
+  const x1 = Math.min(box.x1, box.x2) - pad, x2 = Math.max(box.x1, box.x2) + pad
+  const y1 = Math.min(box.y1, box.y2) - pad, y2 = Math.max(box.y1, box.y2) + pad
+  const z1 = Math.min(box.z1, box.z2) - pad, z2 = Math.max(box.z1, box.z2) + pad
+  return pos.x >= x1 && pos.x <= x2 && pos.y >= y1 && pos.y <= y2 && pos.z >= z1 && pos.z <= z2
+}
+
+// Eligibility filter — a claimed goal (by anyone, including this same bot's
+// own in-flight one) is never re-eligible; unclaimed goals still need every
+// requires clause satisfied against the bot's OWN already-fetched /status
+// (no extra API calls spent per goal candidate).
+function goalEligible(g, st) {
+  if (g.claimedBy) return false
+  const req = g.requires || {}
+  if (Array.isArray(req.items)) {
+    const counts = new Map()
+    for (const it of st.inventory ?? []) counts.set(it.name, (counts.get(it.name) ?? 0) + (it.count ?? 0))
+    for (const need of req.items) {
+      if ((counts.get(need.name) ?? 0) < need.minCount) return false
+    }
+  }
+  if (req.nearZone) {
+    const zone = loadGoalZones().find((z) => z.name === req.nearZone)
+    if (!zone || !withinZonePad(st.pos, zone.box, GOAL_ZONE_PAD)) return false
+  }
+  if (typeof req.minDurability === 'number') {
+    const toolKind = GOAL_TOOL_KIND[g.kind]
+    if (!toolKind) return false // unknown-tool goal kind: fail safe, not "assume ok"
+    const suffix = `_${toolKind}`
+    const tool = (st.inventory ?? []).find((it) => it.name.endsWith(suffix) && it.durability)
+    if (!tool) return false
+    const pctRemaining = 100 * (1 - tool.durability.used / tool.durability.max)
+    if (pctRemaining < req.minDurability) return false
+  }
+  return true
+}
+
+// Priority desc, ties broken by id for a fully deterministic order (plain
+// array-order "stability" isn't enough once goals.json gets hand-edited).
+// Anti-repeat: skip re-picking this bot's immediately-prior goal id when
+// another eligible one exists — otherwise a repeat:true goal that stays
+// top-priority would monopolize the bot forever even with alternatives free.
+function pickGoal(goals, st, s) {
+  const eligible = goals.filter((g) => goalEligible(g, st))
+  if (eligible.length === 0) return null
+  eligible.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  if (eligible[0].id === s.lastGoalId && eligible.length > 1) return eligible[1]
+  return eligible[0]
+}
+
+// Every connected tick, running or idle — NOT gated behind the idle
+// threshold below, so a goal's completion/abandonment is picked up the very
+// next tick after it happens, not delayed until the bot sits idle again.
+function reconcileGoalClaims(bot, st, s, now) {
+  const goals = loadGoals().goals
+  for (const g of goals) {
+    if (g.claimedBy !== bot.name) continue
+    if (s.activeGoalId === g.id && s.activeGoalTaskId) {
+      const ct = st.currentTask
+      if (ct && ct.id === s.activeGoalTaskId) {
+        if (ct.state === 'running') continue // still working — claim stands
+        // cancelCurrentTask (runner.js) marks a /stop'd task state 'done'
+        // WITH result.cancelled:true — that is NOT a success, even though
+        // the state string says 'done'. Only a real finish with no
+        // cancellation flag counts toward repeat:false removal.
+        const cancelled = !!ct.result?.cancelled
+        const success = ct.state === 'done' && !cancelled
+        log(`${bot.name} goal ${g.id} ${success ? 'completed' : cancelled ? 'cancelled' : `failed (${ct.state})`}`)
+        s.activeGoalId = null
+        s.activeGoalTaskId = null
+        if (success && g.repeat === false) removeGoal(g.id, bot.name)
+        else unclaimGoal(g.id, bot.name)
+        continue
+      }
+      // Current task no longer matches the one we fired (replaced/relogged
+      // out from under us) — treat as abandoned, release the claim.
+      log(`${bot.name} goal ${g.id} claim abandoned (current task no longer matches)`)
+      s.activeGoalId = null
+      s.activeGoalTaskId = null
+      unclaimGoal(g.id, bot.name)
+      continue
+    }
+    // Not tracked in-memory this session (fresh process — an overseer
+    // restart mid-goal loses activeGoalId). Restart safety: only unclaim
+    // once BOTH the claim is stale AND the bot isn't currently running a
+    // task of this goal's own kind (a still-running matching task is left
+    // alone; an unparseable/missing claimedAt is treated as already-stale).
+    const claimedAtMs = g.claimedAt ? Date.parse(g.claimedAt) : NaN
+    const ageMs = Number.isFinite(claimedAtMs) ? now - claimedAtMs : Infinity
+    const runningSameKind = st.currentTask?.state === 'running' && st.currentTask.kind === g.kind
+    if (ageMs > STALE_CLAIM_MS && !runningSameKind) {
+      log(`${bot.name} stale claim on goal ${g.id} (${Math.round(ageMs / 1000)}s, no matching running task) -> unclaim`)
+      unclaimGoal(g.id, bot.name)
+    }
+  }
+}
+
+// Picks + fires one goal for an idle bot. Same gate the role-default block
+// below already relies on (only reachable once `running` was false earlier
+// this tick) — never `force`, one commander, unchanged. Returns true iff a
+// goal was actually fired (caller falls through to BOTS[].defaults on false).
+async function tryFireGoal(bot, st, s) {
+  const g = pickGoal(loadGoals().goals, st, s)
+  if (!g) return false
+  if (!claimGoal(g.id, bot.name)) {
+    log(`${bot.name} goal ${g.id} claim lost (race/concurrent edit) — skipping this cycle`)
+    return false
+  }
+  const ep = `/${g.kind}`
+  const res = await api(bot.port, ep, g.params ?? {})
+  if (!res || res.ok === false || res.error) {
+    log(`${bot.name} goal ${g.id} fire ${ep} rejected: ${JSON.stringify(res)?.slice(0, 120)} — releasing claim`)
+    unclaimGoal(g.id, bot.name)
+    return false
+  }
+  s.activeGoalId = g.id
+  s.activeGoalTaskId = res.task?.id ?? null
+  s.lastGoalId = g.id
+  try {
+    fs.appendFileSync(
+      GOAL_PICKS_FILE,
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        bot: bot.name,
+        goalId: g.id,
+        kind: g.kind,
+        priority: g.priority ?? 0,
+        taskId: s.activeGoalTaskId,
+      }) + '\n'
+    )
+  } catch (e) {
+    log(`goal-picks.jsonl append failed: ${e.message}`)
+  }
+  log(`${bot.name} idle -> goal ${g.id} (${ep}) ${JSON.stringify(g.params ?? {})}`)
+  await grey(bot.name, bot.color, `(overseer) idle→goal: ${g.id}`)
+  return true
+}
+
 async function tick(bot) {
   const s = state.get(bot.name) ?? { idleSince: null, lastPos: null, posSince: 0, lastRelog: 0, defaultIdx: 0 }
   state.set(bot.name, s)
@@ -208,6 +505,11 @@ async function tick(bot) {
     }
     return
   }
+
+  // GOAL ENGINE claim reconciliation — every connected tick, running or
+  // idle, so a fired goal's completion/abandonment is caught the tick right
+  // after it happens. See the goal-engine section above tick().
+  reconcileGoalClaims(bot, st, s, now)
 
   const running = st.currentTask && st.currentTask.state === 'running'
 
@@ -278,6 +580,13 @@ async function tick(bot) {
   if (!IDLE_DEFAULTS_ENABLED) return
   if (s.idleSince == null) { s.idleSince = now; return }
   if (now - s.idleSince < IDLE_MS) return
+
+  // GOAL ENGINE — tried BEFORE the role-default fallback below, which stays
+  // exactly as written, still the final fallback when nothing here is
+  // eligible. See the header POLICY block for the miner auto-mine exclusion
+  // this lifts at the dispatch layer only (BOTS[].defaults itself is
+  // unedited, and no new world-safety logic is added — see that block).
+  if (await tryFireGoal(bot, st, s)) { s.idleSince = null; return }
 
   // idle past threshold → role-default task. NEVER `force` — one commander:
   // the overseer fills dead air, it does not cancel a driver's work. If the

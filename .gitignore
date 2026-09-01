@@ -25,6 +25,11 @@ ledger/
 # Per-bot mission history (cave/missions/<name>.jsonl) — same reasoning.
 missions/
 
+# Goal engine's fired-goal audit trail (cave/goal-picks.jsonl) — same
+# runtime-generated reasoning as ledger/missions above. cave/goals.json
+# itself is NOT ignored — that one is curator-edited and committed.
+cave/goal-picks.jsonl
+
 # Audit tool's last-run chest snapshot (cave/audit.mjs) — machine/session
 # local runtime state, not a durable record; the diff it prints/logs each
 # run is the thing worth keeping, not the raw snapshot itself.
