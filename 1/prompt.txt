@@ -1,0 +1,244 @@
+<task-notification>
+<task-id>bkwzggvvp</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-phili-tools-cavecrew-mcp/7992c114-e9b3-4ed9-984d-93f64f08e2fd/tasks/bkwzggvvp.output</output-file>
+<status>completed</status>
+<summary>Background command "until curl -s http://127.0.0.1:3205/status | grep -q '"state":"done"\|"state":"failed"'; do sleep 15; done; curl -s http://127.0.0.1:3205/status" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbzmhf2ag</task-id>
+<summary>Monitor event: "Thak branchmine cluster-1 run — trunk progress + y-drop watch"</summary>
+<event>PROGRESS detail=branchMine: trunk 6/22 x=39.5 y=54 state=running</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbzmhf2ag</task-id>
+<summary>Monitor event: "Thak branchmine cluster-1 run — trunk progress + y-drop watch"</summary>
+<event>PROGRESS detail=branchMine: trunk 9/22 x=37.5 y=54 state=running</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbzmhf2ag</task-id>
+<summary>Monitor event: "Thak branchmine cluster-1 run — trunk progress + y-drop watch"</summary>
+<event>PROGRESS detail=branchMine: trunk 10/22 x=37.5 y=54 state=running</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbzmhf2ag</task-id>
+<summary>Monitor event: "Thak branchmine cluster-1 run — trunk progress + y-drop watch"</summary>
+<event>PROGRESS detail=branchMine: trunk 11/22 x=36.7 y=54 state=running</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbzmhf2ag</task-id>
+<summary>Monitor event: "Thak branchmine cluster-1 run — trunk progress + y-drop watch"</summary>
+<event>PROGRESS detail=branchMine: trunk 12/22 x=35.5 y=54 state=running</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbzmhf2ag</task-id>
+<summary>Monitor event: "Thak branchmine cluster-1 run — trunk progress + y-drop watch"</summary>
+<event>PROGRESS detail=branchMine: trunk 13/22 x=34.5 y=54 state=running</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbzmhf2ag</task-id>
+<summary>Monitor event: "Thak branchmine cluster-1 run — trunk progress + y-drop watch"</summary>
+<event>PROGRESS detail=branchMine: trunk 15/22 x=32.5 y=54 state=running</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbzmhf2ag</task-id>
+<summary>Monitor event: "Thak branchmine cluster-1 run — trunk progress + y-drop watch"</summary>
+<event>PROGRESS detail=branchMine: trunk 16/22 x=31.5 y=53.6875 state=running</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbzmhf2ag</task-id>
+<summary>Monitor event: "Thak branchmine cluster-1 run — trunk progress + y-drop watch"</summary>
+<event>PROGRESS detail=branchMine: trunk 18/22 x=28.5 y=53 state=running</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbzmhf2ag</task-id>
+<summary>Monitor event: "Thak branchmine cluster-1 run — trunk progress + y-drop watch"</summary>
+<event>PROGRESS detail=branchMine: trunk 21/22 x=25.9 y=53 state=running</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbzmhf2ag</task-id>
+<summary>Monitor event: "Thak branchmine cluster-1 run — trunk progress + y-drop watch"</summary>
+<event>PROGRESS detail=branchMine: trunk 22/22 x=24.5 y=53 state=done
+TERMINAL state=done detail=branchMine: trunk 22/22 x=24.5 y=53</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b69pwuthm</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-phili-tools-cavecrew-mcp/7992c114-e9b3-4ed9-984d-93f64f08e2fd/tasks/b69pwuthm.output</output-file>
+<status>completed</status>
+<summary>Background command "until curl -s http://127.0.0.1:3205/status | grep -q '"state":"done"\|"state":"failed"'; do sleep 15; done; curl -s http://127.0.0.1:3205/status" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bhkj4rwfk</task-id>
+<summary>Monitor event: "BariThak goto camp staging (20,90,60) — watch arrival/nogo/stall"</summary>
+<event>STATUS task="task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788267929223} aborted="aborted":null line="lastBaritoneLine":"Skipping traverse to straight ascend"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bhkj4rwfk</task-id>
+<summary>Monitor event: "BariThak goto camp staging (20,90,60) — watch arrival/nogo/stall"</summary>
+<event>STATUS task="task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788267929223} aborted="aborted":null line="lastBaritoneLine":"[15:06:25] [ForkJoinPool.commonPool-worker-6/INFO]: [STDOUT]: Saving region -1,-1 to disk C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariThak\\gamedir\\baritone\\localhost_25565\\minecraft\\overworld_384\\cache"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bhkj4rwfk</task-id>
+<summary>Monitor event: "BariThak goto camp staging (20,90,60) — watch arrival/nogo/stall"</summary>
+<event>STATUS task="task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788267929223} aborted="aborted":null line="lastBaritoneLine":"[15:06:25] [ForkJoinPool.commonPool-worker-6/INFO]: [STDOUT]: Saving region -1,-1 to disk C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariThak\\gamedir\\baritone\\localhost_25565\\minecraft\\overworld_384\\cache"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bhkj4rwfk</task-id>
+<summary>Monitor event: "BariThak goto camp staging (20,90,60) — watch arrival/nogo/stall"</summary>
+<event>STATUS task="task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788267929223} aborted="aborted":null line="lastBaritoneLine":"[15:06:25] [ForkJoinPool.commonPool-worker-6/INFO]: [STDOUT]: Saving region -1,-1 to disk C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariThak\\gamedir\\baritone\\localhost_25565\\minecraft\\overworld_384\\cache"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bhkj4rwfk</task-id>
+<summary>Monitor event: "BariThak goto camp staging (20,90,60) — watch arrival/nogo/stall"</summary>
+<event>STATUS task="task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788267929223} aborted="aborted":null line="lastBaritoneLine":"[15:06:25] [ForkJoinPool.commonPool-worker-6/INFO]: [STDOUT]: Saving region -1,-1 to disk C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariThak\\gamedir\\baritone\\localhost_25565\\minecraft\\overworld_384\\cache"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bhkj4rwfk</task-id>
+<summary>Monitor event: "BariThak goto camp staging (20,90,60) — watch arrival/nogo/stall"</summary>
+<event>STATUS task="task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788267929223} aborted="aborted":null line="lastBaritoneLine":"[15:06:25] [ForkJoinPool.commonPool-worker-6/INFO]: [STDOUT]: Saving region -1,-1 to disk C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariThak\\gamedir\\baritone\\localhost_25565\\minecraft\\overworld_384\\cache"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bhkj4rwfk</task-id>
+<summary>Monitor event: "BariThak goto camp staging (20,90,60) — watch arrival/nogo/stall"</summary>
+<event>STATUS task="task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788267929223} aborted="aborted":null line="lastBaritoneLine":"[15:06:25] [ForkJoinPool.commonPool-worker-6/INFO]: [STDOUT]: Saving region -1,-1 to disk C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariThak\\gamedir\\baritone\\localhost_25565\\minecraft\\overworld_384\\cache"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>baeeq4f1p</task-id>
+<summary>Monitor event: "BariThak relaunch — wait for connected+in-world before issuing any command"</summary>
+<event>BOOT "connected":false "phase":"launching"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>baeeq4f1p</task-id>
+<summary>Monitor event: "BariThak relaunch — wait for connected+in-world before issuing any command"</summary>
+<event>BOOT "connected":false "phase":"launching"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>baeeq4f1p</task-id>
+<summary>Monitor event: "BariThak relaunch — wait for connected+in-world before issuing any command"</summary>
+<event>BOOT "connected":false "phase":"launching"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>baeeq4f1p</task-id>
+<summary>Monitor event: "BariThak relaunch — wait for connected+in-world before issuing any command"</summary>
+<event>BOOT "connected":true "phase":"in-world"
+READY connected+in-world</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b35859fqb</task-id>
+<summary>Monitor event: "BariThak goto tunnel mouth (40,49,60) — watch nogo/ascend-stall, ignore normal telemetry freeze"</summary>
+<event>PROGRESS 20s: "lastBaritoneLine":"[15:19:43] [ForkJoinPool.commonPool-worker-3/INFO]: [STDOUT]: Saving region 0,0 to disk C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariThak\\gamedir\\baritone\\localhost_25565\\minecraft\\overworld_384\\cache"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b35859fqb</task-id>
+<summary>Monitor event: "BariThak goto tunnel mouth (40,49,60) — watch nogo/ascend-stall, ignore normal telemetry freeze"</summary>
+<event>HEARTBEAT 240s task="task":{"kind":"goto","x":40,"y":49,"z":60,"at":1788268766495} line="lastBaritoneLine":"[15:19:43] [ForkJoinPool.commonPool-worker-3/INFO]: [STDOUT]: Saving region 0,0 to disk C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariThak\\gamedir\\baritone\\localhost_25565\\minecraft\\overworld_384\\cache"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b04wsp2bg</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore — ground-truth position via UngaBunga, alert if x&lt;28 (breach boundary) or nogo/stall"</summary>
+<event>T0s task="task":{"kind":"mine","block":"iron_ore","count":8,"at":1788269052987} aborted="aborted":null conn="connected":true groundtruth={"result":"{\"x\":40.527618735749584,\"y\":49,\"z\":60.50996237790141}","task":{"id":"task-165","kind":"eval","source":"http","state":"done","detail":null,"result":"{\"x\":40.527618735749584,\"y\":49,\"z\":60.50996237790141}","finishedAt":"2026-09-01T13:24:22.169Z"}}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
