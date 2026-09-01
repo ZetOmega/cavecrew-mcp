@@ -453,6 +453,154 @@ async function readAlerts() {
 }
 
 // ---------------------------------------------------------------------------
+// TODO board — parses cave/TODO.md's markdown tables server-side (round 5,
+// team-lead's phase-2 ask) so the page can show "what is the tribe working
+// on" without shipping a markdown parser to the client. Cached on the file's
+// mtime: re-read+re-parse only when TODO.md actually changed, not on every
+// poll — driver edits to that file are occasional, not per-second.
+//
+// TODO.md carries at least two tables in practice: the live board (#, Lane,
+// Task, Who, Status columns) and a "## DONE" section further down (Task, By
+// — no Status column, since everything in it is implicitly done). Both are
+// parsed the same generic way — by header name, not position — so a
+// hand-reordered or renamed column still lands in the right field, and a
+// row whose cell count doesn't match its header is counted and skipped
+// rather than guessed at or thrown on.
+// ---------------------------------------------------------------------------
+const TODO_PATH = path.join(HERE, 'TODO.md');
+let todoCache = { mtimeMs: -1, board: null };
+
+const TODO_COLUMN_ALIASES = { lane: 'lane', task: 'task', who: 'who', by: 'who', status: 'status' };
+
+function splitTableRow(line) {
+  // GFM allows the leading/trailing pipe to be omitted; strip them if
+  // present so "| a | b |" and "a | b" split identically.
+  return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
+}
+
+function isTableSeparatorRow(line) {
+  const t = line.trim();
+  return t.length > 0 && /^[-:|\s]+$/.test(t) && t.includes('-');
+}
+
+function parseTodoMarkdown(text) {
+  const lines = text.split(/\r?\n/);
+  const rows = [];
+  let skipped = 0;
+  let lastHeading = '';
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^#{1,6}\s/.test(line)) {
+      lastHeading = line.replace(/^#{1,6}\s*/, '').trim();
+      continue;
+    }
+    if (!line.includes('|') || i + 1 >= lines.length || !isTableSeparatorRow(lines[i + 1])) continue;
+
+    // line i is a table header, i+1 its separator.
+    const header = splitTableRow(line).map((h) => h.toLowerCase());
+    const fieldFor = header.map((h) => TODO_COLUMN_ALIASES[h] ?? null);
+    if (!fieldFor.includes('task')) {
+      // Not one of ours (no recognizable Task column) — skip just the
+      // separator row and keep scanning; whatever body rows follow aren't
+      // touched since we never entered the body-parsing loop below.
+      i += 1;
+      continue;
+    }
+    // Status-less tables (the "## DONE" section: Task, By) default every row
+    // in them to 'done' rather than 'todo' — matching the heading they sit
+    // under, not guessing from row content.
+    const doneSection = /^done\b/i.test(lastHeading);
+    i += 2; // past header + separator, onto the first body row
+    while (i < lines.length && lines[i].trim().startsWith('|')) {
+      const cells = splitTableRow(lines[i]);
+      if (cells.length !== header.length) {
+        skipped++;
+        i++;
+        continue;
+      }
+      const rec = { lane: '', task: '', who: '', status: '' };
+      fieldFor.forEach((field, idx) => {
+        if (field) rec[field] = cells[idx] || '';
+      });
+      if (!rec.task) {
+        skipped++;
+        i++;
+        continue;
+      }
+      if (!rec.status) rec.status = doneSection ? 'done' : 'todo';
+      rows.push(rec);
+      i++;
+    }
+    i--; // back up one so the outer for-loop's i++ lands on the line we just stopped at
+  }
+  return { rows, skipped };
+}
+
+function classifyStatus(status) {
+  if (/^doing\b/i.test(status)) return 'doing';
+  if (/^done\b/i.test(status)) return 'done';
+  return 'todo';
+}
+
+// Strips a leading doing/done/todo keyword — redundant once a row is already
+// grouped under that bucket's own heading. Only the bare keyword (plus an
+// optional trailing dash) goes; "queued", "queued after #5", "blocked on
+// cobble", "law" etc. don't match this and stay verbatim, since those ARE
+// real information the bucket label alone doesn't carry.
+function bucketDetail(status) {
+  return status.replace(/^(doing|done|todo)\b\s*[-—:]*\s*/i, '').trim();
+}
+
+// A who-token that case-insensitively matches a roster bot gets that bot's
+// team colour client-side — same visual language as its own card's name.
+// Everything else (a driver/teammate name, "orchestrator", loose prose like
+// "pair drivers") renders as a plain chip: real information, just not a bot.
+function whoChip(token) {
+  const bot = BOT_BY_NAME.get(token.toLowerCase());
+  return { name: token, color: bot ? TEAM_HEX[bot.team] ?? null : null };
+}
+
+function splitWho(who) {
+  return who.split(/[,+]/).map((s) => s.trim()).filter(Boolean).map(whoChip);
+}
+
+function buildTodoBoard(parsed) {
+  const board = { doing: [], todo: [], done: [] };
+  for (const rec of parsed.rows) {
+    const bucket = classifyStatus(rec.status);
+    board[bucket].push({
+      lane: rec.lane,
+      task: rec.task,
+      who: splitWho(rec.who),
+      detail: bucketDetail(rec.status),
+    });
+  }
+  return board;
+}
+
+async function getTodoBoard() {
+  let stat;
+  try {
+    stat = await fsp.stat(TODO_PATH);
+  } catch (err) {
+    return { ok: false, error: `TODO.md unreadable (${err?.code ?? err?.message ?? err})`, doing: [], todo: [], done: [], skipped: 0, total: 0 };
+  }
+  if (todoCache.board && todoCache.mtimeMs === stat.mtimeMs) return todoCache.board;
+  let text;
+  try {
+    text = await fsp.readFile(TODO_PATH, 'utf8');
+  } catch (err) {
+    return { ok: false, error: err?.message ?? String(err), doing: [], todo: [], done: [], skipped: 0, total: 0 };
+  }
+  const parsed = parseTodoMarkdown(text);
+  const board = buildTodoBoard(parsed);
+  const result = { ok: true, doing: board.doing, todo: board.todo, done: board.done, skipped: parsed.skipped, total: parsed.rows.length };
+  todoCache = { mtimeMs: stat.mtimeMs, board: result };
+  return result;
+}
+
+// ---------------------------------------------------------------------------
 // Write actions — the only two, both narrow.
 // ---------------------------------------------------------------------------
 
@@ -643,6 +791,10 @@ async function handle(req, res) {
 
   if (m === 'GET' && p === '/api/alerts') {
     return sendJson(res, 200, await readAlerts());
+  }
+
+  if (m === 'GET' && p === '/api/todo') {
+    return sendJson(res, 200, await getTodoBoard());
   }
 
   if (m === 'POST' && (p === '/api/wake' || p === '/api/stop')) {
@@ -883,6 +1035,42 @@ function renderPage() {
   .alert .src { font-size: 10px; letter-spacing: .09em; text-transform: uppercase; color: var(--dim); }
   .none { font-size: 11px; color: var(--dim); font-style: italic; }
 
+  /* Tribe board (round 5) — "what is the tribe working on", parsed
+     server-side from cave/TODO.md. Full-width, below the fleet grid, its
+     own card: DOING and QUEUED always shown, DONE collapsed (same
+     max-height/opacity motion language as a card's event log, so the page
+     has exactly one way expand/collapse ever behaves). Rows lay out as a
+     div-grid "table" — display:contents on each row lets lane/task/who/
+     status line up into shared columns without an actual <table>. */
+  #board { margin: 0 22px 24px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 18px 16px; }
+  .board-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+  .board-head h2 { margin: 0; font-size: 12px; letter-spacing: .13em; text-transform: uppercase; color: var(--text); font-weight: 650; }
+  .board-sub { font-size: 11px; color: var(--dim); }
+  /* margin-top on the DOING label (14px) stacks with .board-head's own
+     margin-bottom (10px) into a slightly larger gap under the section
+     header than between the groups below it — left alone on purpose rather
+     than zeroed out with a :first-of-type rule that would silently never
+     fire (.board-head is the actual first <div> child, not a .board-label,
+     so :first-of-type never matches any of these three). */
+  .board-label { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin: 14px 0 7px; }
+  .board-label b { color: var(--muted); font-weight: 600; }
+  .board-label.toggle { cursor: pointer; user-select: none; }
+  .board-label.toggle:hover { color: var(--muted); }
+  .board-rows { display: grid; grid-template-columns: 100px minmax(0,1fr) auto 170px; column-gap: 12px; row-gap: 7px; align-items: start; }
+  .board-row { display: contents; }
+  .board-lane { font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: var(--dim); white-space: nowrap; padding-top: 2px; }
+  .board-task { font-size: 12px; color: var(--text); word-break: break-word; }
+  .board-who { display: flex; flex-wrap: wrap; gap: 4px; align-items: flex-start; }
+  .board-chip { font-size: 10px; padding: 1px 7px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+  .board-status { font-size: 11px; color: var(--dim); text-align: right; word-break: break-word; }
+  .board-empty { grid-column: 1 / -1; font-size: 11px; color: var(--dim); font-style: italic; }
+  #bd-done { max-height: 0; opacity: 0; overflow: hidden; transition: max-height .22s ease, opacity .18s ease; }
+  #bd-done.open { max-height: 320px; opacity: 1; overflow-y: auto; }
+  @media (max-width: 720px) {
+    .board-rows { grid-template-columns: auto 1fr; }
+    .board-who, .board-status { grid-column: 1 / -1; }
+  }
+
   footer { padding: 0 22px 28px; font-size: 11px; color: var(--dim); }
   footer code { color: var(--muted); }
 </style>
@@ -910,6 +1098,19 @@ function renderPage() {
     <div id="alerts"><div class="none">nothing yet</div></div>
   </aside>
 </main>
+
+<section id="board">
+  <div class="board-head">
+    <h2>Tribe Board</h2>
+    <span class="board-sub" id="board-sub">cave/TODO.md</span>
+  </div>
+  <div class="board-label">DOING <b id="bd-doing-n">0</b></div>
+  <div class="board-rows" id="bd-doing"></div>
+  <div class="board-label">QUEUED <b id="bd-todo-n">0</b></div>
+  <div class="board-rows" id="bd-todo"></div>
+  <div class="board-label toggle" id="bd-done-toggle"><span id="bd-done-arrow">▸ DONE</span> <b id="bd-done-n">0</b></div>
+  <div class="board-rows" id="bd-done"></div>
+</section>
 
 <footer>Read-mostly panel. WAKE pushes the bot's role-default task with <code>force:false</code> (never preempts a driver); STOP cancels the running task. Docs: <code>cave/PANEL.md</code></footer>
 
@@ -1321,15 +1522,79 @@ function renderPage() {
     });
   }
 
+  // Tribe board (round 5) — /api/todo already grouped+bucketed everything
+  // server-side; this just paints it. Whole-payload signature gate (same
+  // idea as invSig/evSig on the cards) since TODO.md changes rarely and a
+  // full teardown/rebuild on every 3s poll would fight the DONE section's
+  // open/closed state and any text the operator is mid-selecting.
+  var boardSig = '';
+  var boardDoneOpen = false;
+  var boardDoneToggle = document.getElementById('bd-done-toggle');
+  var boardDoneArrow = document.getElementById('bd-done-arrow');
+  var boardDoneRows = document.getElementById('bd-done');
+  boardDoneToggle.addEventListener('click', function () {
+    boardDoneOpen = !boardDoneOpen;
+    setCls(boardDoneRows, 'board-rows' + (boardDoneOpen ? ' open' : ''));
+    setText(boardDoneArrow, (boardDoneOpen ? '▾' : '▸') + ' DONE');
+  });
+
+  function renderBoardRows(container, rows, emptyMsg) {
+    container.textContent = '';
+    if (!rows.length) {
+      container.appendChild(el('div', 'board-empty', emptyMsg));
+      return;
+    }
+    rows.forEach(function (r) {
+      var row = el('div', 'board-row');
+      row.appendChild(el('span', 'board-lane', r.lane || '—'));
+      row.appendChild(el('span', 'board-task', r.task));
+      var who = el('span', 'board-who');
+      (r.who || []).forEach(function (w) {
+        var chip = el('span', 'board-chip', w.name);
+        if (w.color) { chip.style.color = w.color; chip.style.borderColor = w.color; }
+        who.appendChild(chip);
+      });
+      row.appendChild(who);
+      row.appendChild(el('span', 'board-status', r.detail || ''));
+      container.appendChild(row);
+    });
+  }
+
+  function paintBoard(data) {
+    var sig = JSON.stringify(data);
+    if (sig === boardSig) return;
+    boardSig = sig;
+
+    var sub = document.getElementById('board-sub');
+    var doing = (data && data.doing) || [];
+    var todo = (data && data.todo) || [];
+    var done = (data && data.done) || [];
+
+    if (data && data.ok === false) {
+      setText(sub, 'board unavailable' + (data.error ? ' (' + data.error + ')' : ''));
+    } else {
+      var extra = data && data.skipped ? ' — ' + data.skipped + ' row' + (data.skipped === 1 ? '' : 's') + ' skipped (malformed)' : '';
+      setText(sub, 'cave/TODO.md' + extra);
+    }
+
+    setText(document.getElementById('bd-doing-n'), String(doing.length));
+    setText(document.getElementById('bd-todo-n'), String(todo.length));
+    setText(document.getElementById('bd-done-n'), String(done.length));
+    renderBoardRows(document.getElementById('bd-doing'), doing, 'nothing in flight');
+    renderBoardRows(document.getElementById('bd-todo'), todo, 'queue empty');
+    renderBoardRows(boardDoneRows, done, 'none pruned yet');
+  }
+
   var tick = document.getElementById('tick');
   var lastBots = [];
 
   function refresh() {
     return Promise.all([
       fetch('/api/fleet').then(function (r) { return r.json(); }),
-      fetch('/api/alerts').then(function (r) { return r.json(); }).catch(function () { return { alerts: [] }; })
+      fetch('/api/alerts').then(function (r) { return r.json(); }).catch(function () { return { alerts: [] }; }),
+      fetch('/api/todo').then(function (r) { return r.json(); }).catch(function () { return { ok: false, error: 'unreachable', doing: [], todo: [], done: [] }; })
     ]).then(function (out) {
-      var fleet = out[0], al = out[1];
+      var fleet = out[0], al = out[1], td = out[2];
       lastBots = fleet.bots || [];
       lastBots.forEach(paint);
 
@@ -1342,6 +1607,7 @@ function renderPage() {
       setText(document.getElementById('s-when'), new Date().toLocaleTimeString());
       if (al.file) setText(document.getElementById('alert-src'), al.file.split(/[\\\\/]/).slice(-2).join('/') + ' + live bot errors');
       paintAlerts(al.alerts || [], lastBots);
+      paintBoard(td);
 
       tick.classList.add('live');
       setTimeout(function () { tick.classList.remove('live'); }, 450);

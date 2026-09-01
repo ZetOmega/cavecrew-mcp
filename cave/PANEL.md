@@ -138,6 +138,20 @@ Offline runners are tolerated, never fatal: the card dims, the entry is marked
 **Alerts column** — the tail of the overseer's escalation log merged with every
 bot's live `lastError`, newest first.
 
+**Tribe board** — below the fleet grid, full width: `cave/TODO.md`'s work
+state, parsed server-side into three groups — DOING and QUEUED always shown,
+DONE collapsed behind a `▸ DONE (N)` toggle (same expand motion as a card's
+event log). Each row is lane, task text, one chip per name in the `Who`
+column (a chip tints to that bot's team colour when the name matches the
+roster, plain otherwise — Krug/orchestrator/loose prose render as ordinary
+chips, not guessed at), and whatever detail is left in `Status` once the
+bucket's own keyword (doing/todo/done) is stripped off (`queued after #5`,
+`blocked on cobble`, `law` all survive — they're real information the bucket
+label alone doesn't carry). A malformed row (wrong cell count, no `Task`
+cell) is counted and skipped rather than guessed at or thrown on; the count
+shows in the board's subtitle when non-zero. See `## TODO board` below for
+the parsing rules in full.
+
 Auto-refresh is every 3s and updates the DOM in place — no page reload, no
 flicker. Task ages tick locally each second between polls.
 
@@ -190,6 +204,7 @@ there is no persistence by design.
 | `GET` | `/` | the dashboard, one self-contained HTML document |
 | `GET` | `/api/fleet` | every runner's `/status` polled in parallel (3s timeout each), with the last ~10 `/events` merged per bot and `delta30`/`delta60` movement figures; whole aggregate cached 2s |
 | `GET` | `/api/alerts` | last ~50 lines of the alerts log |
+| `GET` | `/api/todo` | `cave/TODO.md`'s markdown tables, parsed and bucketed into `doing`/`todo`/`done`; cached on the file's mtime |
 | `POST` | `/api/wake` | `{bot}` — push the role-default task, `force: false` |
 | `POST` | `/api/stop` | `{bot}` — forward `POST /stop` |
 
@@ -229,6 +244,40 @@ Notes on the aggregate:
 - The alerts log is read from `cave/logs/alerts.log`, with `cave/alerts.log`
   checked as a fallback. A missing file is normal — it just means nothing has
   ever escalated — and returns an empty list, not an error.
+
+## TODO board
+
+`/api/todo` reads `cave/TODO.md` and re-parses it only when the file's mtime
+changes — a stat() on every request, a re-read+re-parse only on an actual
+edit. Parsing is by markdown table, not by line position, so it survives the
+file being hand-edited:
+
+- A table is recognized by its header row being immediately followed by a
+  GFM separator row (`|---|---|...`). Column names are matched
+  case-insensitively against known aliases (`Lane`, `Task`, `Who`/`By`,
+  `Status`) — a table with no recognizable `Task` column is skipped
+  entirely (not guessed at), so an unrelated table elsewhere in the file
+  (there is none today, but nothing stops one being added) can't get pulled
+  in by accident.
+- A body row whose cell count doesn't match its header's, or whose `Task`
+  cell is empty, is counted and skipped rather than shifted into the wrong
+  column or thrown on. The count surfaces in the page's board subtitle
+  (`cave/TODO.md — 2 rows skipped (malformed)`) when it's non-zero, silent
+  otherwise.
+- A table with no `Status` column (the `## DONE` section: `Task`, `By`) has
+  every row in it default to `done` — keyed off the table sitting directly
+  under a heading matching `/^done/i`, not guessed from row content.
+- Each row's `Status` text is bucketed by its own leading word: `doing`,
+  `done`, or anything else (`todo`, `queued`, `queued after #5`, `blocked on
+  cobble`, `law`, ...) falls into `todo`. The bucket's own keyword is then
+  stripped from the text shown in the UI (redundant once a row is already
+  grouped under "DOING"/"QUEUED"/"DONE") — everything after it survives,
+  since that's real information the bucket label alone doesn't carry.
+- Each `Who` token (split on `,`/`+`) is resolved against the roster
+  (`BOT_BY_NAME`, the same table the fleet cards use) for a team colour; an
+  unrecognized token (a driver name, "orchestrator", loose prose) still
+  renders as a chip, just uncoloured — the parser never tries to guess
+  which words in freeform prose are "really" a bot name.
 
 ## Keeping it in sync
 
@@ -271,8 +320,10 @@ Not built unless marked DONE below.
 - **Driver states** — show which bot has a driver attached and what that driver
   currently believes it is doing, so the panel distinguishes "idle" from
   "between driver steps".
-- **TODO board view** — render `cave/TODO.md` as a live column beside the fleet,
-  with per-bot assignment.
+- **TODO board view** — DONE. A full-width "Tribe Board" section below the
+  fleet grid rather than a column beside it (the aside column is already
+  claimed by Alerts) — DOING/QUEUED always shown, DONE collapsed. See
+  `## TODO board` above for the parsing rules.
 - **Scoreboard integration** — pull `cave/scoreboard-state.json` for quota
   progress, per-bot contribution, and trend over time rather than a single iron
   count.
