@@ -3,7 +3,7 @@
   "checkpoint_id": "01M1EDZRX7YC36GVCW9QYA79EB",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 19,
+  "checkpoints_count": 21,
   "files_touched": [
     "cave/PANEL.md",
     "cave/panel-client.js",
@@ -42,14 +42,21 @@
       "compact_transcript": "/4/transcript.jsonl",
       "content_hash": "/4/content_hash.txt",
       "prompt": "/4/prompt.txt"
+    },
+    {
+      "metadata": "/5/metadata.json",
+      "transcript": "/5/full.jsonl",
+      "compact_transcript": "/5/transcript.jsonl",
+      "content_hash": "/5/content_hash.txt",
+      "prompt": "/5/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 532,
-    "cache_creation_tokens": 414756,
-    "cache_read_tokens": 58617496,
-    "output_tokens": 85652,
-    "api_call_count": 266,
+    "input_tokens": 536,
+    "cache_creation_tokens": 416381,
+    "cache_read_tokens": 58812176,
+    "output_tokens": 85902,
+    "api_call_count": 268,
     "subagent_tokens": {
       "input_tokens": 0,
       "cache_creation_tokens": 0,
