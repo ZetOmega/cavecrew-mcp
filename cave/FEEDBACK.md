@@ -8,6 +8,25 @@ cycles consume open entries. Format:
 symptom / evidence / suggested fix
 ```
 
+## [open] camp→(54,110,83) route: both engines make ZERO progress, 3/3 attempts, watchdog auto-rescued — UngaBunga, 2026-09-01 14:11
+Chop-kampagne leg from camp (12.7,89.9,55.5, right by table_1/chest A) toward a known-good hill oak
+cluster near (54,110,83). Tried 3x back to back, same exact start position each time, ZERO horizontal
+movement recorded across all 3 (position byte-identical before/after every attempt): (1) engine ash,
+"ashfinder gotoWithPath timed out after 60000ms"; (2) engine pf, "gotoLoopPf: failed... timed out after
+60000ms" x2 internal retries then task cancelled externally via /stop; (3) engine pf retry, same timeout
+pattern, cancelled externally via /stop again, immediately followed by an external /trigger home (not
+issued by me — someone/something else is watching this bot's stuck state and auto-rescuing). Note: a
+DIFFERENT nearby hill target worked fine earlier this session — camp→(55,107,99) succeeded clean via
+ash in one shot (task-166), and (54,116,91)/(56,115,88) also reached fine via ash (task-178). So this
+isn't "hillside terrain = universally bad for pf/ash" (already documented elsewhere) — it's specifically
+the (54,110,83) endpoint or the exact path to it that's a dead zone for both engines, unlike its close
+neighbors 5-10 blocks away. Didn't hand-diagnose further (bot never left camp, no physical wedge to
+scan). Suggest: if a specific coordinate reproducibly fails on both engines while nearby coordinates
+work fine, the goal node itself may be unreachable (e.g. inside a solid block, or requires a jump/climb
+neither pathfinder attempts) rather than a general engine weakness — worth a blockAt check on the exact
+target column before further routing attempts there. Practical workaround used: route via the
+known-good waypoint (55,107,99) first, then hop shorter legs from there instead of one long direct shot.
+
 ## [open] mine_field surface pocket (19-20,y95,72-73) wedges bot mid-mine, coal_ore embedded in low ceiling — UngaBunga, 2026-09-01 13:20
 Coal-run second (board #3b): after 2x false-reach goto fails at (26,91,72) (see identical-stale-distance
 pattern below), issued /mine coal_ore maxDistance:10 direct from ~28.6,91,66.5 instead of fighting
@@ -2645,3 +2664,62 @@ originally misdiagnosed as possible OOM. Engineer fixed it same-session. Standin
 driver hitting an unexplained crash right after ANY bot's relaunch (not just their own): it may be
 collateral from another bot's launcher, not a real fault in the crashed bot's own process — worth
 checking "did anyone relaunch anything recently" before deep-diagnosing.
+
+UPDATE 13:57Z, 3RD REPRODUCTION FROM A DIFFERENT START POINT: after recovering home, walked out
+via the KNOWN-GOOD mine_field road first (camp→22,89,59, confirmed working this whole session) and
+THEN issued `/goto {38,48,59}` (cluster 2) from there — not from camp, not through the (12,*,63-64)
+column directly. Fell again anyway, landing at (17.7,25.6-25.7,60.96), onGround initially false
+(small vertical jitter, turned out to be pointed_dripstone's odd hitbox, not distress) then settled
+safely — confirmed via blockAt: standing on dripstone_block/pointed_dripstone, not water/lava,
+oxygen 20, HP 20 both checks. This rules out "bad start point" as the cause: the pathfinder itself
+is routing toward a y25 dripstone cavern whenever the destination is underground around y47-48 in
+this eastern area, regardless of where the bot starts. Recovered via `/trigger home` a 3rd time,
+clean each time. Given 3/3 reproductions (2 identical landing spot, 1 nearby-but-different, same
+biome/depth), STOPPING further attempts at board #2 (iron cluster 2) via plain `/goto` until
+Engineer looks at this — recommend checking whether the pathfinder's route to y47-48 targets near
+x35-40,z55-65 is discovering and preferring a natural cave entrance that free-falls into the
+dripstone cavern below y45 (mine_grid zone floor) instead of using BariBrute's actual bored tunnel
+corridor (x40→28,y49-50,z60) that board #2 says is already there and safe.
+
+## [open] new workZone watchdog silently failed to fire — bot drifted 15 blocks past z-floor undetected — BariThak, 2026-09-01
+Bundle-shipped fix (zone param on `/mine`+`/tunnel`, auto-`#stop` on exit, `aborted:"workzone"`)
+field-tested for the first time this session. Fired `#mine {iron_ore,count:5,zone:{18,20,55,32,40,
+75}}` — wrapper accepted and echoed back the normalized `workZone` box in the response, confirming
+the feature was armed. ~6 minutes into the batch, `/status.aborted` had stayed `null` the entire
+time (never fired), so I ground-truthed manually via neighbor eval (Grog then Zug, 2-source match
+before/after): bot had drifted to **(27.5, y35, z39.7)** — x/y still technically in-range (27.5∈
+[18,32], 35∈[20,40]) but **z=39.7 is ~15 blocks past the z1:55 floor**, a large, unambiguous,
+long-standing excursion the watchdog should have caught trivially on a simple z-coordinate compare.
+No auto-`#stop` ever fired. Manually `/stop`'d — confirmed clean (`ok canceled`), and `/status`'s
+`workZone` field went back to `null` immediately after, which reads like `/stop` clearing the field
+itself rather than the watchdog naturally completing its job. **Suspect one of**: (a) the z-axis
+comparison has a bug (inverted/missing check, off-by-something), (b) the position-poll driving the
+watchdog check is on the same lying/frozen cadence as the long-standing `positionSource:"goal-poll"`
+issue (i.e. the watchdog may be checking a stale/echoed position, same root cause as the pre-bundle
+telemetry bug, meaning the "goal-echo fix" didn't fully land), or (c) the watchdog only samples
+periodically and this excursion happened to land between samples for the whole 6 minutes (unlikely
+given the magnitude and duration). Practical impact: **drivers should keep doing independent
+neighbor-eval ground-truth on every `/mine` batch near any real-world hazard** — do not yet trust
+`aborted:"workzone"` as a reliable safety net on its own, the manual watch discipline from before
+the bundle still applies. Also worth noting for scope: this drift went SOUTH (z39.7) rather than
+the earlier session's west/deep direction (x20,y26-34) — a new, previously unexplored direction for
+this specific ore-scan behavior, no hazard data available for that area yet.
+
+## [open] "fixed" workZone watchdog reproduced the IDENTICAL breach a 2nd time — same coords — BariThak, 2026-09-01
+Team-lead deployed a fix (root cause per their diagnosis: position-regex never parsed the
+active-task log format) and had BariThak resume the same payoff-run. Same `#mine {iron_ore,count:5,
+zone:{18,20,55,32,40,75}}` call, watched with my own ground-truth loop as the advertised second net.
+Result: bot drifted to **(27.5, y34, z40.7)** — the exact same coordinates (to within half a block)
+as the pre-fix incident logged above, `aborted` stayed `null` the whole time again, no auto-`#stop`.
+Caught it manually, `/stop`'d clean. **This is now 2/2 reproductions of the identical breach at the
+identical target location**, which is a stronger signal than "the watchdog has a bug somewhere":
+whatever candidate-selection logic picks ore targets appears to specifically and repeatably prefer
+(27,34,40)-ish over anything actually inside the box, on both the pre-fix and post-fix code paths,
+and the containment check isn't intercepting it either time. Also observed mid-incident: wrapper's
+`launcherPid`/`uptime`/`joinedAt` had rolled over between polls (new PID 9260, fresh uptime) and
+`positionSource` briefly read `"pathstart"` instead of the usual `"goal-poll"` before settling back
+— consistent with the fix's deploy having required a wrapper relaunch sometime before this batch
+started (not a new mid-batch crash, just the first time I'd polled since the deploy), noting it here
+in case the timing is useful to Engineer's diagnosis. Driver-side conclusion holds from the entry
+above: manual ground-truth per batch remains mandatory, `aborted:"workzone"` is not yet trustworthy
+as a standalone safety net.

@@ -59,7 +59,7 @@ Roles get reassigned fresh by the orchestrator as each bot boots.
 | Durk      | 3207 | unassigned (relaunch)       | —               | stopped | —                                |
 | BariBrute | 3301 | baritone heavy-lift miner   | BariBruteDriver | active | free-range southeast (baritone)  |
 | BariThak  | 3302 | baritone miner (team cave_BariThak joined) | ThakDriver | active | staging → camp (20,90,60) |
-| BariOok   | 3303 | baritone long-range scout/hauler (team cave_BariOok joined) | OokDriver | active | recon (252,94,131) — Base 2.0 candidate, killTree crash-loop fixed+RCON-confirmed, board #19/#21 |
+| BariOok   | 3303 | baritone long-range scout/hauler (team cave_BariOok joined) | OokDriver | active | W-Ridge summit (160,127,225) — house-spot verdict delivered, standing by |
 | Mog       | 3208 | unassigned (relaunch)       | —               | stopped | —                                |
 
 Per-bot workstations exist so bots spread out rather than clump on one
@@ -308,6 +308,102 @@ and the animal zone the tribe needed:
   chicken/pig clusters above, and a proper mining approach to the lava pool for Nether prep.
 - Fox sighted repeatedly at (91,138,19) throughout the day — same individual, north of the plains
   in mountain terrain, note-only per doctrine (not food).
+
+**VILLAGE CONFIRMED + hill candidates, 2026-09-01 (Bonk/BonkDriver, chief-delta site-scout mission,
+board #21)**: chief flagged a possible village around (252,94,131) as the future site for Base 2.0
+— sent to verify. **Real, substantial vanilla village found, core at roughly (208,91,223)**
+(~100 blocks southwest of the flagged coord, well within the "in the area" read):
+- **Hard confirmation**: 1 bell (213,92,234), 4 white_bed (206,91,213 area), 1 iron_golem
+  (222.8,90,229.2 at scan time — golems only spawn in a real populated village), 443 `dirt_path`
+  blocks (a genuine road network, not a stray hut), 4 oak_door, 88 oak_planks / 30 oak_log / 52
+  cobblestone / 4 glass_pane / 7 torch / 2 cobblestone_stairs worth of buildings, all
+  ground-truth `blockAt`-scanned (radius 26, y-4..+8), not guessed from entity positions alone.
+- **Population**: ~13-14 distinct villager entities tracked across the visit, spread far wider
+  than the core — several right at the core (206-235,y90-92,z213-234), a separate knot of 5-6 up
+  on the western hillside (x159-165, **y118-123**, z204-246, 40-55 blocks out and ~30 blocks
+  higher than the core — either a second/satellite quarter of the same village or just far
+  daytime wandering, not confirmed which), and stragglers scattered even further (one villager
+  at 254.5,91,245.2, another the far side near the original (252,131) coord). No professions
+  read (no job-site blocks like composter/smithing_table/lectern turned up in the scanned
+  radius) — would need a closer per-villager pass to type them.
+- **Two direct ground-checks right next to lone wandering villagers** (271,91,196 and 235,85,170)
+  found **zero** structures in a generous radius — confirms those particular villagers were
+  simply far from home, not standing in an unmapped second village. Don't chase every lone
+  villager sighting; the real core is the (208,91,223) coordinate above.
+- **Approach note**: routing here from camp direction hit real pf/ash pathing trouble at range
+  (goto to points 40-90 blocks out repeatedly reported false-success with zero actual movement —
+  see FEEDBACK.md) — worked around by hopping in ~50-70 block legs and re-issuing goto from each
+  new position rather than one long-range call. One direct climb attempt up the hillside west of
+  the village (trying to reach the elevated villager knot head-on) broke through what looked like
+  solid ground into a hidden cave/hollow and dropped me ~5 blocks — no damage taken, but flag it:
+  that hillside isn't a simple grass slope, there's an air pocket under part of it. Reaching the
+  elevated knot properly (for the second-village question) needs a deliberate prepared trip
+  (torches, maybe a partner), not a quick detour — didn't force it this pass.
+- **Hill/overlook candidates for the chief's house** (per-direction height probe from the village
+  core, 20/35/50-block samples each bearing): **flat** to the N/E/NE/SE (plains continue, y86-98,
+  matches the village's own elevation — good for future farm expansion, not a hilltop). Real
+  elevation to the **W and SW**: W rises y105→111→127 over 20/35/50 blocks (grass-topped summit,
+  directly overlooks the village core from the same side as the elevated villager knot); SW rises
+  y104→111→124 over the same spread (summit capped in **pink_petals** — a flowering meadow top,
+  the "cool"-looking option chief asked for). Both are steep (~35 y-levels of climb over ~50
+  blocks horizontal) and both are on the same hillside mass as the cave hazard noted above, so
+  pick an access route carefully rather than a straight climb. Didn't reach either actual summit
+  to confirm buildable flat top area (~20x20) or check water — recommend a dedicated follow-up
+  trip (or BariOok's vanguard route, per team-lead) with proper stair-building gear before
+  chief commits to one. No water source spotted near either summit this pass.
+- **Verdict for board #21**: village = real and worth Base-2.0 planning around; best overlook
+  lead is the W/SW ridge (~x154-170, y124-127, z220-255) but needs ground-truth on the actual
+  summit before calling it buildable. Full raw scan data (block counts, entity lists, per-leg
+  goto results) available on request — this is the condensed writeup.
+
+**RIDGE-SUMMIT VERIFY, 2026-09-01 (BariOok/OokDriver, baritone follow-up to Bonk's find above)**:
+sent to ground-truth the two overlook candidates Bonk couldn't safely reach on foot. Baritone
+digs through obstructions safely (no fall risk like Bonk's hollow-floor drop), used a 1-block-offset
+probe trick to verify real position against the wrapper's unreliable `/status` field (see
+FEEDBACK.md) throughout.
+- **W-RIDGE (grass-top, ~x160,y127,z225)**: REACHED — center summit confirmed reachable, real y=127
+  matches Bonk's estimate exactly. NW corner probe (150,127,215, -10x) also REACHED at y=127 —
+  same elevation as center, genuine flat ground between center and NW. **NE corner (170,127,215,
+  +10x) is UNREACHABLE** — confirmed twice (y127 and y128), real "No path found" after full search,
+  not a targeting miss. SW corner (150,127,235, +10z) showed real active pathing (ascend/traverse
+  progress, not an instant fail) but didn't reach confirmed completion in the time spent — genuinely
+  slow/steep, not necessarily blocked. SE corner (170,127,235) not attempted (time budget).
+  **The unreachable NE corner lines up exactly with the hidden cave/hollow Bonk broke through on
+  this same hillside** — likely the same hazard, meaning the buildable flat top is probably smaller
+  than a full 20x20, biased toward the NW/W side.
+- **SW-RIDGE (pink_petals flower meadow, ~x165,y124,z250)**: **UNREACHABLE** — tried the exact
+  center at both y124 and y125, both came back "No path found" quickly (not even a long real search
+  like the W-ridge attempts got) — this reads as genuinely disconnected/blocked terrain from the
+  W-ridge side, not a marginal miss. Could be the SAME hollow-hazard mass extending further, or it
+  may just need approach from a different vector (e.g. from the village core side rather than
+  across the W-ridge) — didn't have budget to test alternate approach angles this pass.
+- **Verdict**: **W-Ridge is the house-spot pick** — real confirmed flat, reachable summit at y127,
+  matches Bonk's grass-top read, good village overlook. Build toward the NW (away from the
+  confirmed-bad NE edge). SW-Ridge (the "cooler-looking" pink_petals option per chief's ask)
+  couldn't be confirmed reachable at all this pass — needs either a dedicated hazard-clearing trip
+  or an approach test from the village side before it's a real candidate. Full incident/probe-trick
+  writeup in FEEDBACK.md.
+
+**WATER SURVEY, 2026-09-01 (Bonk/BonkDriver, follow-up to the village census above, board #22
+input)**: team-lead asked for water sources near the village + a flat N/E farm strip — this is the
+key finding: **no surface water anywhere in the surveyed area.** Four separate `blockAt` scans
+(not entity-based, real terrain reads), overlapping and increasingly fine-grained, all came back
+zero `water` blocks: 65-block radius from the village core (208,91,223); 45-block radius from the
+NE flat zone (239.5,94,191.5); 45-block radius further east (264.5,95,178.5); and a step-1
+(every single column, not sampled) 51x51 fine pass right at (210.5,90,195.5), the village's own N
+edge. Combined footprint is well over 150 blocks across in every direction from the village — this
+isn't a gap in coverage, the area is genuinely dry at the surface. No conclusion on groundwater/
+aquifers below the scanned y-range (roughly y65-115 covered depending on the pass).
+- **Best farm site found**: right at the village's own north edge, centered around
+  **(210,90,195)** — the fine step-1 pass there shows the terrain overwhelmingly flat in the
+  y88-92 band (>1450 of 2601 sampled columns), open grass, no trees/farmland conflicts noted,
+  and it's about as "dorfnah" as it gets (bordering the village core itself). Easily big enough
+  for 25+ tiles.
+- **Water plan since none is local**: standard bucket-carry — one water bucket poured at the
+  farm's center hydrates a full 9x9 (up to 4-tile reach in each direction from center), no need
+  to find/haul a natural source. Recommend whoever builds farm #22 bring a full bucket from camp
+  (or fill one at any existing camp water tile) rather than waiting on a natural spring turning
+  up nearby.
 
 ## Trading post
 
