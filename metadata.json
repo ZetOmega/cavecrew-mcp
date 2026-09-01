@@ -3,7 +3,7 @@
   "checkpoint_id": "01M1E8Z7E384BKZ7GJJ23HPEJD",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "cave/skills.js"
   ],
@@ -14,13 +14,20 @@
       "compact_transcript": "/0/transcript.jsonl",
       "content_hash": "/0/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/1/metadata.json",
+      "transcript": "/1/full.jsonl",
+      "compact_transcript": "/1/transcript.jsonl",
+      "content_hash": "/1/content_hash.txt",
+      "prompt": "/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 662,
-    "cache_creation_tokens": 506881,
-    "cache_read_tokens": 85841608,
-    "output_tokens": 193354,
-    "api_call_count": 331
+    "input_tokens": 1100,
+    "cache_creation_tokens": 967538,
+    "cache_read_tokens": 142873622,
+    "output_tokens": 358624,
+    "api_call_count": 550
   }
 }
