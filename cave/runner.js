@@ -1851,8 +1851,20 @@ const recentBlockSightings = new Set(); // nearby block-type names sampled each 
 // condition already holds (annotation F: "never retried until the runner
 // restarts"). llmReadinessResult stays a stable {ready:false,...} or
 // {ready:true, apiKey} for the rest of this process's life either way.
-let llmReadinessChecked = false;
-let llmReadinessResult = null;
+//
+// CRITICAL FIX (drive-engine audit): this used to be a boolean latch
+// (llmReadinessChecked) set true SYNCHRONOUSLY plus a result populated only
+// after the `await verifyModel(...)` network round-trip resolved. A second
+// tickDrives() (next 5s tick, or a concurrent reflection cycle) landing in
+// that window — the exact slow-network case annotation F's "no retry
+// storm" contract is testing — read llmReadinessResult while still null and
+// returned null; every caller does `if (!ready.ready)` on that, an
+// uncaught TypeError surfacing as one ERROR log line per tick until (or
+// unless) the first verifyModel() call ever resolves. Caching the in-flight
+// PROMISE itself instead of a boolean+later-populated-result closes the
+// window: every concurrent caller awaits the SAME promise, none can
+// observe a not-yet-populated result.
+let llmReadinessPromise = null;
 
 // LOG-ONCE latch (DRIVES-PLAN.md Test 1/Test 2: "at most one ... line",
 // "never repeated on later ticks") — same intent as idle-guard's own
@@ -1989,20 +2001,24 @@ let lastSignalAt = 0;
 // ensureLlmReady() — LEAD ANNOTATION F: key resolution (local.json
 // deepseek.apiKey or DEEPSEEK_API_KEY), then a startup model-list
 // fetch-and-match for decisionModel. Runs at most ONCE per process
-// (llmReadinessChecked latch) — a no-key or model-mismatch bot never
+// (llmReadinessPromise latch) — a no-key or model-mismatch bot never
 // retries the network on its own; only a runner restart re-evaluates.
 // Order matters: the no-key check is a hardcoded, pre-network short-circuit
 // — verifyModel() is never even called without a key, so a garbage-key run
 // and a no-key run are provably different code paths, not one swallowed
 // catch-all wearing two faces (DRIVES-PLAN.md §10 Test 2 item 4).
-async function ensureLlmReady() {
-  if (llmReadinessChecked) return llmReadinessResult;
-  llmReadinessChecked = true;
+//
+// CRITICAL FIX (drive-engine audit): cache the in-flight PROMISE, not a
+// boolean-checked-flag-plus-later-populated-result — see llmReadinessPromise
+// above for why. computeLlmReadiness() below is the actual body; every
+// caller of ensureLlmReady() gets the exact same promise instance while one
+// is outstanding, so nobody can observe a "checked but not yet resolved"
+// half-state.
+async function computeLlmReadiness() {
   const apiKey = drivesLlm.resolveApiKey(getLocalConfig());
   if (!apiKey) {
     logDrivesOnce('drives: no DeepSeek API key configured (local.json deepseek.apiKey or DEEPSEEK_API_KEY) — engine dormant');
-    llmReadinessResult = { ready: false, reason: 'no-key' };
-    return llmReadinessResult;
+    return { ready: false, reason: 'no-key' };
   }
   const models = drivesConfig.getModels();
   const check = await drivesLlm.verifyModel(apiKey, models.decisionModel);
@@ -2010,12 +2026,13 @@ async function ensureLlmReady() {
     logDrivesOnce(
       `drives: configured decisionModel "${models.decisionModel}" not found in DeepSeek model list (${check.available.join(', ') || check.error || 'none returned'}) — engine dormant`
     );
-    llmReadinessResult = { ready: false, reason: 'model-mismatch', available: check.available };
-    return llmReadinessResult;
+    return { ready: false, reason: 'model-mismatch', available: check.available };
   }
   logLine('info', `drives: DeepSeek ready (model=${models.decisionModel})`);
-  llmReadinessResult = { ready: true, apiKey };
-  return llmReadinessResult;
+  return { ready: true, apiKey };
+}
+function ensureLlmReady() {
+  return (llmReadinessPromise ??= computeLlmReadiness());
 }
 
 // Prompt text is the chief's own wording, verbatim (DRIVES-SPEC.md §2/§4) —
@@ -2171,7 +2188,15 @@ async function runDriveSkill(goal, ctx) {
     case 'seal':
       return skills.emergencySeal(b, ctx);
     case 'talk':
-      await smartChat(String(goal.args.message));
+      // CRITICAL FIX (drive-engine audit): smartChat() only ever sends REAL
+      // game chat for text starting with "!" (see smartChat above) — plain
+      // text silently falls through to announce('status', ...), i.e.
+      // Discord/log only. The LLM never emits that prefix on its own (no
+      // prompt tells it to), so drive-issued talk goals were dead on
+      // arrival for real chat and no other bot's markCrewChatHeard could
+      // ever fire from them. Force the "!" ourselves — annotation D's
+      // whole point is that this needs to be REAL bot-to-bot chat.
+      await smartChat('!' + String(goal.args.message));
       return { said: goal.args.message };
     default:
       throw new Error(`drives: no executor wired for skill "${goal.skill}"`);

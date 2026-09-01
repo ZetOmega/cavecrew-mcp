@@ -74,7 +74,7 @@ import { postStatus, isConfigured as discordConfigured } from './discord.mjs'
 // stuck-detection ladder) stays active for enrolled bots — those are
 // connectivity/safety concerns, not idle-ownership (annotation K: "safety
 // unchanged").
-import { isEnrolled } from './drives-config.js'
+import { isEnrolled, isGlobalOn } from './drives-config.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const LOG = path.join(HERE, 'logs', 'overseer.log')
@@ -803,7 +803,29 @@ async function tick(bot) {
   // owns its own idle time from here down (recurring chores, idle-defaults,
   // goal-engine dispatch below). Everything ABOVE this line already ran
   // unconditionally, so connectivity/stuck/safety handling is unaffected.
-  if (isEnrolled(bot.name)) return
+  //
+  // CRITICAL FIX (drive-engine audit): isEnrolled() alone tests only the
+  // static drives.json `bots` map — it can't see drives.json's own
+  // `global:false` kill-switch (the documented emergency-stop path) NOR the
+  // runner's in-memory per-process POST /drives {on:false} pause, which
+  // lives only inside that runner's process and is invisible to
+  // drives-config.js's fs-based reads. Skipping on isEnrolled() alone left
+  // a bot stranded with NEITHER engine covering its idle in both cases —
+  // exactly the drivesOwnsIdle() three-part check (enrolled && global &&
+  // runtime) the runner itself uses, which this skip must mirror.
+  // isGlobalOn() closes the kill-switch gap cheaply (same fs-cached read
+  // drives-config.js already does). Full parity for the runtime toggle
+  // needs the per-bot runtime flag, which only the runner's own process
+  // holds — ask it via the same GET /drives the panel polls (its `on`
+  // field is drivesOwnsIdle() itself). Fail SAFE toward overseer coverage:
+  // an unreachable/erroring runner (st.error path already handled above,
+  // but a mid-tick drop or malformed reply here) must not silently strand
+  // the bot uncovered by either engine, so treat that as "drives not
+  // confirmed on" and let overseer's own fallback logic run.
+  if (isEnrolled(bot.name) && isGlobalOn()) {
+    const ds = await api(bot.port, '/drives', null, 'GET')
+    if (ds?.on === true) return
+  }
 
   // recurring chores: due + bot free → fire (before idle-defaults, higher value)
   for (const ch of CHORES) {
