@@ -1,0 +1,400 @@
+<task-notification>
+<task-id>b51kz0f7e</task-id>
+<summary>Monitor event: "BariBrute iron mine watch: heartbeat, nogo/disconnect alerts, ground-truth trail"</summary>
+<event>hb t+40s "lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=120,y=31,z=43} to GoalComposite[GoalTwoBlocks{x=127,y=27,z=38}]. 100 nodes considered"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b51kz0f7e</task-id>
+<summary>Monitor event: "BariBrute iron mine watch: heartbeat, nogo/disconnect alerts, ground-truth trail"</summary>
+<event>hb t+100s "lastBaritoneLine":"Skipping traverse to straight ascend"
+groundtruth t+100s {"result":{"x":109.95561522245407,"y":81.1767839648962,"z":85.31585026031219},"task":{"id":"task-32","kind":"eval","source":"http","state":"done","detail":null,"result":{"x":109.95561522245407,"y":81.1767839648962,"z":85.31585026031219},"finishedAt":"2026-09-01T12:03:13.353Z"}}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b51kz0f7e</task-id>
+<summary>Monitor event: "BariBrute iron mine watch: heartbeat, nogo/disconnect alerts, ground-truth trail"</summary>
+<event>hb t+160s "lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=326,y=32,z=169} to GoalComposite[GoalTwoBlocks{x=325,y=29,z=180}]. 3289 nodes considered"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b51kz0f7e</task-id>
+<summary>Monitor event: "BariBrute iron mine watch: heartbeat, nogo/disconnect alerts, ground-truth trail"</summary>
+<event>hb t+220s "lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=324,y=32,z=198} to GoalComposite[GoalBlock{x=323,y=31,z=198}, GoalTwoBlocks{x=323,y=32,z=199}]. 4147 nodes considered"
+groundtruth t+220s {"result":null,"task":{"id":"task-33","kind":"eval","source":"http","state":"done","detail":null,"result":null,"finishedAt":"2026-09-01T12:05:13.685Z"}}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b51kz0f7e</task-id>
+<summary>Monitor event: "BariBrute iron mine watch: heartbeat, nogo/disconnect alerts, ground-truth trail"</summary>
+<event>hb t+280s "lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=324,y=32,z=198} to GoalComposite[GoalBlock{x=323,y=31,z=198}]. 1441 nodes considered"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b51kz0f7e</task-id>
+<summary>Monitor event: "BariBrute iron mine watch: heartbeat, nogo/disconnect alerts, ground-truth trail"</summary>
+<event>hb t+340s "lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=336,y=25,z=200} to GoalComposite[GoalBlock{x=336,y=25,z=201}, GoalBlock{x=335,y=24,z=200}, GoalBlock{x=336,y=24,z=200}, GoalBlock{x=336,y=24,z=199}, GoalThreeBlocks{x=341,y=28,z=194}]. 1275 nodes considered"
+groundtruth t+340s {"result":null,"task":{"id":"task-34","kind":"eval","source":"http","state":"done","detail":null,"result":null,"finishedAt":"2026-09-01T12:07:13.990Z"}}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b51kz0f7e</task-id>
+<summary>Monitor event: "BariBrute iron mine watch: heartbeat, nogo/disconnect alerts, ground-truth trail"</summary>
+<event>hb t+401s "lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=336,y=25,z=201} to GoalComposite[GoalBlock{x=335,y=24,z=200}, GoalBlock{x=335,y=24,z=200}, GoalBlock{x=336,y=24,z=199}, GoalBlock{x=336,y=24,z=199}, GoalThreeBlocks{x=341,y=28,z=194}]. 10203 nodes considered"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b51kz0f7e</task-id>
+<summary>Monitor event: "BariBrute iron mine watch: heartbeat, nogo/disconnect alerts, ground-truth trail"</summary>
+<event>hb t+461s "lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=336,y=24,z=200} to GoalComposite[GoalBlock{x=335,y=24,z=199}, GoalBlock{x=335,y=24,z=199}, GoalBlock{x=334,y=24,z=200}, GoalBlock{x=334,y=24,z=200}, GoalThreeBlocks{x=341,y=28,z=194}]. 9725 nodes considered"
+groundtruth t+461s {"result":null,"task":{"id":"task-35","kind":"eval","source":"http","state":"done","detail":null,"result":null,"finishedAt":"2026-09-01T12:09:14.303Z"}}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b51kz0f7e</task-id>
+<summary>Monitor event: "BariBrute iron mine watch: heartbeat, nogo/disconnect alerts, ground-truth trail"</summary>
+<event>hb t+521s "lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=335,y=24,z=199} to GoalComposite[GoalBlock{x=334,y=24,z=199}, GoalBlock{x=334,y=24,z=200}, GoalBlock{x=334,y=24,z=200}, GoalThreeBlocks{x=341,y=28,z=194}]. 1136 nodes considered"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b51kz0f7e</task-id>
+<summary>Monitor event: "BariBrute iron mine watch: heartbeat, nogo/disconnect alerts, ground-truth trail"</summary>
+<event>hb t+581s "lastBaritoneLine":"[14:11:14] [Render thread/INFO]: [CHAT] \u001b[m\u001b[35m[\u001b[95mBaritone\u001b[35m]\u001b[0m \u001b[37mStarting to search for path from BetterBlockPos{x=340,y=23,z=196} to GoalComposite[GoalThreeBlocks{x=341,y=28,z=194}]\u001b[0m"
+groundtruth t+581s {"result":null,"task":{"id":"task-39","kind":"eval","source":"http","state":"done","detail":null,"result":null,"finishedAt":"2026-09-01T12:11:14.621Z"}}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b51kz0f7e</task-id>
+<summary>Monitor event: "BariBrute iron mine watch: heartbeat, nogo/disconnect alerts, ground-truth trail"</summary>
+<event>hb t+641s "lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=356,y=13,z=195} to GoalComposite[GoalBlock{x=355,y=12,z=195}, GoalBlock{x=356,y=12,z=195}, GoalBlock{x=355,y=12,z=196}, GoalBlock{x=355,y=12,z=196}]. 1951 nodes considered"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b51kz0f7e</task-id>
+<summary>Monitor event: "BariBrute iron mine watch: heartbeat, nogo/disconnect alerts, ground-truth trail"</summary>
+<event>hb t+701s "lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=356,y=12,z=196} to GoalComposite[GoalBlock{x=355,y=12,z=195}, GoalBlock{x=355,y=12,z=195}]. 5708 nodes considered"
+groundtruth t+701s {"result":null,"task":{"id":"task-51","kind":"eval","source":"http","state":"done","detail":null,"result":null,"finishedAt":"2026-09-01T12:13:14.950Z"}}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b51kz0f7e</task-id>
+<summary>Monitor event: "BariBrute iron mine watch: heartbeat, nogo/disconnect alerts, ground-truth trail"</summary>
+<event>hb t+762s "lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=376,y=7,z=172} to GoalComposite[GoalBlock{x=377,y=7,z=173}, GoalBlock{x=376,y=7,z=173}, GoalBlock{x=378,y=6,z=174}]. 2885 nodes considered"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b51kz0f7e</task-id>
+<summary>Monitor event: "BariBrute iron mine watch: heartbeat, nogo/disconnect alerts, ground-truth trail"</summary>
+<event>hb t+822s "lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=376,y=7,z=173} to GoalComposite[GoalTwoBlocks{x=377,y=7,z=174}, GoalBlock{x=378,y=6,z=174}]. 7260 nodes considered"
+groundtruth t+822s {"result":null,"task":{"id":"task-58","kind":"eval","source":"http","state":"done","detail":null,"result":null,"finishedAt":"2026-09-01T12:15:15.274Z"}}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b51kz0f7e</task-id>
+<summary>Monitor event: "BariBrute iron mine watch: heartbeat, nogo/disconnect alerts, ground-truth trail"</summary>
+<event>hb t+882s "lastBaritoneLine":"[14:16:15] [Render thread/INFO]: [CHAT] \u001b[m\u001b[35m[\u001b[95mBaritone\u001b[35m]\u001b[0m \u001b[37mStatic cutoff 309 to 281\u001b[0m"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b51kz0f7e</task-id>
+<summary>Monitor event: "BariBrute iron mine watch: heartbeat, nogo/disconnect alerts, ground-truth trail"</summary>
+<event>hb t+942s "lastBaritoneLine":"Skipping traverse to straight ascend"
+groundtruth t+942s {"result":null,"task":{"id":"task-69","kind":"eval","source":"http","state":"done","detail":null,"result":null,"finishedAt":"2026-09-01T12:17:15.585Z"}}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b51kz0f7e</task-id>
+<summary>Monitor event: "BariBrute iron mine watch: heartbeat, nogo/disconnect alerts, ground-truth trail"</summary>
+<event>hb t+1002s "lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=442,y=4,z=186} to GoalComposite[GoalThreeBlocks{x=443,y=5,z=185}, GoalThreeBlocks{x=444,y=4,z=186}]. 23718 nodes considered"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b51kz0f7e</task-id>
+<summary>Monitor event: "BariBrute iron mine watch: heartbeat, nogo/disconnect alerts, ground-truth trail"</summary>
+<event>hb t+1062s "lastBaritoneLine":"Static cutoff 222 to 202"
+groundtruth t+1062s {"error":"busy","currentTask":{"id":"task-72","kind":"chop","source":"http","state":"running","detail":"chopping tree 4/4","result":null,"finishedAt":null}}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b51kz0f7e</task-id>
+<summary>Monitor event: "BariBrute iron mine watch: heartbeat, nogo/disconnect alerts, ground-truth trail"</summary>
+<event>hb t+1122s "lastBaritoneLine":"Found path segment from BetterBlockPos{x=542,y=-41,z=172} towards GoalRunAwayFromMaintainY y=-59, [BetterBlockPos{x=56,y=107,z=99}]. 116370 nodes considered"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b51kz0f7e</task-id>
+<summary>Monitor event: "BariBrute iron mine watch: heartbeat, nogo/disconnect alerts, ground-truth trail"</summary>
+<event>hb t+1183s "lastBaritoneLine":"Static cutoff 55 to 52"
+groundtruth t+1183s {"error":"busy","currentTask":{"id":"task-73","kind":"goto","source":"http","state":"running","detail":null,"result":null,"finishedAt":null}}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b51kz0f7e</task-id>
+<summary>Monitor event: "BariBrute iron mine watch: heartbeat, nogo/disconnect alerts, ground-truth trail"</summary>
+<event>hb t+1243s "lastBaritoneLine":"Unable to find any path to BlockOptionalMetaLookup{[BlockOptionalMeta{block=Block{minecraft:iron_ore},properties={}}]}, canceling mine"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b51kz0f7e</task-id>
+<summary>Monitor event: "BariBrute iron mine watch: heartbeat, nogo/disconnect alerts, ground-truth trail"</summary>
+<event>hb t+1303s "lastBaritoneLine":"Skipping traverse to straight ascend"
+groundtruth t+1303s {"result":null,"task":{"id":"task-82","kind":"eval","source":"http","state":"done","detail":null,"result":null,"finishedAt":"2026-09-01T12:23:16.293Z"}}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b51kz0f7e</task-id>
+<summary>Monitor event: "BariBrute iron mine watch: heartbeat, nogo/disconnect alerts, ground-truth trail"</summary>
+<event>hb t+1363s "lastBaritoneLine":"Skipping traverse to straight ascend"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b51kz0f7e</task-id>
+<summary>Monitor event: "BariBrute iron mine watch: heartbeat, nogo/disconnect alerts, ground-truth trail"</summary>
+<event>hb t+1423s "lastBaritoneLine":"Skipping traverse to straight ascend"
+groundtruth t+1423s {"result":null,"task":{"id":"task-93","kind":"eval","source":"http","state":"done","detail":null,"result":null,"finishedAt":"2026-09-01T12:25:16.593Z"}}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b51kz0f7e</task-id>
+<summary>Monitor event: "BariBrute iron mine watch: heartbeat, nogo/disconnect alerts, ground-truth trail"</summary>
+<event>hb t+1483s "lastBaritoneLine":"Skipping traverse to straight ascend"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>btg7doz7w</task-id>
+<summary>Monitor event: "BariBrute return-trek watch: heartbeat + nogo/disconnect/task-done alerts, final leg to camp"</summary>
+<event>hb t+15s "lastBaritoneLine":"Skipping traverse to straight ascend"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>btg7doz7w</task-id>
+<summary>Monitor event: "BariBrute return-trek watch: heartbeat + nogo/disconnect/task-done alerts, final leg to camp"</summary>
+<event>hb t+45s "lastBaritoneLine":"Skipping traverse to straight ascend"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>btg7doz7w</task-id>
+<summary>Monitor event: "BariBrute return-trek watch: heartbeat + nogo/disconnect/task-done alerts, final leg to camp"</summary>
+<event>hb t+75s "lastBaritoneLine":"Skipping traverse to straight ascend"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>btg7doz7w</task-id>
+<summary>Monitor event: "BariBrute return-trek watch: heartbeat + nogo/disconnect/task-done alerts, final leg to camp"</summary>
+<event>hb t+105s "lastBaritoneLine":"Skipping traverse to straight ascend"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+Check BariBrute mine-watch Monitor task (b51kz0f7e) and /status — if the 25min cap fired or task went idle, wrap up the iron job (goto back toward camp-adjacent spot, stop, final ground-truth, report to team lead).
+
+---
+
+<task-notification>
+<task-id>btg7doz7w</task-id>
+<summary>Monitor event: "BariBrute return-trek watch: heartbeat + nogo/disconnect/task-done alerts, final leg to camp"</summary>
+<event>hb t+135s "lastBaritoneLine":"[14:28:54] [Render thread/INFO]: [CHAT] \u001b[m\u001b[35m[\u001b[95mBaritone\u001b[35m]\u001b[0m \u001b[37mDiscarding earliest segment movements, length cut from 515 to 465\u001b[0m"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>btg7doz7w</task-id>
+<summary>Monitor event: "BariBrute return-trek watch: heartbeat + nogo/disconnect/task-done alerts, final leg to camp"</summary>
+<event>hb t+165s "lastBaritoneLine":"Skipping traverse to straight ascend"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>btg7doz7w</task-id>
+<summary>Monitor event: "BariBrute return-trek watch: heartbeat + nogo/disconnect/task-done alerts, final leg to camp"</summary>
+<event>hb t+195s "lastBaritoneLine":"Skipping forward 3 steps, to 58"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>btg7doz7w</task-id>
+<summary>Monitor event: "BariBrute return-trek watch: heartbeat + nogo/disconnect/task-done alerts, final leg to camp"</summary>
+<event>hb t+226s "lastBaritoneLine":"Skipping forward 3 steps, to 58"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bn6xs3x46</task-id>
+<summary>Monitor event: "BariBrute tunnel-job step1: goto (44,49,60) through scar-cavern terrain — nogo/disconnect/arrival watch"</summary>
+<event>hb t+0s "lastBaritoneLine":"Favoring size: 10"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bn6xs3x46</task-id>
+<summary>Monitor event: "BariBrute tunnel-job step1: goto (44,49,60) through scar-cavern terrain — nogo/disconnect/arrival watch"</summary>
+<event>hb t+121s "lastBaritoneLine":"Goal: 8.7s (173 ticks)"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bw4e8suko</task-id>
+<summary>Monitor event: "BariBrute tunnel dig watch: nogo/disconnect/stuck alerts, breach detection, progress heartbeat"</summary>
+<event>hb t+30s "lastBaritoneLine":"Creating a tunnel 2 block(s) high, 1 block(s) wide, and 12 block(s) deep"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bw4e8suko</task-id>
+<summary>Monitor event: "BariBrute tunnel dig watch: nogo/disconnect/stuck alerts, breach detection, progress heartbeat"</summary>
+<event>hb t+76s "lastBaritoneLine":"Creating a tunnel 2 block(s) high, 1 block(s) wide, and 12 block(s) deep"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bw4e8suko</task-id>
+<summary>Monitor event: "BariBrute tunnel dig watch: nogo/disconnect/stuck alerts, breach detection, progress heartbeat"</summary>
+<event>hb t+166s "lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=40,y=49,z=60} to GoalComposite[GoalBreak{x=33,y=49,z=60}, GoalBreak{x=32,y=49,z=60}, GoalBreak{x=30,y=49,z=60}, GoalBreak{x=28,y=49,z=60}, GoalBreak{x=33,y=50,z=60}, GoalBreak{x=28,y=50,z=60}, GoalBreak{x=32,y=50,z=60}, GoalBreak{x=31,y=50,z=60}, GoalBreak{x=30,y=50,z=60}, GoalBreak{x=29,y=49,z=60}, GoalBreak{x=31,y=49,z=60}, GoalBreak{x=34,y=49,z=60}, GoalBreak{x=29,y=50,z=60}, GoalBreak{x=34,y=50,z=60}]. 6 nodes consid...(truncated)</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bw4e8suko</task-id>
+<summary>Monitor event: "BariBrute tunnel dig watch: nogo/disconnect/stuck alerts, breach detection, progress heartbeat"</summary>
+<event>hb t+211s "lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=39,y=49,z=60} to GoalComposite[GoalBreak{x=32,y=50,z=60}, GoalBreak{x=31,y=50,z=60}, GoalBreak{x=33,y=49,z=60}, GoalBreak{x=30,y=50,z=60}, GoalBreak{x=32,y=49,z=60}, GoalBreak{x=29,y=49,z=60}, GoalBreak{x=30,y=49,z=60}, GoalBreak{x=28,y=49,z=60}, GoalBreak{x=31,y=49,z=60}, GoalBreak{x=29,y=50,z=60}, GoalBreak{x=33,y=50,z=60}, GoalBreak{x=28,y=50,z=60}]. 6 nodes considered"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bw4e8suko</task-id>
+<summary>Monitor event: "BariBrute tunnel dig watch: nogo/disconnect/stuck alerts, breach detection, progress heartbeat"</summary>
+<event>hb t+257s "lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=37,y=49,z=60} to GoalComposite[GoalBreak{x=31,y=50,z=60}, GoalBreak{x=30,y=50,z=60}, GoalBreak{x=29,y=49,z=60}, GoalBreak{x=30,y=49,z=60}, GoalBreak{x=28,y=49,z=60}, GoalBreak{x=31,y=49,z=60}, GoalBreak{x=29,y=50,z=60}, GoalBreak{x=28,y=50,z=60}]. 6 nodes considered"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bw4e8suko</task-id>
+<summary>Monitor event: "BariBrute tunnel dig watch: nogo/disconnect/stuck alerts, breach detection, progress heartbeat"</summary>
+<event>hb t+302s "lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=35,y=49,z=60} to GoalComposite[GoalBreak{x=30,y=50,z=60}, GoalBreak{x=29,y=49,z=60}, GoalBreak{x=30,y=49,z=60}, GoalBreak{x=28,y=49,z=60}, GoalBreak{x=29,y=50,z=60}, GoalBreak{x=28,y=50,z=60}]. 5 nodes considered"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bw4e8suko</task-id>
+<summary>Monitor event: "BariBrute tunnel dig watch: nogo/disconnect/stuck alerts, breach detection, progress heartbeat"</summary>
+<event>hb t+347s "lastBaritoneLine":"[14:46:55] [ForkJoinPool.commonPool-worker-24/INFO]: [STDOUT]: Saving region 0,0 to disk C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariBrute\\gamedir\\baritone\\localhost_25565\\minecraft\\overworld_384\\cache"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bw4e8suko</task-id>
+<summary>Monitor event: "BariBrute tunnel dig watch: nogo/disconnect/stuck alerts, breach detection, progress heartbeat"</summary>
+<event>hb t+392s "lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=34,y=49,z=60} to GoalComposite[GoalBreak{x=28,y=49,z=60}, GoalBreak{x=28,y=50,z=60}]. 6 nodes considered"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
