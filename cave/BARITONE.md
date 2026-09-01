@@ -188,8 +188,19 @@ the overseer can adopt BariBrute with one BOTS-array row (part 6).
 
 ### 5a. Boot settings — written to `.minecraft\baritone\settings.txt`
 
+**CHIEF RULING 2026-09-01: `legitMine` flipped OFF.** The mineflayer fleet's
+own `/mine` already finds buried ore via chunk-data scans — visible-only was
+holding Baritone to a *stricter* standard than the rest of the fleet, not a
+stricter no-cheat law. Parity restored. All other safety settings
+(`allowDownward`, y-clamps, `blocksToDisallowBreaking`) are UNCHANGED and
+stay forever. First real-world data point behind the call: BariBrute's first
+bulk-iron `/mine` job (legitMine=true) wandered ~790 blocks free-ranging
+after visible-only candidates it could never path to, and finished with 0
+iron per the server Ledger DB — see FEEDBACK.md's "iron manifest resolved"
+entry.
+
 ```
-legitMine true                # honest visible-only mining, no X-ray scan
+legitMine false                # CHIEF RULING 2026-09-01 — parity with mineflayer's chunk-scan /mine (was: true, honest visible-only)
 allowDownward false           # never mine block under own feet (fall-safety, matches fleet doctrine)
 minYLevelWhileMining -54      # floor: stay above bedrock chaos
 maxYLevelWhileMining 95       # ceiling: all ore-hunting stays BELOW both bases (camp y~89 surface, FEL y=111)
