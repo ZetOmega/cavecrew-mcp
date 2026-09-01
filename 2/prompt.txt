@@ -314,3 +314,12 @@ If this event is something the user would act on now, send a PushNotification. R
 <event>poll 2: state=running pos=12.55,89.88,55.47</event>
 If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
 </task-notification>
+
+---
+
+<task-notification>
+<task-id>bnmhvlqcr</task-id>
+<summary>Monitor event: "watching deposit retry from improved position"</summary>
+<event>poll 1: state=running pos=12.55,89.88,55.47</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
