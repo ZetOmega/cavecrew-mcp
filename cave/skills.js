@@ -3933,9 +3933,45 @@ async function digCorridorStep(bot, dir, ctx) {
       });
     }
   }
+
+  // (FLOOR-SUPPORT GUARD — priority incident 2026-09-01, Grog fell 17
+  // blocks, y54->37, into a natural cavern the trunk corridor happened to
+  // intersect; recurred identically after a runner restart, same spot.)
+  // This function only ever dug the FORWARD feet/head cells above — it
+  // never checked whether fwd0 has solid ground underneath before walking
+  // into it. The existing depth guard elsewhere (mineBlocks' PRE-DESCENT
+  // GUARD) only screens which ORE TARGET gets selected; nothing screened
+  // the corridor's own next step, so a natural void crossing the trunk's
+  // path at the SAME y-level as normal terrain (not a chosen target, not
+  // a voluntary pf drop — maxDropDown never enters into it) was invisible
+  // to every existing check. Reuses ensureTreadFoundation (buildStaircase's
+  // own void-bridging primitive, same file, adversarially verified in
+  // f98395c) rather than a new one: already solid -> no-op instantly;
+  // not solid -> tries placing cobble/dirt against any of 6 neighbor faces
+  // (handles a side-wall reference when straight-down has nothing to place
+  // against either, e.g. a wide cavern, not just a narrow crack). Never
+  // throws when out of material or every face fails — caught here and
+  // treated identically to "could not secure" below: refuse to advance,
+  // hold position, let the caller's stall handling take it from there.
+  let floorSafe;
+  try {
+    floorSafe = await ensureTreadFoundation(bot, fwd0.offset(0, -1, 0), ctx);
+  } catch (err) {
+    ctx.log?.('warn', `branchMine: corridor floor-support check failed at ${posKey(fwd0)}: ${err.message}`);
+    floorSafe = false;
+  }
+  if (!floorSafe) {
+    ctx.log?.(
+      'warn',
+      `branchMine: refusing to advance into ${posKey(fwd0)} — no solid floor and no material to secure one (natural void/cavern), holding position`
+    );
+    return { advanced: false };
+  }
+
   await gotoLoop(bot, new goals.GoalNear(fwd0.x, fwd0.y, fwd0.z, 0), { timeoutMs: 8000, maxAttempts: 2 }, ctx).catch((err) => {
     ctx.log?.('warn', `branchMine: corridor step failed: ${err.message}`);
   });
+  return { advanced: true };
 }
 
 async function mineBranch(bot, dir, length, ctx, oreCounts, collectedAll) {
@@ -4031,18 +4067,30 @@ export async function branchMine(bot, opts = {}, ctx = {}) {
     let watchdog;
     try {
       watchdog = await runTargetWithWatchdog(bot, ctx, 25000, async () => {
-        await digCorridorStep(bot, dir, ctx);
+        const step = await digCorridorStep(bot, dir, ctx);
         const found = await scanForOres(bot, ctx, oreCounts, collectedAll);
-        return { found };
+        return { found, advanced: step.advanced };
       });
     } catch (err) {
       ctx.log?.('warn', `branchMine: trunk position ${i} failed: ${err.message}`);
       continue;
     }
 
-    if (watchdog.stalled) {
+    // A void-refused step (see digCorridorStep's FLOOR-SUPPORT GUARD)
+    // resolves cleanly, not via a timeout — the generic watchdog never
+    // flags it as stalled on its own. Without this check the trunk loop
+    // would recompute the identical blocked fwd0 every remaining
+    // iteration, silently burning the whole trunkLength budget while
+    // reporting fabricated progress. Folded into the SAME consecutiveStalls
+    // counter/abort threshold as a genuine stall — from the trunk loop's
+    // perspective "resolved but didn't move" and "timed out and didn't
+    // move" are the same failure to make progress.
+    if (watchdog.stalled || watchdog.result?.advanced === false) {
       consecutiveStalls++;
-      ctx.log?.('warn', `branchMine: trunk position ${i} stalled (${consecutiveStalls}/3)`);
+      ctx.log?.(
+        'warn',
+        `branchMine: trunk position ${i} ${watchdog.stalled ? 'stalled' : 'blocked by unsecured void'} (${consecutiveStalls}/3)`
+      );
       if (consecutiveStalls >= 3) throw new Error('stalled');
       continue;
     }
