@@ -59,7 +59,7 @@ Roles get reassigned fresh by the orchestrator as each bot boots.
 | Durk      | 3207 | unassigned (relaunch)       | —               | stopped | —                                |
 | BariBrute | 3301 | baritone heavy-lift miner   | BariBruteDriver | active | free-range southeast (baritone)  |
 | BariThak  | 3302 | baritone miner (team cave_BariThak joined) | ThakDriver | active | staging → camp (20,90,60) |
-| BariOok   | 3303 | baritone long-range scout/hauler (team cave_BariOok joined) | OokDriver | active | staging → camp (20,90,60) |
+| BariOok   | 3303 | baritone long-range scout/hauler (team cave_BariOok joined) | OokDriver | active | camp staging (21,90,60), idle awaiting assignment |
 | Mog       | 3208 | unassigned (relaunch)       | —               | stopped | —                                |
 
 Per-bot workstations exist so bots spread out rather than clump on one
@@ -133,6 +133,14 @@ Status values: `planned` (named + ported, not yet spawned), `active`
 check logs and restart via `spawn.mjs`).
 
 ## Base location
+
+**BASE 2.0 PLAN (chief long-term idea, 2026-09-01)**: relocate the main
+base to **~(252, 94, 131)** — east plains, possibly next to a VILLAGE
+(unverified, recon running: BariOok vanguard + Bonk survey, board #19/#21).
+The hilltop house + farm project (#20/#22) becomes Base 2.0's founding
+build if the site verifies. Current camp below stays as mining outpost
+(staircase, mine_field, chests) — infra is not abandoned, it becomes the
+resource satellite.
 
 Cavecrew camp centered around **(11-12, 89, 55-57)**. Crafting table at
 (12, **89**, 56) — re-corrected 2026-09-01 post-relaunch: UngaBunga
