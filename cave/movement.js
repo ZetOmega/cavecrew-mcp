@@ -78,6 +78,94 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// ---------------------------------------------------------------------------
+// THE DRAGON: bot.pathfinder.goto() lies about "success" — confirmed by
+// direct source read of mineflayer-pathfinder's own lib/goto.js + index.js:
+//   1. `noPathListener` in lib/goto.js calls cleanup() with NO error whenever
+//      `results.path.length === 0` — an empty path (e.g. a no-dig Movements
+//      search that can't find a single step forward from the start node)
+//      resolves the promise as a SUCCESS, not a NoPath rejection.
+//   2. index.js only ever fires 'goal_reached' by checking
+//      `stateGoal.isEnd(bot.entity.position.floored())` — a FLOORED integer
+//      node, not the bot's real continuous position. A goal whose floor cell
+//      already contains the bot's start position (loose range, or a target
+//      that floors into the same cell) fires goal_reached with zero actual
+//      movement, on the very first physics tick.
+// Both paths resolve the goto() promise as if the goal were reached even
+// though the bot never moved. gotoLoopPf below never trusted the resolved
+// promise alone again — every "success" gets ground-truthed against
+// bot.entity.position before being believed.
+//
+// Returns null when `goal` doesn't expose enough of x/y/z to ground-truth
+// (e.g. a pure GoalY) — callers should skip verification in that case.
+function goalGroundTruth(bot, goal) {
+  if (typeof goal?.x !== 'number' && typeof goal?.z !== 'number') return null;
+  const pos = bot.entity.position;
+  const range = typeof goal.rangeSq === 'number' ? Math.sqrt(goal.rangeSq) : 0;
+  let distSq = 0;
+  if (typeof goal.x === 'number') {
+    const dx = pos.x - (goal.x + 0.5);
+    distSq += dx * dx;
+  }
+  if (typeof goal.z === 'number') {
+    const dz = pos.z - (goal.z + 0.5);
+    distSq += dz * dz;
+  }
+  if (typeof goal.y === 'number') {
+    const dy = pos.y - goal.y;
+    distSq += dy * dy;
+  }
+  return { dist: Math.sqrt(distSq), range };
+}
+
+// Last-resort fallback once bot.pathfinder's own goto() has been caught
+// false-reaching (or genuinely failing) across every retry AND the bot is
+// still ground-truthed as actually close (<6 blocks — see call site).
+// Bypasses pathfinder entirely: look at the target, pulse forward+jump in
+// short (300ms) bursts, re-measuring real position after every pulse, until
+// ground-truth distance clears range+0.75 or 15s elapses. Deliberately dumb
+// (no obstacle avoidance, no digging) — only meant for the "goal is right
+// there, pathfinder just isn't moving" case, never general navigation.
+async function rawWalkTo(bot, goal, range, ctx) {
+  const targetPos = new Vec3(
+    typeof goal.x === 'number' ? goal.x + 0.5 : bot.entity.position.x,
+    typeof goal.y === 'number' ? goal.y : bot.entity.position.y,
+    typeof goal.z === 'number' ? goal.z + 0.5 : bot.entity.position.z
+  );
+  const deadline = Date.now() + 15000;
+  try {
+    while (Date.now() < deadline) {
+      if (ctx.isCancelled?.()) throw new Error('rawWalkTo: cancelled');
+      if (ctx.isStaleGeneration?.()) throw new Error('rawWalkTo: stale generation');
+      const check = goalGroundTruth(bot, goal);
+      if (check && check.dist <= check.range + 0.75) return;
+      try {
+        await bot.lookAt(targetPos, true);
+      } catch {
+        // ignore — still attempt to walk even if look fails
+      }
+      bot.setControlState('forward', true);
+      bot.setControlState('jump', true);
+      await sleep(300);
+      bot.setControlState('forward', false);
+      bot.setControlState('jump', false);
+    }
+  } finally {
+    try {
+      bot.setControlState('forward', false);
+      bot.setControlState('jump', false);
+    } catch {
+      // ignore
+    }
+  }
+  const finalCheck = goalGroundTruth(bot, goal);
+  if (!finalCheck || finalCheck.dist > finalCheck.range + 0.75) {
+    throw new Error(
+      `rawWalkTo: still ${finalCheck ? finalCheck.dist.toFixed(2) : '?'} blocks from goal after 15s raw-walk`
+    );
+  }
+}
+
 // Plain timeout race, no cancellation polling — this is the exact helper
 // gotoLoopPf below used as skills.js's `withTimeout`, kept unchanged. The
 // cancellation-aware version (raceWithCancelAndTimeout, further down) exists
@@ -249,6 +337,22 @@ export async function gotoLoopPf(bot, goal, opts = {}, ctx = {}) {
     }
     try {
       await withTimeout(bot.pathfinder.goto(goal), timeoutMs);
+      // DRAGON GUARD: goto() resolving is not proof the bot moved (see the
+      // goalGroundTruth comment above) — ground-truth it before trusting it.
+      const check = goalGroundTruth(bot, goal);
+      if (check && check.dist > check.range + 0.75) {
+        lastErr = new Error(
+          `false-reached caught: goto resolved success but bot is ${check.dist.toFixed(2)} blocks from goal (range ${check.range})`
+        );
+        ctx.log?.('warn', `gotoLoopPf: ${lastErr.message}`);
+        try {
+          bot.pathfinder.setGoal(null);
+        } catch {
+          // ignore
+        }
+        if (attempt < maxAttempts) await sleep(300);
+        continue;
+      }
       return;
     } catch (err) {
       lastErr = err;
@@ -269,6 +373,21 @@ export async function gotoLoopPf(bot, goal, opts = {}, ctx = {}) {
   } catch {
     // ignore
   }
+
+  // Every retry either false-reached or genuinely failed. If the bot is
+  // still ground-truthed as actually close, pathfinder itself is the thing
+  // lying (or stuck on a no-dig-unreachable short hop) — bypass it by hand
+  // rather than give up on a goal that's right there.
+  const finalCheck = goalGroundTruth(bot, goal);
+  if (finalCheck && finalCheck.dist < 6) {
+    try {
+      await rawWalkTo(bot, goal, finalCheck.range, ctx);
+      return;
+    } catch (rawErr) {
+      lastErr = rawErr;
+    }
+  }
+
   throw new Error(`gotoLoopPf: failed after ${maxAttempts} attempts: ${lastErr?.message ?? 'unknown error'}`);
 }
 
