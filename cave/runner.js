@@ -2101,7 +2101,15 @@ const taskRoutes = {
   ),
   '/mine': taskEndpoint('mine', async (b, body, ctx) => {
     if (!body.block) throw new Error('/mine requires "block"');
-    return skills.mineBlocks(b, { block: body.block, count: body.count ?? 8, maxDistance: body.maxDistance ?? 48 }, ctx);
+    // zone (optional): restricts candidate selection to one named
+    // zones.json zone, so a wide maxDistance can't wander into a
+    // different (legit, but not this mission's) zone. See skills.js
+    // mineBlocks' own ZONE FILTER comment.
+    return skills.mineBlocks(
+      b,
+      { block: body.block, count: body.count ?? 8, maxDistance: body.maxDistance ?? 48, zone: body.zone },
+      ctx
+    );
   }),
   '/collect': taskEndpoint('collect', async (b, body, ctx) => skills.collectDrops(b, { radius: body.radius ?? 16 }, ctx)),
   '/hunt': taskEndpoint('hunt', async (b, body, ctx) => {

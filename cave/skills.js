@@ -1492,7 +1492,27 @@ export async function mineBlocks(bot, opts = {}, ctx = {}) {
   // target, full stop. Zones loaded once here so the whole run sees one
   // consistent list (and so the "why did it stop" check below can tell a
   // law refusal apart from an exhausted vein).
-  const digZones = loadDigZones();
+  //
+  // (ZONE FILTER, FEEDBACK "/mine copper_ore auto-pathed into mine_stair
+  // zone edge, dug into a self-made unescapable pocket" — Thak) A wide
+  // maxDistance /mine call only ever checked "is this candidate inside
+  // SOME dig zone" — it had no way to stay inside the driver's OWN
+  // assigned zone specifically, so a candidate in a different bot's
+  // exclusively-claimed zone (a legit zone, just not this mission's) could
+  // still get picked. opts.zone narrows candidate selection to ONE named
+  // zone (exact name match against zones.json) when provided; omitted =
+  // unchanged behavior, every zone still eligible. Unknown zone name is a
+  // clear thrown error, not a silent fail-through to "no zones at all"
+  // (which would be fail-OPEN per isInDigZone's own doc, the opposite of
+  // what a typo'd zone name should do here).
+  let digZones = loadDigZones();
+  if (opts.zone) {
+    const named = digZones.filter((z) => z.name === opts.zone);
+    if (named.length === 0) {
+      throw new Error(`mineBlocks: no zone named "${opts.zone}" in zones.json (check spelling/case)`);
+    }
+    digZones = named;
+  }
 
   const isUsable = (p, silent = false) =>
     !skippedKeys.has(posKey(p)) && !isPoisoned(ctx, p) && !isInNoGoZone(p, ctx, silent) && isInDigZone(p, digZones);

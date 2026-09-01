@@ -425,7 +425,12 @@ curl.exe -s -X POST http://127.0.0.1:3201/mine `
   -d '{"block":"stone","count":16,"maxDistance":48}'
 ```
 
-Body: `{block, count?=8, maxDistance?=48}`.
+Body: `{block, count?=8, maxDistance?=48, zone?}`. `zone` (optional): an
+exact zone name from `zones.json` (e.g. `"mine_field"`) — restricts
+candidate selection to that one zone, so a wide `maxDistance` can't wander
+into a different (legit, but not your assigned) zone another bot has
+exclusive claim on. Unknown zone name is a clear error, not a silent
+fail-through. Omit it for the old behavior (every dig-law zone eligible).
 
 ### `POST /collect`
 
