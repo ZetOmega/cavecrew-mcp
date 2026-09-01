@@ -95,3 +95,13 @@ If this event is something the user would act on now, send a PushNotification. R
 <event>PROGRESS detail=branchMine: trunk 21/22 x=25.9 y=53 state=running</event>
 If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
 </task-notification>
+
+---
+
+<task-notification>
+<task-id>bbzmhf2ag</task-id>
+<summary>Monitor event: "Thak branchmine cluster-1 run — trunk progress + y-drop watch"</summary>
+<event>PROGRESS detail=branchMine: trunk 22/22 x=24.5 y=53 state=done
+TERMINAL state=done detail=branchMine: trunk 22/22 x=24.5 y=53</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
