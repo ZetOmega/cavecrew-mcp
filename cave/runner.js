@@ -121,11 +121,33 @@ function getRconChat() {
   return rconChatInstance;
 }
 
+// DECHAT_PREFIXES — protocol/ledger prefixes that must NEVER reach real game
+// chat, under ANY style (TOTAL DE-CHAT HARDENING, chief, 2026-09-01: the
+// decree says never, and a driver picking style:"fancy"/"rainbow" on a
+// TRADE/DEPOT/etc. line used to slip straight past smartChat's classifier —
+// announce() sends fancy/rainbow as real chat unconditionally, no prefix
+// check at all). Re-introduced (was PROTOCOL_PREFIX, deleted as dead weight
+// in the first de-chat pass when it only gated smartChat's now-removed
+// real-chat branch) specifically as the shared guard both remaining
+// real-chat paths — announce()'s fancy/rainbow branch below, and smartChat's
+// "!" branch — check before ever calling bot.chat.
+const DECHAT_PREFIXES = /^(TRADE |USING |FREE |LEASE-BREAK |BASE |CLAIM |HELLO |OFFER |DEPOT )/;
+
 // announce(style, text) — style: 'status' (grey, default for routine lines),
 // 'fancy', or 'rainbow'. Always resolves, never throws: an rconchat failure
 // (no local.json, RCON down, a bad send) falls back to bot.chat with the
 // plain text, so a narration line never takes the runner down with it.
 async function announce(style, text) {
+  // TOTAL DE-CHAT HARDENING — a protocol/ledger line forces style down to
+  // 'status' regardless of what was requested. Checked BEFORE the style
+  // dispatch below so fancy/rainbow can never carry one to real chat; one
+  // log line records the downgrade so a driver who asked for fancy/rainbow
+  // can see why it came out grey instead of silently getting a different
+  // result than requested.
+  if (style !== 'status' && DECHAT_PREFIXES.test(String(text))) {
+    logLine('warn', `announce: forcing style '${style}' -> 'status' for protocol-prefixed line (never real chat, any style): ${String(text).slice(0, 60)}`);
+    style = 'status';
+  }
   // STATUS + DISCORD ROUTING (user decree): routine status chatter belongs in
   // a Discord channel, not game chat — game chat stays for real talk only.
   // When cave/local.json has a configured discord.webhookUrl, 'status' lines
@@ -207,6 +229,17 @@ async function smartChat(text) {
   const msg = String(text);
   if (msg.startsWith('!')) {
     const stripped = msg.slice(1).trim();
+    // TOTAL DE-CHAT HARDENING — "!USING ..." (or any "!"+protocol-prefix
+    // combo) must not slip a protocol line into real chat just because a
+    // driver stacked the important-white marker on top of it. Same
+    // DECHAT_PREFIXES guard announce() uses for fancy/rainbow, checked here
+    // against the STRIPPED text (the "!" itself was never part of the
+    // prefix match).
+    if (DECHAT_PREFIXES.test(stripped)) {
+      logLine('warn', `smartChat: forcing "!"-prefixed protocol line to status (never real chat): ${stripped.slice(0, 60)}`);
+      await announce('status', stripped);
+      return;
+    }
     try {
       bot?.chat?.(stripped);
     } catch {
