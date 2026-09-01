@@ -1257,6 +1257,30 @@ export async function chopTrees(bot, opts = {}, ctx = {}) {
       continue;
     }
 
+    // (TALL-CANOPY PRE-FILTER, FEEDBACK "chopTrees burns minutes on
+    // unreachable tall-canopy log segments", UngaBunga) — once a trunk's
+    // lower segments are gone (already chopped this run or a prior one),
+    // only upper canopy segments remain as findBlock candidates: 4-8 blocks
+    // above the nearest reachable ground, no stair/pillar, and pf's own
+    // Movements safety config already disables parkour/towers — genuinely
+    // unreachable, not just slow. The old path still paid a full 3-attempt
+    // gotoLoop + 25s watchdog per candidate before giving up (~20-45s each,
+    // 6 hits logged in one grove run). Recognize it FAST here instead, same
+    // zero-iteration-cost skip as the checks above. Deliberately a flat
+    // height check, not full pillar-reuse tracking (the FEEDBACK entry's
+    // secondary, fancier suggestion) — that needs per-trunk climb-state
+    // this function doesn't carry, and the flat check alone already kills
+    // the reported cost.
+    const footholdY = Math.floor(bot.entity.position.y);
+    if (basePos.y - footholdY > 3) {
+      skippedKeys.add(key);
+      ctx.log?.(
+        'warn',
+        `chopTrees: skipping ${key} — ${basePos.y - footholdY} blocks above current foothold (y${footholdY}), unreachable without scaffolding`
+      );
+      continue;
+    }
+
     // Real chop ATTEMPT starts here — every check above this line is a
     // pre-filter skip and must never consume the chop budget (see
     // maxIterations comment above).
