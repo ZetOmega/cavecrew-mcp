@@ -667,3 +667,21 @@ If this event is something the user would act on now, send a PushNotification. R
 <event>{"ok":true,"sent":"#goto 252 94 131"}</event>
 If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
 </task-notification>
+
+---
+
+<task-notification>
+<task-id>boxp3dbhx</task-id>
+<summary>Monitor event: "BariOok long-range recon goto (252,94,131), jq watchdog"</summary>
+<event>poll29: {"name":"BariOok","position":{"x":17,"y":96,"z":47},"positionSource":"goal-poll","task":{"kind":"goto","x":252,"y":94,"z":131,"at":1788269211906},"lastBaritoneLine":"Going to: GoalBlock{x=252,y=94,z=131}","connected":true,"phase":"in-world","uptime":458068,"joinedAt":1788268798248,"aborted":null,"gameDir":"C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariOok\\gamedir","launcherPid":24544}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>boxp3dbhx</task-id>
+<summary>Monitor event: "BariOok long-range recon goto (252,94,131), jq watchdog"</summary>
+<event>poll30: {"name":"BariOok","position":{"x":17,"y":96,"z":47},"positionSource":"goal-poll","task":{"kind":"goto","x":252,"y":94,"z":131,"at":1788269211906},"lastBaritoneLine":"Going to: GoalBlock{x=252,y=94,z=131}","connected":true,"phase":"in-world","uptime":463044,"joinedAt":1788268798248,"aborted":null,"gameDir":"C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariOok\\gamedir","launcherPid":24544}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
