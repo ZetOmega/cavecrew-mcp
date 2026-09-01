@@ -339,3 +339,49 @@ If this event is something the user would act on now, send a PushNotification. R
 <event>poll8: {"name":"BariOok","position":{"x":17,"y":96,"z":47},"positionSource":"goal-poll","task":{"kind":"goto","x":17,"y":96,"z":47,"at":1788268992757},"lastBaritoneLine":"Going to: GoalBlock{x=17,y=96,z=47}","connected":true,"phase":"in-world","uptime":248983,"joinedAt":1788268798248,"aborted":null,"gameDir":"C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariOok\\gamedir","launcherPid":24544}</event>
 If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
 </task-notification>
+
+---
+
+<task-notification>
+<task-id>bbyfbk1le</task-id>
+<summary>Monitor event: "BariOok egress retry2, jq-fixed stall watchdog"</summary>
+<event>poll9: {"name":"BariOok","position":{"x":17,"y":96,"z":47},"positionSource":"goal-poll","task":{"kind":"goto","x":17,"y":96,"z":47,"at":1788268992757},"lastBaritoneLine":"Going to: GoalBlock{x=17,y=96,z=47}","connected":true,"phase":"in-world","uptime":254046,"joinedAt":1788268798248,"aborted":null,"gameDir":"C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariOok\\gamedir","launcherPid":24544}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbyfbk1le</task-id>
+<summary>Monitor event: "BariOok egress retry2, jq-fixed stall watchdog"</summary>
+<event>poll10: {"name":"BariOok","position":{"x":17,"y":96,"z":47},"positionSource":"goal-poll","task":{"kind":"goto","x":17,"y":96,"z":47,"at":1788268992757},"lastBaritoneLine":"Going to: GoalBlock{x=17,y=96,z=47}","connected":true,"phase":"in-world","uptime":259062,"joinedAt":1788268798248,"aborted":null,"gameDir":"C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariOok\\gamedir","launcherPid":24544}
+STALL_DETECTED poll10, auto stop+retry #2</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbyfbk1le</task-id>
+<summary>Monitor event: "BariOok egress retry2, jq-fixed stall watchdog"</summary>
+<event>{"ok":true,"sent":"#goto 17 96 47"}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbyfbk1le</task-id>
+<summary>Monitor event: "BariOok egress retry2, jq-fixed stall watchdog"</summary>
+<event>poll11: {"name":"BariOok","position":{"x":17,"y":96,"z":47},"positionSource":"goal-poll","task":{"kind":"goto","x":17,"y":96,"z":47,"at":1788269018900},"lastBaritoneLine":"Going to: GoalBlock{x=17,y=96,z=47}","connected":true,"phase":"in-world","uptime":265065,"joinedAt":1788268798248,"aborted":null,"gameDir":"C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariOok\\gamedir","launcherPid":24544}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbyfbk1le</task-id>
+<summary>Monitor event: "BariOok egress retry2, jq-fixed stall watchdog"</summary>
+<event>poll12: {"name":"BariOok","position":{"x":17,"y":96,"z":47},"positionSource":"goal-poll","task":{"kind":"goto","x":17,"y":96,"z":47,"at":1788269018900},"lastBaritoneLine":"Going to: GoalBlock{x=17,y=96,z=47}","connected":true,"phase":"in-world","uptime":270042,"joinedAt":1788268798248,"aborted":null,"gameDir":"C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariOok\\gamedir","launcherPid":24544}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
