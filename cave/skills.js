@@ -2294,9 +2294,23 @@ export async function safeDescend(bot, opts = {}, ctx = {}) {
 async function craftLocal(bot, itemName, amount, ctx) {
   const itemDef = ctx.mcData?.itemsByName?.[itemName];
   if (!itemDef) throw new Error(`craftLocal: unknown item "${itemName}" (mcData missing or item not found)`);
-  const recipes = bot.recipesFor(itemDef.id, null, 1, null);
-  if (recipes.length === 0) throw new Error(`craftLocal: no hand recipe for "${itemName}" (missing ingredients?)`);
-  await bot.craft(recipes[0], amount, undefined);
+  // (FIELD BUG, Thak 2026-09-01 — FEEDBACK "bot.craft(recipe, N>1) only does
+  // 1 iteration") bot.craft(recipe, N, table) with N>1 crafted exactly one
+  // batch then threw "missing ingredient" on the next internal iteration
+  // despite plenty of materials left. Proven fix: loop single-craft calls,
+  // re-deriving the recipe fresh via bot.recipesFor() before each one —
+  // same pattern as runner.js's craftItem (the driver-facing /craft
+  // endpoint, higher exposure since it's the one drivers pass amount>1 to
+  // directly), applied here too since this helper has the identical
+  // bot.craft(recipe, amount, ...) shape and any future caller passing
+  // amount>1 would otherwise inherit the same landmine silently.
+  for (let i = 0; i < amount; i++) {
+    const recipes = bot.recipesFor(itemDef.id, null, 1, null);
+    if (recipes.length === 0) {
+      throw new Error(`craftLocal: no hand recipe for "${itemName}" (missing ingredients?) after ${i}/${amount} crafted`);
+    }
+    await bot.craft(recipes[0], 1, undefined);
+  }
   return { item: itemName, amount };
 }
 
@@ -2344,9 +2358,20 @@ async function craftWithTable(bot, itemName, amount, ctx) {
   const itemDef = ctx.mcData?.itemsByName?.[itemName];
   if (!itemDef) throw new Error(`craftWithTable: unknown item "${itemName}" (mcData missing or item not found)`);
   const tableBlock = bot.blockAt(table.position);
-  const recipes = bot.recipesFor(itemDef.id, null, 1, tableBlock);
-  if (recipes.length === 0) throw new Error(`craftWithTable: no recipe for "${itemName}" at crafting table (missing ingredients?)`);
-  await bot.craft(recipes[0], amount, tableBlock);
+  // (FIELD BUG, Thak 2026-09-01 — FEEDBACK "bot.craft(recipe, N>1) only does
+  // 1 iteration") — same fix as craftLocal above, same file: loop
+  // single-craft calls with a freshly re-derived recipe each time instead
+  // of handing bot.craft the count param. Every current caller here passes
+  // amount=1, so this is preventative (no live exposure fixed today), but
+  // keeps the bug class from reappearing the moment a future caller wants
+  // more than one at a time.
+  for (let i = 0; i < amount; i++) {
+    const recipes = bot.recipesFor(itemDef.id, null, 1, tableBlock);
+    if (recipes.length === 0) {
+      throw new Error(`craftWithTable: no recipe for "${itemName}" at crafting table (missing ingredients?) after ${i}/${amount} crafted`);
+    }
+    await bot.craft(recipes[0], 1, tableBlock);
+  }
   return { item: itemName, amount };
 }
 

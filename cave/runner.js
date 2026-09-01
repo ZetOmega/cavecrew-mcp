@@ -1656,6 +1656,7 @@ async function craftItem(b, itemName, amount, ctx) {
     b.recipesFor(itemDef.id, null, 1, table).filter((r) => r.result && r.result.id === itemDef.id);
 
   let table = null;
+  let tableBlock = null;
   let recipes = exactRecipesFor(null);
   if (recipes.length === 0) {
     table = b.findBlock({
@@ -1673,16 +1674,33 @@ async function craftItem(b, itemName, amount, ctx) {
       { timeoutMs: 30000, maxAttempts: 5 },
       ctx
     );
-    const tableBlock = b.blockAt(table.position);
+    tableBlock = b.blockAt(table.position);
     recipes = exactRecipesFor(tableBlock);
     if (recipes.length === 0) {
       throw new Error(`craftItem: no recipe for "${itemName}" even with a crafting table (missing ingredients?)`);
     }
   }
 
-  const recipe = recipes[0];
+  // (FIELD BUG, Thak 2026-09-01 — FEEDBACK "goto false-reached + bot.craft
+  // (recipe, N>1) only does 1 iteration") bot.craft(recipe, N, table) with
+  // N>1 crafted exactly one batch (correct delta) then threw "missing
+  // ingredient" on the very next internal iteration despite plenty of both
+  // materials still in inventory (confirmed 2x, different batch sizes,
+  // fresh inventory read same tick). Proven workaround: loop single
+  // (amount=1) craft calls, re-deriving the recipe fresh via
+  // exactRecipesFor() before each one instead of reusing the recipe object
+  // or handing bot.craft the count param — ran clean 20+ iterations
+  // straight for Thak (100 torches). table/tableBlock are resolved once
+  // above (position doesn't move mid-craft); only the recipe object itself
+  // gets re-derived per iteration.
   ctx.setDetail(`crafting ${amount}x ${itemName}`);
-  await b.craft(recipe, amount, table || undefined);
+  for (let i = 0; i < amount; i++) {
+    const freshRecipes = exactRecipesFor(tableBlock);
+    if (freshRecipes.length === 0) {
+      throw new Error(`craftItem: ran out of ingredients for "${itemName}" after ${i}/${amount} crafted`);
+    }
+    await b.craft(freshRecipes[0], 1, table || undefined);
+  }
 
   const after = countOf(itemName);
   if (after <= before) {
