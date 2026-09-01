@@ -40,6 +40,8 @@ cobble 128, saplings 16. Future: diamond 3+, obsidian 10 (Nether, board #9).
 | 20 | P1 | HOUSE+FARM (CHIEF ORDER 2026-09-01): Hügel-Haus per Baritone #build von Schematic (NICHT im Tal — Hügel/cool aussehend) + Farm daneben. Lead: schematic-hunt workflow läuft; Engineer: wrapper /build endpoint + schematic deploy; Materialliste kommt aus Judge-Verdict → wird eigene Gather-Rows | lead | DOING |
 | 21 | P1 | SITE SCOUT für #20: Hügel-Kandidaten Ost/Südost x60-120 z40-120 (Übergang Tal→Ost-Plains), 2-3 Summits: top ~20x20 buildable/flattenable, Aussicht, Wasser nah, Approach-Path. Report coords+y+vibe. FEL-Box NW meiden | Bonk | DOING (mission 13:xxZ) |
 | 22 | P2 | FARM 2 am Haus-Site (#20): 25+ tiles, Wasser, Zaun, Torch-Ring — mineflayer crew (Zug hat farm_1 Erfahrung). BLOCKED bis Site gewählt | Zug | blocked (site) |
+| 23 | P2 | CAMP DE-CLUTTER: Möbel-Ecke chest A/E/crafting_table = Wedge-Falle (3 Vorfälle heute: Bonk, Zug 2x — zero walking clearance). Crafting table versetzen oder 1-Block-Clearance um jede Kiste schaffen, danach pf-Walk-Test alle Kisten | — | open |
+| 24 | P1 | BREAD DEFICIT: 8 banked, Minimum 40. Wheat ernten (reife farm_1 tiles) + craften (3 wheat = 3 bread am Table), Ziel 40+ in chest C. Seeds 130 = genug | Zug | DOING (assigned 13:1xZ) |
 
 ## DONE (recent — lead prunes, full history in git)
 
