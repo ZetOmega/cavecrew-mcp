@@ -3,7 +3,7 @@
   "checkpoint_id": "01M1EF03WPS01DK5FF9X4STZAG",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 1,
+  "checkpoints_count": 7,
   "files_touched": [
     "cave/movement.js"
   ],
@@ -11,6 +11,20 @@
     {
       "metadata": "/0/metadata.json",
       "prompt": ""
+    },
+    {
+      "metadata": "/1/metadata.json",
+      "transcript": "/1/full.jsonl",
+      "compact_transcript": "/1/transcript.jsonl",
+      "content_hash": "/1/content_hash.txt",
+      "prompt": "/1/prompt.txt"
     }
-  ]
+  ],
+  "token_usage": {
+    "input_tokens": 1012,
+    "cache_creation_tokens": 835005,
+    "cache_read_tokens": 232741961,
+    "output_tokens": 335095,
+    "api_call_count": 506
+  }
 }
