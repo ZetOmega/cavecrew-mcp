@@ -20,7 +20,12 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
-const PANEL_PORT = 3200;
+// PANEL_PORT defaults to the production 3200; override with env for a
+// throwaway dev instance (e.g. PANEL_PORT=3290) so panel changes can be
+// smoke-tested without ever touching the live process on 3200. The Host
+// allow-list below is built off this const, so a dev instance automatically
+// allow-lists its own port instead of 3200's.
+const PANEL_PORT = Number(process.env.PANEL_PORT) || 3200;
 // Bind all interfaces: loopback + Tailscale (chief order 2026-09-01). Network
 // exposure is fenced by the Windows firewall (inbound 3200 scoped to the
 // tailnet CGNAT range 100.64.0.0/10) — the Host allow-list below stays as
@@ -230,6 +235,8 @@ async function pollBot(port) {
       currentTask: null,
       lastError: null,
       deathCount: null,
+      idleGuard: null,
+      lastDeath: null,
       engine: null,
       idle: false,
       taskStartedAt: null,
@@ -259,6 +266,12 @@ async function pollBot(port) {
     currentTask: task,
     lastError: status.lastError ?? null,
     deathCount: typeof status.deathCount === 'number' ? status.deathCount : null,
+    // idleGuard (issue #6): true = armed, false = a driver disabled it for its
+    // own active session (safety TTL re-arms it after 15min of silence — see
+    // runner.js). Older runners predating that field just report null, same
+    // treatment as any other missing optional status field.
+    idleGuard: typeof status.idleGuard === 'boolean' ? status.idleGuard : null,
+    lastDeath: status.lastDeath ?? null,
     engine: status.engine ?? null,
     idle,
     running,
@@ -346,7 +359,8 @@ async function buildFleet() {
     offlineReason: err?.message ?? String(err),
     connected: false,
     pos: null, health: null, food: null, inventory: [],
-    currentTask: null, lastError: null, deathCount: null, engine: null,
+    currentTask: null, lastError: null, deathCount: null, idleGuard: null,
+    lastDeath: null, engine: null,
     idle: false, taskStartedAt: null, events: [],
   }))));
 
@@ -727,6 +741,7 @@ function renderPage() {
   .row1 { display: flex; align-items: center; gap: 8px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); flex: none; }
   .dot.on { background: var(--green); box-shadow: 0 0 7px rgba(95,227,107,.55); }
+  .dot.warn { background: var(--amber); box-shadow: 0 0 7px rgba(242,176,53,.5); }
   .dot.off { background: #4a5160; }
   .name { font-size: 15px; font-weight: 650; letter-spacing: .02em; }
   .port { font-size: 11px; color: var(--dim); }
@@ -756,8 +771,9 @@ function renderPage() {
 
   .err-box { margin-top: 9px; padding: 7px 10px; border-radius: 8px; font-size: 11.5px; color: #ffb3ae; background: rgba(255,107,99,.09); border: 1px solid rgba(255,107,99,.3); word-break: break-word; }
 
-  .meta { margin-top: 9px; display: flex; gap: 12px; font-size: 11px; color: var(--dim); }
+  .meta { margin-top: 9px; display: flex; flex-wrap: wrap; gap: 5px 12px; font-size: 11px; color: var(--dim); }
   .meta b { color: var(--muted); font-weight: 600; }
+  .meta .guard.warn { color: var(--amber); }
 
   .inv { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 5px; }
   .chip {
@@ -945,8 +961,10 @@ function renderPage() {
 
     var meta = el('div', 'meta');
     var deaths = el('span');
+    var lastDeath = el('span');
+    var guard = el('span', 'guard');
     var engine = el('span');
-    meta.appendChild(deaths); meta.appendChild(engine);
+    meta.appendChild(deaths); meta.appendChild(lastDeath); meta.appendChild(guard); meta.appendChild(engine);
 
     var inv = el('div', 'inv');
     var acts = el('div', 'acts');
@@ -972,7 +990,8 @@ function renderPage() {
     return { root: c, dot: dot, name: name, port: port, age: age, pos: pos,
       d30v: d30v, d60v: d60v,
       hp: hp, fd: fd, task: task, tkind: tkind, tstate: tstate, tdetail: tdetail,
-      errBox: errBox, deaths: deaths, engine: engine, inv: inv, invSig: null,
+      errBox: errBox, deaths: deaths, lastDeath: lastDeath, guard: guard, engine: engine,
+      inv: inv, invSig: null,
       wake: wake, stop: stop, flash: flash };
   }
 
@@ -1007,7 +1026,13 @@ function renderPage() {
     var cls = 'card' + (bot.offline ? ' offline' : '') + (idle ? ' idle' : '') + (bot.lastError ? ' err' : '');
     setCls(c.root, cls);
 
-    setCls(c.dot, 'dot ' + (bot.offline ? 'off' : (bot.connected ? 'on' : 'off')));
+    // Three real states, three colours: offline (runner unreachable, grey),
+    // connected (bot live in-world, green), and the gap between them — runner
+    // process up but the bot entity isn't (mid-reconnect) — which used to
+    // share "off" with true offline and hide a real distinction the pos line
+    // already spelled out in words. Amber matches that in-between meaning
+    // everywhere else on the card.
+    setCls(c.dot, 'dot ' + (bot.offline ? 'off' : (bot.connected ? 'on' : 'warn')));
     setText(c.name, bot.name);
     if (c.name.style.color !== bot.color) c.name.style.color = bot.color;
     setText(c.port, ':' + bot.port);
@@ -1055,6 +1080,27 @@ function renderPage() {
     }
 
     setText(c.deaths, 'deaths ' + (bot.deathCount == null ? '-' : bot.deathCount));
+
+    if (bot.lastDeath && bot.lastDeath.ts) {
+      var diedAgo = fmtDur(Date.now() - Date.parse(bot.lastDeath.ts));
+      setText(c.lastDeath, diedAgo ? '(' + diedAgo + ' ago)' : '');
+      c.lastDeath.hidden = !diedAgo;
+    } else {
+      c.lastDeath.hidden = true;
+    }
+
+    if (bot.offline || bot.idleGuard == null) {
+      c.guard.hidden = true;
+    } else {
+      c.guard.hidden = false;
+      // Guard OFF is the driver's own doing while it actively drives (issue
+      // #6) — not a fault — but it is the one state worth a glance, since a
+      // bot that reads idle AND guard-off for a while means the driver went
+      // quiet without re-arming it. Guard ON is the boring default: no colour.
+      setText(c.guard, bot.idleGuard ? 'guard on' : 'guard off');
+      setCls(c.guard, 'guard' + (bot.idleGuard ? '' : ' warn'));
+    }
+
     setText(c.engine, bot.engine ? 'engine ' + bot.engine : '');
 
     // Inventory: top 10 stacks by count, rebuilt only when it actually changed.

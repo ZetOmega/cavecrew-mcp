@@ -36,6 +36,18 @@ runner without ever pointing at a production bot a driver owns. Point it at the
 test port, click the buttons, confirm the behaviour, then restart without the
 variable.
 
+`PANEL_PORT` (default `3200`) runs a second instance of the panel itself on a
+different port — for developing the panel against the live, read-only fleet
+without ever touching the production process on 3200:
+
+```powershell
+$env:PANEL_PORT = '3290'; $env:CAVE_PANEL_PORTS = '3201,3202'; node cave/panel.mjs
+```
+
+The Host allow-list is built off `PANEL_PORT`, so a dev instance allow-lists
+its own port automatically. `3290` is the registered panel-dev port (see
+`cave/CIV.md`'s port registry).
+
 A runner on a port outside the roster shows up under its `/status` name (or
 `:PORT` if it is down), and its WAKE button falls back to the universally safe
 `/collect {radius: 16}` sweep.
@@ -91,11 +103,17 @@ blinks green on each successful poll.
 
 **Cards**, one per port, name tinted its Minecraft team colour:
 
-- online/offline dot, rounded `xyz`, task age (best-effort)
+- connectivity dot, three states: green = bot connected, amber = runner
+  process is up but the bot entity isn't (mid-reconnect), grey = runner
+  unreachable
+- rounded `xyz`, task age (best-effort)
 - movement deltas, `Δ30s 12.3 | Δ60s 25.1` (see below)
 - health and food as 0-20 bars; health goes amber under 12, red under 6
 - current task kind, state, and detail
-- `deathCount` and movement engine
+- `deathCount`, last death age (`(3m ago)`, hidden when there is none), the
+  runner's `idleGuard` state (`guard on`/muted, `guard off`/amber — off is
+  normal while a driver actively drives, see issue #6; older runners without
+  the field just omit the chip), and movement engine
 - `lastError` in a red box when set
 - inventory as compact chips — top 10 stacks by count, with count badges
 

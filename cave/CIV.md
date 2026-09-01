@@ -33,6 +33,9 @@ stopped) — pick the next free port in the range instead.
 | 3206 | Ook         |
 | 3207 | Durk        |
 | 3208 | Mog         |
+| 3200 | Fleet panel (production — `cave/panel.mjs`, chief restarts on deploy) |
+| 3290 | Fleet panel (dev instance — `PANEL_PORT=3290`, PanelDev's own smoke-test port) |
+| 3291 | Fleet panel — mock runner for button-click testing (never point at 3201-3208) |
 | 3298 | (reserved: short-lived test bots, e.g. PebbleZoom) |
 
 ## Roster
