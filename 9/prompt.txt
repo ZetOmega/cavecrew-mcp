@@ -485,3 +485,12 @@ If this event is something the user would act on now, send a PushNotification. R
 <event>t+195s pos=("x":20,"y":90,"z":60) task="task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788267325050} "lastBaritoneLine":"[14:56:55] [ForkJoinPool.commonPool-worker-29/INFO]: [STDOUT]: Saving region -1,-1 to disk C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariBrute\\gamedir\\baritone\\localhost_25565\\minecraft\\overworld_384\\cache" stuck=106s</event>
 If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
 </task-notification>
+
+---
+
+<task-notification>
+<task-id>bigdbz4ob</task-id>
+<summary>Monitor event: "BariBrute return goto (20,90,60): watch for arrival/nogo/stuck"</summary>
+<event>t+210s pos=("x":20,"y":90,"z":60) task="task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788267325050} "lastBaritoneLine":"[14:56:55] [ForkJoinPool.commonPool-worker-29/INFO]: [STDOUT]: Saving region -1,-1 to disk C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariBrute\\gamedir\\baritone\\localhost_25565\\minecraft\\overworld_384\\cache" stuck=121s</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
