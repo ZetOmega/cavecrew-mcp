@@ -632,6 +632,25 @@ function sanitizeSource(raw, fallback = 'http') {
   return slug || fallback;
 }
 
+// RUN_EPOCH (goal-engine repair, 2026-09-01) — taskCounter is module-scope
+// and resets to 0 every time this process starts, so a bare `task-N` id is
+// only unique WITHIN one runner.js process lifetime, never across a crash+
+// respawn (spawn.mjs has no auto-restart, but a human respawning it hits
+// this exactly). overseer.mjs's goal-completion detection matches a fired
+// goal to its outcome by `ct.id === s.activeGoalTaskId` string equality —
+// if the process restarts while the overseer still holds a stale
+// activeGoalTaskId, the very first task after respawn is always "task-1"
+// again, which can collide with a pre-restart id of the same name and be
+// misread as that OLD goal completing (verified: found this could fire a
+// false-positive removeGoal() on a repeat:false goal from a totally
+// unrelated task's outcome). Folding a per-process epoch into the id
+// itself makes every id globally unique for the practical lifetime of any
+// tracking that references it, with no schema change and no extra field
+// for callers to remember to compare — task.id stays a single opaque
+// string everywhere it's already used (goal-picks.jsonl, panel-data.mjs's
+// Map key, logs).
+const RUN_EPOCH = `${process.pid}-${Date.now()}`;
+
 let taskCounter = 0;
 function newTask(kind, source = 'http') {
   // startedAt (G2, PANEL_V3_SPEC.md) — stamped once here, at the single
@@ -639,7 +658,7 @@ function newTask(kind, source = 'http') {
   // compute durationMs for the mission-history line without any extra
   // module-level state to track alongside it.
   return {
-    id: `task-${++taskCounter}`,
+    id: `task-${RUN_EPOCH}-${++taskCounter}`,
     kind,
     source,
     state: 'running',

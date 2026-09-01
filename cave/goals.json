@@ -10,10 +10,11 @@
           { "name": "torch", "minCount": 8 },
           { "name": "bread", "minCount": 2 }
         ],
+        "nearZone": "mine_grid",
         "minDurability": 30
       },
       "repeat": true,
-      "note": "y49 sits inside the mine_grid zone (zones.json, y45-62) so skills.branchMine's own DIG LAW zone check passes as long as the bot's x/z is also inside that box. minDurability 30 is a FLOOR (overseer.mjs goalEligible: only eligible while the pickaxe still has >=30% life left) so a long corridor never breaks the pick mid-dig. 'food' from the design brief is read as bread on hand (items schema has no live-hunger-stat requires clause). Priority hand-set from the iron_ingot severity formula at seed time (current 0 / min 64 / target 280 -> severity 1.0) -- not live-recomputed like the deficit engine's dynamic wood-chop entry."
+      "note": "y49 sits inside the mine_grid zone (zones.json, y45-62) so skills.branchMine's own DIG LAW zone check passes as long as the bot's x/z is also inside that box. minDurability 30 is a FLOOR (overseer.mjs goalEligible: only eligible while the pickaxe still has >=30% life left) so a long corridor never breaks the pick mid-dig. 'food' from the design brief is read as bread on hand (items schema has no live-hunger-stat requires clause). Priority hand-set from the iron_ingot severity formula at seed time (current 0 / min 64 / target 280 -> severity 1.0) -- not live-recomputed like the deficit engine's dynamic wood-chop entry. requires.nearZone:'mine_grid' added (repair, 2026-09-01): branchMine's own pre-dig check only verifies the bot's x/z with the GOAL's y substituted in (see skills.js branchMine, opts.y never relocates the bot) -- without a nearZone gate here, that band-substitution trick let the check pass for a miner idling at a SURFACE workstation whose x/z happens to sit inside mine_grid's footprint (Thak 24,90,64 and Durk 16,89,52 both do), firing a full trunk+branch dig AT THE SURFACE instead of the deep-iron layer. The standard +-24 pad (GOAL_ZONE_PAD, same convention cobble-mine already uses below) puts mine_grid's vertical envelope at y21-86 -- comfortably excluding every miner's y89/90 idle spot while still admitting a bot genuinely staged near the y45-62 layer."
     },
     {
       "id": "iron-smelt",

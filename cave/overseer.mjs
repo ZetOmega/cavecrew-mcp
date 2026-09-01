@@ -314,6 +314,34 @@ function unclaimGoal(goalId, expectBotName) {
     if (!g || g.claimedBy !== expectBotName) return false
     delete g.claimedBy
     delete g.claimedAt
+    delete g.claimedTaskId
+    return true
+  })
+}
+
+// Patches the persisted claim with the task id the fired goal actually got
+// back from the runner (claimGoal() itself runs BEFORE the API call, so the
+// task id isn't known yet at claim time — this is a follow-up write right
+// after a successful fire). Static goals only: dynamic (deficit-generated)
+// claims live entirely in dynamicClaims, which is wiped in full on every
+// overseer restart, so there is no stale-dynamic-claim case that needs a
+// persisted task id to recover from (see reconcileGoalClaims' dynamic
+// branch and the DEFICIT ENGINE block above).
+//
+// Why this exists (repair, 2026-09-01): the overseer-restart stale-claim
+// sweep below used to be able to check ONLY `st.currentTask.kind === g.kind`
+// once s.activeGoalTaskId is lost to a restart — coarse enough that any
+// OTHER task of the same kind on the same bot (e.g. a driver's manual
+// `/mine` on a bot holding a stale cobble-mine claim) would suppress the
+// unclaim indefinitely, past the intended 5-minute TTL. Persisting the
+// actual task id lets the sweep match the SPECIFIC task that was fired for
+// this goal, not just its kind, once available.
+function recordGoalTaskId(goalId, botName, taskId) {
+  if (!isStaticGoalId(goalId) || !taskId) return
+  mutateGoalsFile((fresh) => {
+    const g = fresh.goals.find((x) => x.id === goalId)
+    if (!g || g.claimedBy !== botName) return false
+    g.claimedTaskId = taskId
     return true
   })
 }
@@ -603,14 +631,26 @@ function reconcileGoalClaims(bot, st, s, now) {
       continue
     }
     // Not tracked in-memory this session (fresh process — an overseer
-    // restart mid-goal loses activeGoalId). Restart safety: only unclaim
-    // once BOTH the claim is stale AND the bot isn't currently running a
-    // task of this goal's own kind (a still-running matching task is left
-    // alone; an unparseable/missing claimedAt is treated as already-stale).
+    // restart mid-goal loses activeGoalId/activeGoalTaskId). Restart
+    // safety: only unclaim once BOTH the claim is stale AND the bot isn't
+    // currently running the task this goal was actually fired as (an
+    // unparseable/missing claimedAt is treated as already-stale).
+    //
+    // Prefer an EXACT task-id match (g.claimedTaskId, persisted by
+    // recordGoalTaskId right after the fire) when one was recorded — task
+    // ids are per-runner-process-unique (see runner.js RUN_EPOCH), so this
+    // can only match the actual fired task, never an unrelated same-kind
+    // one. Fall back to the coarser kind-only match for claims written
+    // before this field existed, or the rare crash between claim and the
+    // task-id follow-up write — matching the pre-repair behavior rather
+    // than treating an ambiguous case as automatically stale.
     const claimedAtMs = g.claimedAt ? Date.parse(g.claimedAt) : NaN
     const ageMs = Number.isFinite(claimedAtMs) ? now - claimedAtMs : Infinity
-    const runningSameKind = st.currentTask?.state === 'running' && st.currentTask.kind === g.kind
-    if (ageMs > STALE_CLAIM_MS && !runningSameKind) {
+    const running = st.currentTask?.state === 'running'
+    const stillRunningThisGoal = g.claimedTaskId
+      ? running && st.currentTask.id === g.claimedTaskId
+      : running && st.currentTask.kind === g.kind
+    if (ageMs > STALE_CLAIM_MS && !stillRunningThisGoal) {
       log(`${bot.name} stale claim on goal ${g.id} (${Math.round(ageMs / 1000)}s, no matching running task) -> unclaim`)
       unclaimGoal(g.id, bot.name)
     }
@@ -638,6 +678,7 @@ async function tryFireGoal(bot, st, s) {
   s.activeGoalId = g.id
   s.activeGoalTaskId = res.task?.id ?? null
   s.lastGoalId = g.id
+  recordGoalTaskId(g.id, bot.name, s.activeGoalTaskId)
   try {
     fs.appendFileSync(
       GOAL_PICKS_FILE,
