@@ -1,0 +1,831 @@
+<task-notification>
+<task-id>bkwzggvvp</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-phili-tools-cavecrew-mcp/7992c114-e9b3-4ed9-984d-93f64f08e2fd/tasks/bkwzggvvp.output</output-file>
+<status>completed</status>
+<summary>Background command "until curl -s http://127.0.0.1:3205/status | grep -q '"state":"done"\|"state":"failed"'; do sleep 15; done; curl -s http://127.0.0.1:3205/status" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbzmhf2ag</task-id>
+<summary>Monitor event: "Thak branchmine cluster-1 run — trunk progress + y-drop watch"</summary>
+<event>PROGRESS detail=branchMine: trunk 6/22 x=39.5 y=54 state=running</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbzmhf2ag</task-id>
+<summary>Monitor event: "Thak branchmine cluster-1 run — trunk progress + y-drop watch"</summary>
+<event>PROGRESS detail=branchMine: trunk 9/22 x=37.5 y=54 state=running</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbzmhf2ag</task-id>
+<summary>Monitor event: "Thak branchmine cluster-1 run — trunk progress + y-drop watch"</summary>
+<event>PROGRESS detail=branchMine: trunk 10/22 x=37.5 y=54 state=running</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbzmhf2ag</task-id>
+<summary>Monitor event: "Thak branchmine cluster-1 run — trunk progress + y-drop watch"</summary>
+<event>PROGRESS detail=branchMine: trunk 11/22 x=36.7 y=54 state=running</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbzmhf2ag</task-id>
+<summary>Monitor event: "Thak branchmine cluster-1 run — trunk progress + y-drop watch"</summary>
+<event>PROGRESS detail=branchMine: trunk 12/22 x=35.5 y=54 state=running</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbzmhf2ag</task-id>
+<summary>Monitor event: "Thak branchmine cluster-1 run — trunk progress + y-drop watch"</summary>
+<event>PROGRESS detail=branchMine: trunk 13/22 x=34.5 y=54 state=running</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbzmhf2ag</task-id>
+<summary>Monitor event: "Thak branchmine cluster-1 run — trunk progress + y-drop watch"</summary>
+<event>PROGRESS detail=branchMine: trunk 15/22 x=32.5 y=54 state=running</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbzmhf2ag</task-id>
+<summary>Monitor event: "Thak branchmine cluster-1 run — trunk progress + y-drop watch"</summary>
+<event>PROGRESS detail=branchMine: trunk 16/22 x=31.5 y=53.6875 state=running</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbzmhf2ag</task-id>
+<summary>Monitor event: "Thak branchmine cluster-1 run — trunk progress + y-drop watch"</summary>
+<event>PROGRESS detail=branchMine: trunk 18/22 x=28.5 y=53 state=running</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbzmhf2ag</task-id>
+<summary>Monitor event: "Thak branchmine cluster-1 run — trunk progress + y-drop watch"</summary>
+<event>PROGRESS detail=branchMine: trunk 21/22 x=25.9 y=53 state=running</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbzmhf2ag</task-id>
+<summary>Monitor event: "Thak branchmine cluster-1 run — trunk progress + y-drop watch"</summary>
+<event>PROGRESS detail=branchMine: trunk 22/22 x=24.5 y=53 state=done
+TERMINAL state=done detail=branchMine: trunk 22/22 x=24.5 y=53</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b69pwuthm</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-phili-tools-cavecrew-mcp/7992c114-e9b3-4ed9-984d-93f64f08e2fd/tasks/b69pwuthm.output</output-file>
+<status>completed</status>
+<summary>Background command "until curl -s http://127.0.0.1:3205/status | grep -q '"state":"done"\|"state":"failed"'; do sleep 15; done; curl -s http://127.0.0.1:3205/status" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bhkj4rwfk</task-id>
+<summary>Monitor event: "BariThak goto camp staging (20,90,60) — watch arrival/nogo/stall"</summary>
+<event>STATUS task="task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788267929223} aborted="aborted":null line="lastBaritoneLine":"Skipping traverse to straight ascend"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bhkj4rwfk</task-id>
+<summary>Monitor event: "BariThak goto camp staging (20,90,60) — watch arrival/nogo/stall"</summary>
+<event>STATUS task="task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788267929223} aborted="aborted":null line="lastBaritoneLine":"[15:06:25] [ForkJoinPool.commonPool-worker-6/INFO]: [STDOUT]: Saving region -1,-1 to disk C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariThak\\gamedir\\baritone\\localhost_25565\\minecraft\\overworld_384\\cache"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bhkj4rwfk</task-id>
+<summary>Monitor event: "BariThak goto camp staging (20,90,60) — watch arrival/nogo/stall"</summary>
+<event>STATUS task="task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788267929223} aborted="aborted":null line="lastBaritoneLine":"[15:06:25] [ForkJoinPool.commonPool-worker-6/INFO]: [STDOUT]: Saving region -1,-1 to disk C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariThak\\gamedir\\baritone\\localhost_25565\\minecraft\\overworld_384\\cache"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bhkj4rwfk</task-id>
+<summary>Monitor event: "BariThak goto camp staging (20,90,60) — watch arrival/nogo/stall"</summary>
+<event>STATUS task="task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788267929223} aborted="aborted":null line="lastBaritoneLine":"[15:06:25] [ForkJoinPool.commonPool-worker-6/INFO]: [STDOUT]: Saving region -1,-1 to disk C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariThak\\gamedir\\baritone\\localhost_25565\\minecraft\\overworld_384\\cache"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bhkj4rwfk</task-id>
+<summary>Monitor event: "BariThak goto camp staging (20,90,60) — watch arrival/nogo/stall"</summary>
+<event>STATUS task="task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788267929223} aborted="aborted":null line="lastBaritoneLine":"[15:06:25] [ForkJoinPool.commonPool-worker-6/INFO]: [STDOUT]: Saving region -1,-1 to disk C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariThak\\gamedir\\baritone\\localhost_25565\\minecraft\\overworld_384\\cache"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bhkj4rwfk</task-id>
+<summary>Monitor event: "BariThak goto camp staging (20,90,60) — watch arrival/nogo/stall"</summary>
+<event>STATUS task="task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788267929223} aborted="aborted":null line="lastBaritoneLine":"[15:06:25] [ForkJoinPool.commonPool-worker-6/INFO]: [STDOUT]: Saving region -1,-1 to disk C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariThak\\gamedir\\baritone\\localhost_25565\\minecraft\\overworld_384\\cache"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bhkj4rwfk</task-id>
+<summary>Monitor event: "BariThak goto camp staging (20,90,60) — watch arrival/nogo/stall"</summary>
+<event>STATUS task="task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788267929223} aborted="aborted":null line="lastBaritoneLine":"[15:06:25] [ForkJoinPool.commonPool-worker-6/INFO]: [STDOUT]: Saving region -1,-1 to disk C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariThak\\gamedir\\baritone\\localhost_25565\\minecraft\\overworld_384\\cache"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>baeeq4f1p</task-id>
+<summary>Monitor event: "BariThak relaunch — wait for connected+in-world before issuing any command"</summary>
+<event>BOOT "connected":false "phase":"launching"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>baeeq4f1p</task-id>
+<summary>Monitor event: "BariThak relaunch — wait for connected+in-world before issuing any command"</summary>
+<event>BOOT "connected":false "phase":"launching"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>baeeq4f1p</task-id>
+<summary>Monitor event: "BariThak relaunch — wait for connected+in-world before issuing any command"</summary>
+<event>BOOT "connected":false "phase":"launching"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>baeeq4f1p</task-id>
+<summary>Monitor event: "BariThak relaunch — wait for connected+in-world before issuing any command"</summary>
+<event>BOOT "connected":true "phase":"in-world"
+READY connected+in-world</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b35859fqb</task-id>
+<summary>Monitor event: "BariThak goto tunnel mouth (40,49,60) — watch nogo/ascend-stall, ignore normal telemetry freeze"</summary>
+<event>PROGRESS 20s: "lastBaritoneLine":"[15:19:43] [ForkJoinPool.commonPool-worker-3/INFO]: [STDOUT]: Saving region 0,0 to disk C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariThak\\gamedir\\baritone\\localhost_25565\\minecraft\\overworld_384\\cache"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b35859fqb</task-id>
+<summary>Monitor event: "BariThak goto tunnel mouth (40,49,60) — watch nogo/ascend-stall, ignore normal telemetry freeze"</summary>
+<event>HEARTBEAT 240s task="task":{"kind":"goto","x":40,"y":49,"z":60,"at":1788268766495} line="lastBaritoneLine":"[15:19:43] [ForkJoinPool.commonPool-worker-3/INFO]: [STDOUT]: Saving region 0,0 to disk C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariThak\\gamedir\\baritone\\localhost_25565\\minecraft\\overworld_384\\cache"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b04wsp2bg</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore — ground-truth position via UngaBunga, alert if x&lt;28 (breach boundary) or nogo/stall"</summary>
+<event>T0s task="task":{"kind":"mine","block":"iron_ore","count":8,"at":1788269052987} aborted="aborted":null conn="connected":true groundtruth={"result":"{\"x\":40.527618735749584,\"y\":49,\"z\":60.50996237790141}","task":{"id":"task-165","kind":"eval","source":"http","state":"done","detail":null,"result":"{\"x\":40.527618735749584,\"y\":49,\"z\":60.50996237790141}","finishedAt":"2026-09-01T13:24:22.169Z"}}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b04wsp2bg</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore — ground-truth position via UngaBunga, alert if x&lt;28 (breach boundary) or nogo/stall"</summary>
+<event>T25s task="task":{"kind":"mine","block":"iron_ore","count":8,"at":1788269052987} aborted="aborted":null conn="connected":true groundtruth={"error":"busy","currentTask":{"id":"task-166","kind":"goto","source":"http","state":"running","detail":null,"result":null,"finishedAt":null}}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b04wsp2bg</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore — ground-truth position via UngaBunga, alert if x&lt;28 (breach boundary) or nogo/stall"</summary>
+<event>T50s task="task":{"kind":"mine","block":"iron_ore","count":8,"at":1788269052987} aborted="aborted":null conn="connected":true groundtruth={"result":"{\"x\":39.59647471371387,\"y\":47,\"z\":60.29997348116793}","task":{"id":"task-167","kind":"eval","source":"http","state":"done","detail":null,"result":"{\"x\":39.59647471371387,\"y\":47,\"z\":60.29997348116793}","finishedAt":"2026-09-01T13:25:12.358Z"}}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b04wsp2bg</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore — ground-truth position via UngaBunga, alert if x&lt;28 (breach boundary) or nogo/stall"</summary>
+<event>T75s task="task":{"kind":"mine","block":"iron_ore","count":8,"at":1788269052987} aborted="aborted":null conn="connected":true groundtruth={"result":"{\"x\":39.53766646940492,\"y\":47,\"z\":59.8120584351391}","task":{"id":"task-168","kind":"eval","source":"http","state":"done","detail":null,"result":"{\"x\":39.53766646940492,\"y\":47,\"z\":59.8120584351391}","finishedAt":"2026-09-01T13:25:37.499Z"}}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b04wsp2bg</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore — ground-truth position via UngaBunga, alert if x&lt;28 (breach boundary) or nogo/stall"</summary>
+<event>T100s task="task":{"kind":"mine","block":"iron_ore","count":8,"at":1788269052987} aborted="aborted":null conn="connected":true groundtruth={"error":"busy","currentTask":{"id":"task-169","kind":"chop","source":"http","state":"running","detail":"chopping tree 1/8","result":null,"finishedAt":null}}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b04wsp2bg</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore — ground-truth position via UngaBunga, alert if x&lt;28 (breach boundary) or nogo/stall"</summary>
+<event>T125s task="task":{"kind":"mine","block":"iron_ore","count":8,"at":1788269052987} aborted="aborted":null conn="connected":true groundtruth={"error":"busy","currentTask":{"id":"task-169","kind":"chop","source":"http","state":"running","detail":"chopping tree 1/8","result":null,"finishedAt":null}}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b04wsp2bg</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore — ground-truth position via UngaBunga, alert if x&lt;28 (breach boundary) or nogo/stall"</summary>
+<event>T150s task="task":{"kind":"mine","block":"iron_ore","count":8,"at":1788269052987} aborted="aborted":null conn="connected":true groundtruth={"error":"busy","currentTask":{"id":"task-169","kind":"chop","source":"http","state":"running","detail":"chopping tree 1/8","result":null,"finishedAt":null}}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bv2nqj50l</task-id>
+<summary>Monitor event: "BariThak goto back to tunnel mouth (40,49,60) — 40s cadence, alert on nogo/disconnect/arrival"</summary>
+<event>T40s task="task":{"kind":"goto","x":40,"y":49,"z":60,"at":1788269327006} aborted="aborted":null conn="connected":true</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bv2nqj50l</task-id>
+<summary>Monitor event: "BariThak goto back to tunnel mouth (40,49,60) — 40s cadence, alert on nogo/disconnect/arrival"</summary>
+<event>T80s task="task":{"kind":"goto","x":40,"y":49,"z":60,"at":1788269327006} aborted="aborted":null conn="connected":true</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bv2nqj50l</task-id>
+<summary>Monitor event: "BariThak goto back to tunnel mouth (40,49,60) — 40s cadence, alert on nogo/disconnect/arrival"</summary>
+<event>T120s task="task":{"kind":"goto","x":40,"y":49,"z":60,"at":1788269327006} aborted="aborted":null conn="connected":true</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bv2nqj50l</task-id>
+<summary>Monitor event: "BariThak goto back to tunnel mouth (40,49,60) — 40s cadence, alert on nogo/disconnect/arrival"</summary>
+<event>T160s task="task":{"kind":"goto","x":40,"y":49,"z":60,"at":1788269327006} aborted="aborted":null conn="connected":true</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bv2nqj50l</task-id>
+<summary>Monitor event: "BariThak goto back to tunnel mouth (40,49,60) — 40s cadence, alert on nogo/disconnect/arrival"</summary>
+<event>T200s task="task":{"kind":"goto","x":40,"y":49,"z":60,"at":1788269327006} aborted="aborted":null conn="connected":true</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bsbnz3d1j</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:3 batch — 30s cadence, ground-truth via neighbor, alert on x&amp;lt;28 drift or big composite"</summary>
+<event>T0s task="task":{"kind":"mine","block":"iron_ore","count":3,"at":1788269545069} aborted="aborted":null conn="connected":true line="lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=24,y=49,z=66} to GoalComposite[GoalBlock{x=25,y=34,z=62}, GoalBlock{x=24,y=33,z=63}, GoalTwoBlocks{x=25,y=34,z=63}, GoalTwoBlocks{x=24,y=34,z=62}, GoalBlock{x=25,y=34,z=62}, GoalBlock{x=24,y=33,z=63}, GoalBlock{x=23,y=27,z=67}, GoalBlock{x=22,y=27,z=67}, GoalBlock{x=23,y=27,z=68}, GoalBlock{x=22,y=27,z=...(truncated)
+NOTE composite goal detected — watch closely</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bmxucteli</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:5 in approved pocket zone (x18-32,y20-40,z55-75) — 35s cadence, abort-check on task-clear position"</summary>
+<event>T35s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788269640195} aborted="aborted":null conn="connected":true pos="position":{"x":20,"y":26,"z":65}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bmxucteli</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:5 in approved pocket zone (x18-32,y20-40,z55-75) — 35s cadence, abort-check on task-clear position"</summary>
+<event>T70s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788269640195} aborted="aborted":null conn="connected":true pos="position":{"x":20,"y":26,"z":65}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bmxucteli</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:5 in approved pocket zone (x18-32,y20-40,z55-75) — 35s cadence, abort-check on task-clear position"</summary>
+<event>T105s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788269640195} aborted="aborted":null conn="connected":true pos="position":{"x":20,"y":26,"z":65}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bmxucteli</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:5 in approved pocket zone (x18-32,y20-40,z55-75) — 35s cadence, abort-check on task-clear position"</summary>
+<event>T140s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788269640195} aborted="aborted":null conn="connected":true pos="position":{"x":20,"y":26,"z":65}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bmxucteli</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:5 in approved pocket zone (x18-32,y20-40,z55-75) — 35s cadence, abort-check on task-clear position"</summary>
+<event>T175s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788269640195} aborted="aborted":null conn="connected":true pos="position":{"x":20,"y":26,"z":65}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bmxucteli</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:5 in approved pocket zone (x18-32,y20-40,z55-75) — 35s cadence, abort-check on task-clear position"</summary>
+<event>T210s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788269640195} aborted="aborted":null conn="connected":true pos="position":{"x":20,"y":26,"z":65}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bmxucteli</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:5 in approved pocket zone (x18-32,y20-40,z55-75) — 35s cadence, abort-check on task-clear position"</summary>
+<event>T245s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788269640195} aborted="aborted":null conn="connected":true pos="position":{"x":20,"y":26,"z":65}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bmxucteli</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:5 in approved pocket zone (x18-32,y20-40,z55-75) — 35s cadence, abort-check on task-clear position"</summary>
+<event>T280s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788269640195} aborted="aborted":null conn="connected":true pos="position":{"x":20,"y":26,"z":65}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bmxucteli</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:5 in approved pocket zone (x18-32,y20-40,z55-75) — 35s cadence, abort-check on task-clear position"</summary>
+<event>T315s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788269640195} aborted="aborted":null conn="connected":true pos="position":{"x":20,"y":26,"z":65}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bmxucteli</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:5 in approved pocket zone (x18-32,y20-40,z55-75) — 35s cadence, abort-check on task-clear position"</summary>
+<event>T350s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788269640195} aborted="aborted":null conn="connected":true pos="position":{"x":20,"y":26,"z":65}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bm4isfhdj</task-id>
+<summary>Monitor event: "BariThak goto camp staging (20,90,60) after mining — 40s cadence"</summary>
+<event>T40s task="task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788270070433} aborted="aborted":null conn="connected":true</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bm4isfhdj</task-id>
+<summary>Monitor event: "BariThak goto camp staging (20,90,60) after mining — 40s cadence"</summary>
+<event>T80s task="task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788270070433} aborted="aborted":null conn="connected":true</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bm4isfhdj</task-id>
+<summary>Monitor event: "BariThak goto camp staging (20,90,60) after mining — 40s cadence"</summary>
+<event>T120s task="task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788270070433} aborted="aborted":null conn="connected":true</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bm4isfhdj</task-id>
+<summary>Monitor event: "BariThak goto camp staging (20,90,60) after mining — 40s cadence"</summary>
+<event>T160s task="task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788270070433} aborted="aborted":null conn="connected":true</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bm4isfhdj</task-id>
+<summary>Monitor event: "BariThak goto camp staging (20,90,60) after mining — 40s cadence"</summary>
+<event>T200s task="task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788270070433} aborted="aborted":null conn="connected":true</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bm4isfhdj</task-id>
+<summary>Monitor event: "BariThak goto camp staging (20,90,60) after mining — 40s cadence"</summary>
+<event>T240s task="task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788270070433} aborted="aborted":null conn="connected":true</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bm4isfhdj</task-id>
+<summary>Monitor event: "BariThak goto camp staging (20,90,60) after mining — 40s cadence"</summary>
+<event>T280s task="task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788270070433} aborted="aborted":null conn="connected":true</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bp9t38gf0</task-id>
+<summary>Monitor event: "BariThak goto pocket (20,27,66) — 40s cadence, watch workzone/nogo/disconnect"</summary>
+<event>T40s task="task":{"kind":"goto","x":20,"y":27,"z":66,"at":1788271302132} aborted="aborted":null conn="connected":true pos="position":{"x":22,"y":90,"z":63}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bp9t38gf0</task-id>
+<summary>Monitor event: "BariThak goto pocket (20,27,66) — 40s cadence, watch workzone/nogo/disconnect"</summary>
+<event>T80s task="task":{"kind":"goto","x":20,"y":27,"z":66,"at":1788271302132} aborted="aborted":null conn="connected":true pos="position":{"x":22,"y":90,"z":63}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bp9t38gf0</task-id>
+<summary>Monitor event: "BariThak goto pocket (20,27,66) — 40s cadence, watch workzone/nogo/disconnect"</summary>
+<event>T120s task="task":{"kind":"goto","x":20,"y":27,"z":66,"at":1788271302132} aborted="aborted":null conn="connected":true pos="position":{"x":22,"y":90,"z":63}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bp9t38gf0</task-id>
+<summary>Monitor event: "BariThak goto pocket (20,27,66) — 40s cadence, watch workzone/nogo/disconnect"</summary>
+<event>T160s task="task":{"kind":"goto","x":20,"y":27,"z":66,"at":1788271302132} aborted="aborted":null conn="connected":true pos="position":{"x":22,"y":90,"z":63}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bnm5rwz4s</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:5 zone-contained — 35s cadence, watch workzone auto-abort/nogo/disconnect/terminal"</summary>
+<event>T0s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788271476774} aborted="aborted":null conn="connected":true pos="position":{"x":22,"y":90,"z":63}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bnm5rwz4s</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:5 zone-contained — 35s cadence, watch workzone auto-abort/nogo/disconnect/terminal"</summary>
+<event>T35s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788271476774} aborted="aborted":null conn="connected":true pos="position":{"x":22,"y":90,"z":63}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bnm5rwz4s</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:5 zone-contained — 35s cadence, watch workzone auto-abort/nogo/disconnect/terminal"</summary>
+<event>T70s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788271476774} aborted="aborted":null conn="connected":true pos="position":{"x":22,"y":90,"z":63}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bnm5rwz4s</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:5 zone-contained — 35s cadence, watch workzone auto-abort/nogo/disconnect/terminal"</summary>
+<event>T105s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788271476774} aborted="aborted":null conn="connected":true pos="position":{"x":22,"y":90,"z":63}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bnm5rwz4s</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:5 zone-contained — 35s cadence, watch workzone auto-abort/nogo/disconnect/terminal"</summary>
+<event>T140s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788271476774} aborted="aborted":null conn="connected":true pos="position":{"x":22,"y":90,"z":63}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bnm5rwz4s</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:5 zone-contained — 35s cadence, watch workzone auto-abort/nogo/disconnect/terminal"</summary>
+<event>T175s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788271476774} aborted="aborted":null conn="connected":true pos="position":{"x":22,"y":90,"z":63}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bnm5rwz4s</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:5 zone-contained — 35s cadence, watch workzone auto-abort/nogo/disconnect/terminal"</summary>
+<event>T210s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788271476774} aborted="aborted":null conn="connected":true pos="position":{"x":22,"y":90,"z":63}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bnm5rwz4s</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:5 zone-contained — 35s cadence, watch workzone auto-abort/nogo/disconnect/terminal"</summary>
+<event>T245s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788271476774} aborted="aborted":null conn="connected":true pos="position":{"x":22,"y":90,"z":63}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bnm5rwz4s</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:5 zone-contained — 35s cadence, watch workzone auto-abort/nogo/disconnect/terminal"</summary>
+<event>T280s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788271476774} aborted="aborted":null conn="connected":true pos="position":{"x":22,"y":90,"z":63}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bnm5rwz4s</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:5 zone-contained — 35s cadence, watch workzone auto-abort/nogo/disconnect/terminal"</summary>
+<event>T315s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788271476774} aborted="aborted":null conn="connected":true pos="position":{"x":22,"y":90,"z":63}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bnm5rwz4s</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:5 zone-contained — 35s cadence, watch workzone auto-abort/nogo/disconnect/terminal"</summary>
+<event>T350s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788271476774} aborted="aborted":null conn="connected":true pos="position":{"x":22,"y":90,"z":63}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgzn6zixb</task-id>
+<summary>Monitor event: "BariThak goto pocket entrance (20,27,66) — 40s cadence, then PAUSE on mine"</summary>
+<event>T40s task="task":{"kind":"goto","x":20,"y":27,"z":66,"at":1788271901977} aborted="aborted":null conn="connected":true</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgzn6zixb</task-id>
+<summary>Monitor event: "BariThak goto pocket entrance (20,27,66) — 40s cadence, then PAUSE on mine"</summary>
+<event>T80s task="task":{"kind":"goto","x":20,"y":27,"z":66,"at":1788271901977} aborted="aborted":null conn="connected":true</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgzn6zixb</task-id>
+<summary>Monitor event: "BariThak goto pocket entrance (20,27,66) — 40s cadence, then PAUSE on mine"</summary>
+<event>T120s task="task":{"kind":"goto","x":20,"y":27,"z":66,"at":1788271901977} aborted="aborted":null conn="connected":true</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgzn6zixb</task-id>
+<summary>Monitor event: "BariThak goto pocket entrance (20,27,66) — 40s cadence, then PAUSE on mine"</summary>
+<event>T160s task="task":{"kind":"goto","x":20,"y":27,"z":66,"at":1788271901977} aborted="aborted":null conn="connected":true</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgzn6zixb</task-id>
+<summary>Monitor event: "BariThak goto pocket entrance (20,27,66) — 40s cadence, then PAUSE on mine"</summary>
+<event>T200s task="task":{"kind":"goto","x":20,"y":27,"z":66,"at":1788271901977} aborted="aborted":null conn="connected":true</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>btmrmii9t</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:5 batch (payoff-run, watchdog fixed) — 35s cadence, own ground-truth still armed as backup"</summary>
+<event>T35s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788272339993} aborted="aborted":null conn="connected":true</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>btmrmii9t</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:5 batch (payoff-run, watchdog fixed) — 35s cadence, own ground-truth still armed as backup"</summary>
+<event>T70s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788272339993} aborted="aborted":null conn="connected":true</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>btmrmii9t</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:5 batch (payoff-run, watchdog fixed) — 35s cadence, own ground-truth still armed as backup"</summary>
+<event>T105s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788272339993} aborted="aborted":null conn="connected":true</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>btmrmii9t</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:5 batch (payoff-run, watchdog fixed) — 35s cadence, own ground-truth still armed as backup"</summary>
+<event>T140s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788272339993} aborted="aborted":null conn="connected":true</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>btmrmii9t</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:5 batch (payoff-run, watchdog fixed) — 35s cadence, own ground-truth still armed as backup"</summary>
+<event>T175s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788272339993} aborted="aborted":null conn="connected":true</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>btmrmii9t</task-id>
+<summary>Monitor event: "BariThak #mine iron_ore count:5 batch (payoff-run, watchdog fixed) — 35s cadence, own ground-truth still armed as backup"</summary>
+<event>T210s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788272339993} aborted="aborted":null conn="connected":true</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bqdj7lvbe</task-id>
+<summary>Monitor event: "BariThak #mine batch, expanded box z30-75 — ground-truth PRIMARY net every cycle, abort on x&amp;lt;18/y&amp;lt;20/FEL-direction"</summary>
+<event>T30s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788272636337} aborted="aborted":null conn="connected":true groundtruth={"result":"{\"x\":25.52485352754593,\"y\":33,\"z\":40.6999736546377}","task":{"id":"task-222082-1788267804122-107","kind":"eval","source":"http","state":"done","detail":null,"result":"{\"x\":25.52485352754593,\"y\":33,\"z\":40.6999736546377}","finishedAt":"2026-09-01T14:24:41.584Z"}}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bqdj7lvbe</task-id>
+<summary>Monitor event: "BariThak #mine batch, expanded box z30-75 — ground-truth PRIMARY net every cycle, abort on x&amp;lt;18/y&amp;lt;20/FEL-direction"</summary>
+<event>T60s task="task":{"kind":"mine","block":"iron_ore","count":5,"at":1788272636337} aborted="aborted":null conn="connected":true groundtruth={"result":"{\"x\":23.503936096304766,\"y\":19,\"z\":27.69999998807907}","task":{"id":"task-222082-1788267804122-108","kind":"eval","source":"http","state":"done","detail":null,"result":"{\"x\":23.503936096304766,\"y\":19,\"z\":27.69999998807907}","finishedAt":"2026-09-01T14:25:11.531Z"}}
+ALERT ABORT-CRITERIA x=23.503936096304766 y=19 z=27.69999998807907 — STOP NEEDED NOW</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b5fe9605h</task-id>
+<summary>Monitor event: "BariThak short goto into box (24,19,35) before re-mining — 25s cadence"</summary>
+<event>T0s task="task":{"kind":"goto","x":24,"y":19,"z":35,"at":1788272930358} aborted="aborted":null conn="connected":true</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b5fe9605h</task-id>
+<summary>Monitor event: "BariThak short goto into box (24,19,35) before re-mining — 25s cadence"</summary>
+<event>T25s task="task":{"kind":"goto","x":24,"y":19,"z":35,"at":1788272930358} aborted="aborted":null conn="connected":true</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b5fe9605h</task-id>
+<summary>Monitor event: "BariThak short goto into box (24,19,35) before re-mining — 25s cadence"</summary>
+<event>T50s task="task":{"kind":"goto","x":24,"y":19,"z":35,"at":1788272930358} aborted="aborted":null conn="connected":true</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>brtv7hn86</task-id>
+<summary>Monitor event: "BariThak minimal nudge into box (23,19,31) — 20s cadence, short timeout"</summary>
+<event>T0s task="task":{"kind":"goto","x":23,"y":19,"z":31,"at":1788273021605} conn="connected":true line="lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=23,y=19,z=27} to GoalBlock{x=23,y=19,z=31}. 73496 nodes considered"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>brtv7hn86</task-id>
+<summary>Monitor event: "BariThak minimal nudge into box (23,19,31) — 20s cadence, short timeout"</summary>
+<event>T20s task="task":{"kind":"goto","x":23,"y":19,"z":31,"at":1788273021605} conn="connected":true line="lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=23,y=19,z=27} to GoalBlock{x=23,y=19,z=31}. 73496 nodes considered"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>brtv7hn86</task-id>
+<summary>Monitor event: "BariThak minimal nudge into box (23,19,31) — 20s cadence, short timeout"</summary>
+<event>T40s task="task":{"kind":"goto","x":23,"y":19,"z":31,"at":1788273021605} conn="connected":true line="lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=23,y=19,z=27} to GoalBlock{x=23,y=19,z=31}. 73496 nodes considered"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>brtv7hn86</task-id>
+<summary>Monitor event: "BariThak minimal nudge into box (23,19,31) — 20s cadence, short timeout"</summary>
+<event>T60s task="task":{"kind":"goto","x":23,"y":19,"z":31,"at":1788273021605} conn="connected":true line="lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=23,y=19,z=27} to GoalBlock{x=23,y=19,z=31}. 73496 nodes considered"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>brtv7hn86</task-id>
+<summary>Monitor event: "BariThak minimal nudge into box (23,19,31) — 20s cadence, short timeout"</summary>
+<event>T80s task="task":{"kind":"goto","x":23,"y":19,"z":31,"at":1788273021605} conn="connected":true line="lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=23,y=19,z=27} to GoalBlock{x=23,y=19,z=31}. 73496 nodes considered"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
