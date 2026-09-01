@@ -802,6 +802,19 @@ function renderPage() {
   .meta { margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 5px 12px; font-size: 11px; color: var(--dim); }
   .meta b { color: var(--muted); font-weight: 600; }
   .meta .guard.warn { color: var(--amber); }
+  .ev-toggle { cursor: pointer; user-select: none; }
+  .ev-toggle:hover { color: var(--muted); }
+
+  /* Per-card event log — collapsed by default (density: most of the time
+     nobody needs it), toggled by the .ev-toggle chip in .meta. Capped height
+     + its own scrollbar so an eventful bot can't stretch the whole card past
+     its neighbours. */
+  .ev-list { margin-top: 8px; max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; padding-right: 2px; }
+  .ev-item { font-size: 10px; color: var(--dim); display: flex; gap: 7px; }
+  .ev-item .et { flex: none; font-variant-numeric: tabular-nums; }
+  .ev-item .em { color: var(--muted); word-break: break-word; }
+  .ev-item.warn .em { color: #ffb3ae; }
+  .ev-empty { font-size: 10px; color: var(--dim); font-style: italic; }
 
   .inv { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 5px; }
   .chip {
@@ -930,6 +943,18 @@ function renderPage() {
     if (v <= 12) return '#f2b035';
     return '#5fe36b';
   }
+
+  // Event feed (phase-2 item, PANEL.md) — /api/fleet already carries each
+  // bot's last ~10 events, this just finally renders them. Kept as a small
+  // per-card toggle rather than a fleet-wide stream: a merged feed would
+  // compete with the Alerts column for the same "something's wrong" job,
+  // where this is closer to "what has this bot actually been doing lately."
+  var ALERT_EVENT_TYPES = { death: 1, error: 1, panic: 1, kicked: 1, disconnect: 1 };
+  function renderEvToggle(toggleEl, listEl, state) {
+    var n = state.count || 0;
+    setText(toggleEl, (state.expanded ? '▾' : '▸') + ' events' + (n ? ' (' + n + ')' : ''));
+    listEl.hidden = !state.expanded;
+  }
   // Movement delta colouring. Red is the wedge flag — under half a block of
   // travel in the window means the bot is very likely stuck, which pairs with
   // the runner's own wedge watchdog.
@@ -997,7 +1022,17 @@ function renderPage() {
     var lastDeath = el('span');
     var guard = el('span', 'guard');
     var engine = el('span');
-    meta.appendChild(deaths); meta.appendChild(lastDeath); meta.appendChild(guard); meta.appendChild(engine);
+    var evState = { expanded: false, count: 0 };
+    var evToggle = el('span', 'ev-toggle');
+    var evList = el('div', 'ev-list');
+    evList.hidden = true;
+    evToggle.addEventListener('click', function () {
+      evState.expanded = !evState.expanded;
+      renderEvToggle(evToggle, evList, evState);
+    });
+    renderEvToggle(evToggle, evList, evState);
+    meta.appendChild(deaths); meta.appendChild(lastDeath); meta.appendChild(guard);
+    meta.appendChild(engine); meta.appendChild(evToggle);
 
     var inv = el('div', 'inv');
     var acts = el('div', 'acts');
@@ -1017,7 +1052,7 @@ function renderPage() {
 
     c.appendChild(r1); c.appendChild(pos); c.appendChild(delta); c.appendChild(vitals);
     c.appendChild(task); c.appendChild(errBox); c.appendChild(meta);
-    c.appendChild(inv); c.appendChild(acts);
+    c.appendChild(inv); c.appendChild(evList); c.appendChild(acts);
     grid.appendChild(c);
 
     return { root: c, dot: dot, name: name, port: port, age: age, pos: pos,
@@ -1025,6 +1060,7 @@ function renderPage() {
       hp: hp, fd: fd, task: task, tkind: tkind, tstate: tstate, tsrc: tsrc, tdetail: tdetail,
       errBox: errBox, deaths: deaths, lastDeath: lastDeath, guard: guard, engine: engine,
       inv: inv, invSig: null,
+      evToggle: evToggle, evList: evList, evState: evState, evSig: null,
       wake: wake, stop: stop, flash: flash };
   }
 
@@ -1172,6 +1208,41 @@ function renderPage() {
           c.inv.appendChild(chip);
         });
       }
+    }
+
+    // Event log toggle + list. bot.events is already the last ~10 entries
+    // (server-side ring, see EVENTS_PER_BOT) — the list itself is only
+    // rebuilt when the actual set of events changed (by seq), same signature
+    // pattern as inventory above, so an open/scrolled list doesn't jump or
+    // flicker on every 3s poll that brought nothing new. Relative timestamps
+    // ARE refreshed every poll regardless (below), since "12s ago" left
+    // stale for minutes on an unchanged list would be a quiet honesty bug —
+    // same reasoning as the movement-delta and task-age clocks elsewhere on
+    // this card.
+    var events = bot.events || [];
+    c.evState.count = events.length;
+    renderEvToggle(c.evToggle, c.evList, c.evState);
+    var evSig = events.map(function (e) { return e.seq; }).join('|');
+    if (evSig !== c.evSig) {
+      c.evSig = evSig;
+      c.evList.textContent = '';
+      if (!events.length) {
+        c.evList.appendChild(el('div', 'ev-empty', 'no events yet'));
+      } else {
+        events.slice().reverse().forEach(function (e) {
+          var row = el('div', 'ev-item' + (ALERT_EVENT_TYPES[e.type] ? ' warn' : ''));
+          var et = el('span', 'et');
+          et.dataset.ts = e.ts;
+          var em = el('span', 'em', e.msg);
+          row.appendChild(et); row.appendChild(em);
+          c.evList.appendChild(row);
+        });
+      }
+    }
+    var etNodes = c.evList.querySelectorAll('.et');
+    for (var ei = 0; ei < etNodes.length; ei++) {
+      var ts = etNodes[ei].dataset.ts;
+      if (ts) setText(etNodes[ei], fmtDur(Date.now() - Date.parse(ts)) + ' ago');
     }
 
     var showWake = !bot.offline && idle;

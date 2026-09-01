@@ -129,6 +129,8 @@ blinks green on each successful poll.
   the field just omit the chip), and movement engine
 - `lastError` in a red box when set
 - inventory as compact chips — top 10 stacks by count, with count badges
+- a collapsed `▸ events (N)` toggle — click to expand the bot's last ~10
+  events, newest first (see Phase 2 ideas below for detail)
 
 Offline runners are tolerated, never fatal: the card dims, the entry is marked
 `offline: true` with a reason, and the rest of the fleet renders normally.
@@ -243,11 +245,20 @@ If either changes upstream, update `panel.mjs` by hand.
 
 ## Phase 2 ideas
 
-Not built. v1 is only what is above.
+Not built unless marked DONE below.
 
-- **Event feed** — `/api/fleet` already carries the last ~10 events per bot, but
-  the page does not render them. Add a per-card expandable log, or a merged
-  fleet-wide stream beside the alerts column.
+- **Event feed** — DONE. Each card carries a collapsed-by-default `▸ events
+  (N)` toggle in its footer row; expanding it shows the bot's last ~10 events
+  (task starts/stops, idle-guard toggles, deaths, panics, chat, connect/
+  disconnect — whatever `runner.js` pushes), newest first, in a small
+  scrollable list. Deliberately per-card rather than a merged fleet-wide
+  stream: a merged feed would compete with the Alerts column for the same
+  "something's wrong" job, where this answers "what has this bot actually
+  been doing lately." Relative timestamps refresh every poll even when the
+  list itself hasn't changed (same honesty-over-shortcuts rule the movement
+  deltas and task age already follow); the list only rebuilds its DOM when
+  the underlying event set actually changes, so an open/scrolled log doesn't
+  jump on an empty poll.
 - **Driver states** — show which bot has a driver attached and what that driver
   currently believes it is doing, so the panel distinguishes "idle" from
   "between driver steps".
