@@ -32,6 +32,16 @@
     if (!p) return 'position unknown';
     return 'xyz ' + Math.round(p.x) + ' ' + Math.round(p.y) + ' ' + Math.round(p.z);
   }
+  // Distance-from-base badge (v3) — bot.distance is already the fully-formed
+  // {horiz, vertical, compass} object from panel-data.mjs's distanceFromBase(),
+  // or null when pos itself is unknown (offline/unspawned). Hidden entirely
+  // in that case by the caller, never rendered as a fake "0m".
+  function fmtDistance(d) {
+    if (!d) return null;
+    var vert = d.vertical == null ? '' : ' Δy' + (d.vertical > 0 ? '+' + d.vertical : d.vertical);
+    var compass = d.compass ? ' ' + d.compass : '';
+    return d.horiz.toFixed(1) + 'm' + compass + vert + ' from base';
+  }
   function fmtDur(ms) {
     if (ms == null || !isFinite(ms) || ms < 0) return '';
     var s = Math.floor(ms / 1000);
@@ -105,16 +115,152 @@
     if (node.dataset.col !== col) { node.style.color = col; node.dataset.col = col; }
   }
 
+  // Tool/durability chips (v3, G1's per-item {used,max} field). Colour
+  // thresholds match PANEL_V3_SPEC.md §3.4 exactly: green >= 30% remaining,
+  // amber 10-30%, red under 10% — a deliberately different curve from the
+  // HP/FD bars above (a tool genuinely breaks at 0%; health has no equivalent
+  // hard wall at the same fraction). Referenced via var(--token) directly
+  // rather than mirrored hex literals (unlike healthColor/deltaColor above,
+  // which predate this file's CSS-token pass) — inline styles resolve
+  // custom properties natively, so there is nothing to keep in sync by hand.
+  function durabilityColor(remaining) {
+    if (remaining >= 0.30) return 'var(--green)';
+    if (remaining >= 0.10) return 'var(--amber)';
+    return 'var(--red)';
+  }
+  // Builds one inventory/chest item chip. When the item carries a genuine
+  // {used, max} durability pair (some runners' items do — G1 — some don't
+  // yet; real fleet data today is a live mix of both on the SAME bot, see
+  // PANEL.md) it grows a bottom bar; every other item renders byte-for-byte
+  // the same markup as before this round — zero fake bars, ever.
+  function buildItemChip(item) {
+    var d = item.durability;
+    var hasDur = !!(d && typeof d.used === 'number' && typeof d.max === 'number' && d.max > 0);
+    var chip = el('span', 'chip' + (hasDur ? ' has-dur' : ''));
+    if (!hasDur) {
+      chip.appendChild(el('span', 'n', item.name));
+      chip.appendChild(el('span', 'c', String(item.count)));
+      return chip;
+    }
+    var top = el('span', 'chip-top');
+    top.appendChild(el('span', 'n', item.name));
+    top.appendChild(el('span', 'c', String(item.count)));
+    chip.appendChild(top);
+    var remaining = Math.max(0, Math.min(1, 1 - d.used / d.max));
+    var bar = el('span', 'dur-bar');
+    var fill = el('span', 'dur-fill');
+    fill.style.width = (remaining * 100) + '%';
+    fill.style.background = durabilityColor(remaining);
+    bar.appendChild(fill);
+    chip.appendChild(bar);
+    chip.title = item.name + ' — ' + Math.max(0, d.max - d.used) + '/' + d.max + ' durability remaining';
+    return chip;
+  }
+  // Rebuild-detection signature for an item list — extends the existing
+  // name:count signature with durability wear, so a tool visibly losing
+  // durability (count unchanged) still triggers a chip rebuild instead of
+  // sitting frozen at whatever fraction it had when the chip was first built.
+  function invSignature(items) {
+    return items.map(function (i) {
+      return i.name + ':' + i.count + ':' + (i.durability ? i.durability.used + '/' + i.durability.max : '');
+    }).join('|');
+  }
+
+  // Relative-timestamp refresh, shared by every ledger-style list on the page
+  // (the per-card event log, and v3's drilldown event/mission copies below) —
+  // same reasoning each already followed: "12s ago" left stale for minutes on
+  // an unchanged list would be a quiet honesty bug, so timestamps re-derive
+  // from data-ts on every call regardless of whether the list itself rebuilt.
+  function refreshTimestamps(container) {
+    var nodes = container.querySelectorAll('.et');
+    for (var i = 0; i < nodes.length; i++) {
+      var ts = nodes[i].dataset.ts;
+      if (ts) setText(nodes[i], fmtDur(Date.now() - Date.parse(ts)) + ' ago');
+    }
+  }
+  // Renders one events list (ev-item rows) from a raw events array, gated on
+  // a seq-based signature so an open/scrolled list doesn't rebuild (and jump)
+  // on a poll that brought nothing new. Shared by the existing per-card mini
+  // event toggle AND v3's drilldown event copy (same data, two presentations
+  // — see build() below) rather than duplicating this logic twice.
+  function renderEventList(listEl, events, prevSig) {
+    var sig = events.map(function (e) { return e.seq; }).join('|');
+    if (sig !== prevSig) {
+      listEl.textContent = '';
+      if (!events.length) {
+        listEl.appendChild(el('div', 'ev-empty', 'no events yet'));
+      } else {
+        events.slice().reverse().forEach(function (e) {
+          var cls = 'ev-item' + (ALERT_EVENT_TYPES[e.type] ? ' warn' : '') + (SUPPRESSED_RE.test(e.msg) ? ' suppressed' : '');
+          var row = el('div', cls);
+          var et = el('span', 'et');
+          et.dataset.ts = e.ts;
+          var em = el('span', 'em', e.msg);
+          row.appendChild(et); row.appendChild(em);
+          listEl.appendChild(row);
+        });
+      }
+    }
+    refreshTimestamps(listEl);
+    return sig;
+  }
+  // Renders the mission-history drilldown section from an /api/missions
+  // response (or null while a fetch is in flight). `missing:true` (G2's
+  // durable log has no file for this bot yet — a not-upgraded runner, or a
+  // bot that has simply never finished a task) gets the exact quiet line the
+  // launch brief specifies, distinct from an actual read error and from "the
+  // file exists but is empty" (which can't happen — getMissionsForBot never
+  // returns missing:false with zero entries unless the file truly has none).
+  function renderMissions(container, data) {
+    container.textContent = '';
+    if (!data) {
+      container.appendChild(el('div', 'ev-empty', 'loading…'));
+      return;
+    }
+    if (data.missing) {
+      container.appendChild(el('div', 'ev-empty', 'keine Missions-Historie (runner-update ausstehend)'));
+      return;
+    }
+    if (data.ok === false) {
+      container.appendChild(el('div', 'ev-empty', data.error || 'missions unavailable'));
+      return;
+    }
+    var entries = data.entries || [];
+    if (!entries.length) {
+      container.appendChild(el('div', 'ev-empty', 'no missions recorded yet'));
+      return;
+    }
+    entries.forEach(function (m) {
+      var failed = m.state === 'failed' || !!m.error;
+      var row = el('div', 'ev-item' + (failed ? ' warn' : ''));
+      var et = el('span', 'et');
+      et.dataset.ts = m.ts;
+      var label = m.kind || '?';
+      if (m.state) label += ' · ' + m.state;
+      if (typeof m.durationMs === 'number') label += ' · ' + fmtDur(m.durationMs);
+      if (m.detail) label += ' — ' + m.detail;
+      if (m.error) label += ' (' + m.error + ')';
+      var em = el('span', 'em', label);
+      row.appendChild(et); row.appendChild(em);
+      container.appendChild(row);
+    });
+    refreshTimestamps(container);
+  }
+
   function build(bot) {
     var c = el('div', 'card');
-    var r1 = el('div', 'row1');
+    var r1 = el('div', 'row1 clickable');
+    r1.title = 'click for full inventory, events, and mission history';
     var dot = el('span', 'dot');
     var name = el('span', 'name');
     var port = el('span', 'port');
     var age = el('span', 'age');
-    r1.appendChild(dot); r1.appendChild(name); r1.appendChild(port); r1.appendChild(age);
+    var ddArrow = el('span', 'dd-toggle', '▸ details');
+    r1.appendChild(dot); r1.appendChild(name); r1.appendChild(port); r1.appendChild(age); r1.appendChild(ddArrow);
 
     var pos = el('div', 'pos');
+    // Distance-from-base (v3, Mission Control) — see fmtDistance above.
+    var dist = el('div', 'distance');
 
     var delta = el('div', 'delta');
     var d30v = el('span', 'dv');
@@ -184,18 +330,58 @@
     wake.addEventListener('click', function () { act('/api/wake', key, wake, flash); });
     stop.addEventListener('click', function () { act('/api/stop', key, stop, flash); });
 
-    c.appendChild(r1); c.appendChild(pos); c.appendChild(delta); c.appendChild(vitals);
+    // Mission Control drilldown (v3) — click the card's header row to reveal
+    // full inventory (all stacks, not just today's top-10), this bot's recent
+    // events (same ~10-deep data as the mini toggle above, fuller
+    // presentation), and durable mission history from /api/missions. Full
+    // inventory + events ride along on the normal 3s poll like everything
+    // else on the card (paint() only bothers rebuilding them while the panel
+    // is actually open, see below); missions is fetched once per open
+    // transition, deliberately off the fast cycle — see panel.mjs's route.
+    var dd = el('div', 'dd');
+    var ddState = { expanded: false, missionsData: null, missionsLoading: false };
+    var ddInvHead = el('div', 'dd-head', 'Full inventory');
+    var ddInv = el('div', 'dd-inv inv');
+    var ddEvHead = el('div', 'dd-head', 'Recent events');
+    var ddEvList = el('div', 'dd-list');
+    var ddMissHead = el('div', 'dd-head', 'Mission history');
+    var ddMissList = el('div', 'dd-list');
+    dd.appendChild(ddInvHead); dd.appendChild(ddInv);
+    dd.appendChild(ddEvHead); dd.appendChild(ddEvList);
+    dd.appendChild(ddMissHead); dd.appendChild(ddMissList);
+
+    r1.addEventListener('click', function () {
+      ddState.expanded = !ddState.expanded;
+      setCls(dd, 'dd' + (ddState.expanded ? ' open' : ''));
+      setText(ddArrow, (ddState.expanded ? '▾' : '▸') + ' details');
+      if (ddState.expanded && !ddState.missionsData && !ddState.missionsLoading) {
+        ddState.missionsLoading = true;
+        renderMissions(ddMissList, null);
+        fetch('/api/missions?bot=' + encodeURIComponent(key))
+          .then(function (r) { return r.json(); })
+          .then(function (j) { ddState.missionsData = j; })
+          .catch(function (e) { ddState.missionsData = { ok: false, error: String((e && e.message) || e), entries: [] }; })
+          .then(function () {
+            ddState.missionsLoading = false;
+            renderMissions(ddMissList, ddState.missionsData);
+          });
+      }
+    });
+
+    c.appendChild(r1); c.appendChild(pos); c.appendChild(dist); c.appendChild(delta); c.appendChild(vitals);
     c.appendChild(task); c.appendChild(errBox); c.appendChild(meta);
     c.appendChild(inv); c.appendChild(evList); c.appendChild(acts);
+    c.appendChild(dd);
     grid.appendChild(c);
 
-    return { root: c, dot: dot, name: name, port: port, age: age, pos: pos,
+    return { root: c, dot: dot, name: name, port: port, age: age, pos: pos, dist: dist,
       d30v: d30v, d60v: d60v,
       hp: hp, fd: fd, task: task, tkind: tkind, tstate: tstate, tsrc: tsrc, tdetail: tdetail,
       errBox: errBox, deaths: deaths, lastDeath: lastDeath, guard: guard, engine: engine,
       inv: inv, invSig: null,
       evToggle: evToggle, evList: evList, evState: evState, evSig: null,
-      wake: wake, stop: stop, flash: flash };
+      wake: wake, stop: stop, flash: flash,
+      ddState: ddState, ddInv: ddInv, ddInvSig: null, ddEvList: ddEvList, ddEvSig: null, ddMissList: ddMissList };
   }
 
   function act(path, port, btn, flash) {
@@ -248,6 +434,13 @@
     setText(c.age, bot.offline ? (bot.offlineReason || 'offline') : taskAge(bot));
 
     setText(c.pos, bot.offline ? 'runner not answering' : (bot.connected ? fmtPos(bot.pos) : 'runner up, bot disconnected'));
+
+    // Distance from base (v3) — hidden entirely (not "0m") whenever bot.pos
+    // itself is unknown; distanceFromBase() already encodes that as a null
+    // bot.distance, so there's nothing extra to check here beyond offline.
+    var distText = bot.offline ? null : fmtDistance(bot.distance);
+    c.dist.hidden = !distText;
+    if (distText) setText(c.dist, distText);
 
     setDelta(c.d30v, bot.delta30);
     setDelta(c.d60v, bot.delta60);
@@ -324,9 +517,12 @@
 
     setText(c.engine, bot.engine ? 'engine ' + bot.engine : '');
 
-    // Inventory: top 10 stacks by count, rebuilt only when it actually changed.
+    // Inventory: top 10 stacks by count, rebuilt only when it actually
+    // changed (name/count/durability — see invSignature). Durability chips
+    // (v3) render via the shared buildItemChip() so a bot card's top-10 view
+    // and the drilldown's full-inventory view (below) never drift apart.
     var items = (bot.inventory || []).slice().sort(function (a, b) { return b.count - a.count; }).slice(0, 10);
-    var sig = items.map(function (i) { return i.name + ':' + i.count; }).join('|');
+    var sig = invSignature(items);
     if (sig !== c.invSig) {
       c.invSig = sig;
       c.inv.textContent = '';
@@ -335,12 +531,7 @@
         c.inv.textContent = bot.offline ? '' : 'empty';
       } else {
         setCls(c.inv, 'inv');
-        items.forEach(function (i) {
-          var chip = el('span', 'chip');
-          chip.appendChild(el('span', 'n', i.name));
-          chip.appendChild(el('span', 'c', String(i.count)));
-          c.inv.appendChild(chip);
-        });
+        items.forEach(function (i) { c.inv.appendChild(buildItemChip(i)); });
       }
     }
 
@@ -356,28 +547,35 @@
     var events = bot.events || [];
     c.evState.count = events.length;
     renderEvToggle(c.evToggle, c.evList, c.evState);
-    var evSig = events.map(function (e) { return e.seq; }).join('|');
-    if (evSig !== c.evSig) {
-      c.evSig = evSig;
-      c.evList.textContent = '';
-      if (!events.length) {
-        c.evList.appendChild(el('div', 'ev-empty', 'no events yet'));
-      } else {
-        events.slice().reverse().forEach(function (e) {
-          var cls = 'ev-item' + (ALERT_EVENT_TYPES[e.type] ? ' warn' : '') + (SUPPRESSED_RE.test(e.msg) ? ' suppressed' : '');
-          var row = el('div', cls);
-          var et = el('span', 'et');
-          et.dataset.ts = e.ts;
-          var em = el('span', 'em', e.msg);
-          row.appendChild(et); row.appendChild(em);
-          c.evList.appendChild(row);
-        });
+    c.evSig = renderEventList(c.evList, events, c.evSig);
+
+    // Drilldown (v3) — full inventory + the same event data as above, fuller
+    // presentation, but only actually rebuilt while the panel is open: no
+    // reason to keep two hidden copies of every card's DOM in sync on every
+    // 3s poll when at most one or two cards are expanded at a time.
+    if (c.ddState.expanded) {
+      var fullItems = (bot.inventory || []).slice().sort(function (a, b) { return b.count - a.count; });
+      var fullSig = invSignature(fullItems);
+      if (fullSig !== c.ddInvSig) {
+        c.ddInvSig = fullSig;
+        c.ddInv.textContent = '';
+        if (!fullItems.length) {
+          setCls(c.ddInv, 'dd-inv inv-empty');
+          c.ddInv.textContent = bot.offline ? '' : 'empty';
+        } else {
+          setCls(c.ddInv, 'dd-inv inv');
+          var INV_CAP = 30;
+          fullItems.slice(0, INV_CAP).forEach(function (i) { c.ddInv.appendChild(buildItemChip(i)); });
+          if (fullItems.length > INV_CAP) {
+            c.ddInv.appendChild(el('span', 'chip', '+' + (fullItems.length - INV_CAP) + ' more'));
+          }
+        }
       }
-    }
-    var etNodes = c.evList.querySelectorAll('.et');
-    for (var ei = 0; ei < etNodes.length; ei++) {
-      var ts = etNodes[ei].dataset.ts;
-      if (ts) setText(etNodes[ei], fmtDur(Date.now() - Date.parse(ts)) + ' ago');
+      c.ddEvSig = renderEventList(c.ddEvList, events, c.ddEvSig);
+      // Mission history isn't part of the fleet poll (fetched once per open
+      // transition, see build()'s click handler) but its "N ago" timestamps
+      // still need to keep aging on every poll like every other clock here.
+      if (c.ddState.missionsData) refreshTimestamps(c.ddMissList);
     }
 
     var showWake = !bot.offline && idle;

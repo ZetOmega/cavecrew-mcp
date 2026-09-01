@@ -3,7 +3,10 @@
 // entire read (and the two narrow write) surface: fleet polling/aggregation,
 // the alerts tail, the TODO board parser, the Vault reader, the two write
 // actions (wake/stop), and the newer v3 data primitives (ledger, deaths,
-// FEL relation, missions).
+// FEL relation, missions) — of which distanceFromBase() and
+// getMissionsForBot() are now wired into Mission Control (PANEL_V3_SPEC.md
+// §3.1); the ledger/deaths-streak/FEL-relation readers remain unwired,
+// waiting on the Economy graphs / Tribe Stat Wall sections.
 //
 // Split out of cave/panel.mjs (PANEL V3 SPEC, architecture note, phase 1) so
 // each parser is independently testable without booting the HTTP server:
@@ -97,10 +100,47 @@ export const TEAM_HEX = {
 // chest_a_materials below) rather than either of the two informal candidates
 // that predate this constant (overseer.mjs's idle-guard CAMP ring centre, and
 // CIV.md's looser prose description) — those stay what they are for their own
-// consumers; this is the one v3 (and any future feature) should measure
-// "distance from base" against. Not yet consumed anywhere this phase — see
-// PANEL_V3_SPEC.md §3.1 for the Mission Control field that will use it.
+// consumers; this is the one v3 (and any future feature) measures "distance
+// from base" against. Consumed by distanceFromBase() below, wired into
+// Mission Control's per-card distance badge (PANEL_V3_SPEC.md §3.1).
 export const BASE_ANCHOR = { x: 11, y: 89, z: 55 };
+
+// ---------------------------------------------------------------------------
+// Distance from base — Mission Control wall state (PANEL_V3_SPEC.md §3.1,
+// G3). Horizontal distance is 2D (dx/dz only), deliberately matching how
+// overseer.mjs's own idle-guard ring check ignores Y; vertical delta is kept
+// separate rather than folded into one 3D number, since "how far sideways"
+// and "how far up/down" are different questions a driver reads differently.
+// Compass bearing is the 8-point points-of-the-compass reading (not 16), off
+// Minecraft's own world axes: +X = east, +Z = south, so north is -Z.
+// ---------------------------------------------------------------------------
+const COMPASS_POINTS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+// Below this horizontal distance a bearing is noise, not information — a bot
+// standing on top of the anchor doesn't have a meaningful "direction from
+// base" any more than "0m away" needs one.
+const COMPASS_MIN_DIST = 1;
+
+function compassBearing(dx, dz) {
+  const deg = (Math.atan2(dx, -dz) * 180) / Math.PI;
+  const norm = (deg + 360) % 360;
+  return COMPASS_POINTS[Math.round(norm / 45) % 8];
+}
+
+// Exported for independent testing (`node -e "import('./panel-data.mjs').then(m => console.log(m.distanceFromBase({x:1,y:1,z:1})))"`).
+// pos null (offline/unspawned) is the honest "no reading" case — never a
+// fabricated 0m — same rule the movement-delta ring already follows.
+export function distanceFromBase(pos) {
+  if (!pos || typeof pos.x !== 'number' || typeof pos.z !== 'number') return null;
+  const dx = pos.x - BASE_ANCHOR.x;
+  const dz = pos.z - BASE_ANCHOR.z;
+  const horiz = Math.sqrt(dx * dx + dz * dz);
+  const vertical = typeof pos.y === 'number' ? Math.round(pos.y - BASE_ANCHOR.y) : null;
+  return {
+    horiz: Math.round(horiz * 10) / 10,
+    vertical,
+    compass: horiz < COMPASS_MIN_DIST ? null : compassBearing(dx, dz),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Runner polling
@@ -219,6 +259,7 @@ async function pollBot(port) {
       offlineReason,
       connected: false,
       pos: null,
+      distance: null,
       health: null,
       food: null,
       inventory: [],
@@ -249,6 +290,7 @@ async function pollBot(port) {
     offlineReason: null,
     connected: !!status.connected,
     pos: status.pos ?? null,
+    distance: distanceFromBase(status.pos ?? null),
     health: typeof status.health === 'number' ? status.health : null,
     food: typeof status.food === 'number' ? status.food : null,
     gamemode: status.gamemode ?? null,
@@ -348,7 +390,7 @@ async function buildFleet() {
     offline: true,
     offlineReason: err?.message ?? String(err),
     connected: false,
-    pos: null, health: null, food: null, inventory: [],
+    pos: null, distance: null, health: null, food: null, inventory: [],
     currentTask: null, lastError: null, deathCount: null, idleGuard: null,
     lastDeath: null, engine: null,
     idle: false, taskStartedAt: null, events: [],
@@ -677,14 +719,15 @@ export async function getVault() {
 }
 
 // ---------------------------------------------------------------------------
-// v3 data primitives — new this phase (PANEL_V3_SPEC.md §1.3/1.4/1.8, G2/G4).
-// Deliberately UNWIRED: no route in panel.mjs calls these yet and no client
-// code renders them — phase 1 is the file split, "zero feature/visual change"
-// per the launch brief. These are plain, independently-testable readers ready
-// for the phase-2 Workflow to build Economy graphs / Tribe Stat Wall on top
-// of, same spirit as getTodoBoard/getVault above: never fabricate, never
-// guess, tolerate a missing file/directory as the normal "nothing recorded
-// yet" state rather than an error.
+// v3 data primitives (PANEL_V3_SPEC.md §1.3/1.4/1.8, G2/G4). readLedgerEntries/
+// readDeathFiles/readFelRelation below remain UNWIRED — no route calls them
+// and no client code renders them yet, waiting on the Economy graphs / Tribe
+// Stat Wall sections. getMissionsForBot() (further down, mission history)
+// IS wired — GET /api/missions, consumed by Mission Control's drilldown
+// (PANEL_V3_SPEC.md §3.1). All of these share the same contract as
+// getTodoBoard/getVault above: never fabricate, never guess, tolerate a
+// missing file/directory as the normal "nothing recorded yet" state rather
+// than an error.
 // ---------------------------------------------------------------------------
 
 // cave/ledger/<bot>.jsonl reader (PANEL_V3_SPEC.md §1.3). Mirrors
@@ -787,6 +830,77 @@ export async function readMissionEntries() {
     }
   }
   return { entries, badLines, files };
+}
+
+// Resolves a bot name/port query (same accepted shapes as doWake/doStop's
+// resolveBot: case-insensitive name, or a port, with or without a leading
+// ":") down to a roster bot NAME — the key cave/missions/<bot>.jsonl files
+// are written under. Read-only, so unlike resolveBot it never needs to fall
+// back to a wake/stop plan; a live-fleet-cache lookup still covers a named
+// bot running on an off-roster port (CAVE_PANEL_PORTS test mode).
+function resolveBotName(nameOrPort) {
+  if (nameOrPort === undefined || nameOrPort === null) return null;
+  const raw = String(nameOrPort).trim();
+  if (!raw) return null;
+  const byName = BOT_BY_NAME.get(raw.toLowerCase());
+  if (byName) return byName.name;
+  const asPort = Number(raw.replace(/^:/, ''));
+  if (Number.isInteger(asPort)) {
+    const byPort = BOT_BY_PORT.get(asPort);
+    if (byPort) return byPort.name;
+    const live = fleetCache.payload?.bots?.find((b) => b.port === asPort);
+    if (live) return live.name;
+  }
+  return null;
+}
+
+// Mission Control drilldown (PANEL_V3_SPEC.md §3.1) — last N missions for ONE
+// bot, newest first, fetched only when a driver actually opens that card's
+// drilldown (not on the fast 3s poll — see panel-client.js). Reads the one
+// file directly rather than routing through readMissionEntries()'s
+// read-every-file-then-filter shape, since a drilldown only ever wants one
+// bot's history and there is no reason to read the other seven files to get
+// it. A missing file (G2 not shipped yet for THIS bot, or shipped but this
+// bot has never had a task finish) is the honest "no mission history yet"
+// state, not an error — same tolerant contract as every other v3 reader
+// above.
+const MISSION_HISTORY_CAP = 30;
+
+export async function getMissionsForBot(nameOrPort) {
+  const name = resolveBotName(nameOrPort);
+  if (!name) {
+    return { ok: false, missing: false, bot: null, error: `unknown bot "${nameOrPort}"`, entries: [] };
+  }
+  const file = path.join(MISSIONS_DIR, `${name}.jsonl`);
+  let text;
+  try {
+    text = await fsp.readFile(file, 'utf8');
+  } catch (err) {
+    if (err?.code === 'ENOENT') return { ok: true, missing: true, bot: name, entries: [] };
+    return { ok: false, missing: false, bot: name, error: err?.message ?? String(err), entries: [] };
+  }
+  const parsed = [];
+  let badLines = 0;
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      parsed.push(JSON.parse(line));
+    } catch {
+      badLines++; // corrupt JSONL line — counted, not fatal
+    }
+  }
+  // Append-only file: later lines are newer. Reversing the parse order for
+  // "newest first" rather than sorting on each entry's own `ts` means one
+  // line with a missing/malformed timestamp can never jump the queue.
+  const newestFirst = parsed.slice().reverse();
+  return {
+    ok: true,
+    missing: false,
+    bot: name,
+    entries: newestFirst.slice(0, MISSION_HISTORY_CAP),
+    total: parsed.length,
+    badLines,
+  };
 }
 
 // cave/fel-relation.json reader (PANEL_V3_SPEC.md §1.8/G4). Same tolerant

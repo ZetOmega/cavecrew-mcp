@@ -35,6 +35,7 @@ import {
   readAlerts,
   getTodoBoard,
   getVault,
+  getMissionsForBot,
   doWake,
   doStop,
 } from './panel-data.mjs';
@@ -207,6 +208,18 @@ async function handle(req, res) {
     return sendJson(res, 200, await getVault());
   }
 
+  // Mission Control drilldown (PANEL_V3_SPEC.md §3.1) — one bot's mission
+  // history, fetched lazily when a card's drilldown is opened, deliberately
+  // NOT part of /api/fleet's fast 3s payload (no reason to ship 8 bots' worth
+  // of history on every poll when at most one card is expanded at a time).
+  if (m === 'GET' && p === '/api/missions') {
+    const bot = url.searchParams.get('bot');
+    if (!bot) {
+      return sendJson(res, 200, { ok: false, missing: false, bot: null, error: 'bot query param required', entries: [] });
+    }
+    return sendJson(res, 200, await getMissionsForBot(bot));
+  }
+
   if (m === 'POST' && (p === '/api/wake' || p === '/api/stop')) {
     // Checked before the body is even read, and long before anything is
     // forwarded to a runner: a rejected request never touches a bot.
@@ -369,6 +382,12 @@ function renderPage() {
 
   .pos { margin-top: 5px; font-size: 11px; color: var(--muted); letter-spacing: .02em; }
 
+  /* Distance-from-base (v3, Mission Control) — horizontal metres + 8-point
+     compass + vertical delta off BASE_ANCHOR (panel-data.mjs). One line,
+     supplementary to .pos rather than replacing it, so hidden entirely
+     (never "0m") when pos itself is unknown — see panel-client.js fmtDistance. */
+  .distance { margin-top: 3px; font-size: 11px; color: var(--dim); letter-spacing: .02em; }
+
   .delta { margin-top: 5px; display: flex; align-items: baseline; gap: 6px; font-size: 11px; }
   .dl { color: var(--dim); letter-spacing: .03em; }
   .dv { font-weight: 650; font-variant-numeric: tabular-nums; }
@@ -444,6 +463,17 @@ function renderPage() {
   .chip .c { padding: 0 6px; border-radius: var(--radius-pill); background: var(--chip-count-bg); color: var(--text); font-size: 10px; font-weight: 600; }
   .inv-empty { margin-top: 10px; font-size: 11px; color: var(--dim); font-style: italic; }
 
+  /* Durability chips (v3, G1's per-item durability field) — a thin bar under
+     the name+count row, vanilla Minecraft's own inventory-GUI convention for
+     "this tool is wearing out." Only items that actually carry a
+     {used,max} pair grow this second row; every other chip (materials,
+     food, a tool from a runner that hasn't shipped G1 yet) renders exactly
+     like today's plain chip — see buildItemChip() in panel-client.js. */
+  .chip.has-dur { flex-direction: column; align-items: stretch; gap: 3px; padding: 4px 8px 5px; }
+  .chip-top { display: flex; align-items: center; gap: 5px; }
+  .dur-bar { display: block; height: 3px; border-radius: var(--radius-track); background: var(--health-track); overflow: hidden; }
+  .dur-fill { display: block; height: 100%; border-radius: var(--radius-track); transition: width .3s ease, background .3s; }
+
   .acts { margin-top: 12px; display: flex; gap: 8px; align-items: center; }
   button {
     font: inherit; cursor: pointer; border-radius: var(--radius-sm); transition: background .15s, border-color .15s, opacity .15s;
@@ -461,6 +491,26 @@ function renderPage() {
   .stop:hover:not(:disabled) { color: var(--red); border-color: rgba(var(--red-rgb), .45); }
   .flash { font-size: 11px; color: var(--muted); }
   .flash.bad { color: var(--amber); }
+
+  /* Mission Control drilldown (v3) — click a card's header row (row1) to
+     reveal full inventory, this bot's recent events (same data as the
+     existing per-card ev-toggle above, just the fuller view), and durable
+     mission history from /api/missions (fetched lazily, only while this
+     panel is open — see panel-client.js, not part of the 3s fleet poll).
+     Same max-height/opacity reveal language as .ev-list/#bd-done — v3
+     deliberately does not invent a second expand motion. */
+  .row1.clickable { cursor: pointer; }
+  .row1.clickable:hover .name { text-decoration: underline; text-decoration-color: var(--dim); text-underline-offset: 2px; }
+  .dd-toggle { flex: none; font-size: 10px; color: var(--dim); margin-left: 6px; }
+  .dd {
+    max-height: 0; opacity: 0; overflow: hidden;
+    transition: max-height .25s ease, opacity .2s ease, margin-top .25s ease, padding-top .25s ease;
+  }
+  .dd.open { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); max-height: 720px; opacity: 1; }
+  .dd-head { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin: 10px 0 6px; }
+  .dd-head:first-child { margin-top: 0; }
+  .dd-inv.inv, .dd-inv.inv-empty { margin-top: 0; }
+  .dd-list { display: flex; flex-direction: column; gap: 5px; max-height: 150px; overflow-y: auto; padding-right: 2px; }
 
   aside {
     background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);

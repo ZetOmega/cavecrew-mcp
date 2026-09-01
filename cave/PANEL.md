@@ -25,8 +25,11 @@ architecture note — split from one 1840-line file, phase 1, 2026-09-01):
   testable without booting the HTTP server, e.g.
   `node -e "import('./cave/panel-data.mjs').then(m => console.log(m.getVault()))"`.
   Also carries the newer v3 primitives (`BASE_ANCHOR`, ledger/deaths/missions
-  readers, the FEL relation reader) — unwired to any route or client render
-  yet; see `cave/PANEL_V3_SPEC.md` for what will consume them.
+  readers, the FEL relation reader). `BASE_ANCHOR`/`distanceFromBase()` and
+  the per-bot mission reader are now wired into Mission Control (see `##
+  Mission Control drilldown` below); the ledger, deaths-streak, and FEL
+  relation readers remain unwired, waiting on the Economy graphs / Tribe Stat
+  Wall sections — see `cave/PANEL_V3_SPEC.md` for what will consume them.
 - **`cave/panel-client.js`** — the entire client-side script, served as a real
   static file via `GET /panel.js` and loaded with
   `<script src="/panel.js"></script>`. This is what used to be an inline
@@ -144,6 +147,18 @@ blinks green on each successful poll.
   process is up but the bot entity isn't (mid-reconnect), grey = runner
   unreachable
 - rounded `xyz`, task age (best-effort)
+- **distance from base** (v3, Mission Control) — one line under `xyz`:
+  horizontal metres + an 8-point compass bearing (`N`/`NE`/`E`/`SE`/`S`/`SW`/
+  `W`/`NW`) + vertical delta, all measured off `BASE_ANCHOR`
+  (`panel-data.mjs`, currently chest A's real position, `11,89,55` — see G3
+  in `cave/PANEL_V3_SPEC.md`). Horizontal distance is 2D (`x`/`z` only,
+  matching how `overseer.mjs`'s own idle-guard ring check ignores `y`);
+  vertical is a separate signed number so "how far sideways" and "how far
+  up/down" stay two different readings, not one blended 3D figure. Hidden
+  entirely — never a fabricated `0m` — whenever `pos` itself is unknown
+  (offline/unspawned), and the compass point itself is omitted (not "N") the
+  rare time a bot is standing close enough to the anchor (under 1m) that a
+  bearing would be noise, not information.
 - movement deltas, `Δ30s 12.3 | Δ60s 25.1` (see below)
 - health and food as 0-20 bars; health goes amber under 12, red under 6
 - current task kind, state, and detail — when the task's `kind` is
@@ -157,9 +172,36 @@ blinks green on each successful poll.
   normal while a driver actively drives, see issue #6; older runners without
   the field just omit the chip), and movement engine
 - `lastError` in a red box when set
-- inventory as compact chips — top 10 stacks by count, with count badges
+- inventory as compact chips — top 10 stacks by count, with count badges.
+  Any item carrying a real `durability: {used, max}` pair (a runner-side
+  field, currently a live mix of present/absent even within the SAME bot's
+  inventory depending on when each item was picked up relative to a runner
+  restart — see G1 in `cave/PANEL_V3_SPEC.md`) grows a thin colour bar under
+  its name+count: green at 30%+ remaining, amber 10-30%, red under 10% —
+  vanilla Minecraft's own bottom-edge durability-bar convention, chief's
+  exact thresholds from `cave/PANEL_V3_SPEC.md` §3.4. An item with no
+  durability field renders byte-for-byte the same plain chip as before this
+  round — zero fake bars, ever.
 - a collapsed `▸ events (N)` toggle — click to expand the bot's last ~10
   events, newest first (see Phase 2 ideas below for detail)
+- **Mission Control drilldown** (v3) — click anywhere on the card's header
+  row (the dot/name/port/age line, marked `▸ details`) to reveal a panel with
+  three sections, same max-height/opacity reveal language as the event log
+  above (v3 deliberately does not invent a second expand motion):
+  - **Full inventory** — every stack, not just today's top 10, same
+    durability-bar chips as above, capped at 30 with a `+N more` chip past
+    that (Vault's own precedent).
+  - **Recent events** — the same ~10-event data as the compact toggle,
+    fuller presentation; no new data source.
+  - **Mission history** — up to the last 30 entries from
+    `cave/missions/<bot>.jsonl` (G2), newest first, each showing kind, state,
+    duration, and detail/error when present, fetched from `GET
+    /api/missions?bot=<name-or-port>` **only while the drilldown is open** —
+    deliberately not part of the fast 3s `/api/fleet` poll (see `## API`
+    below). A bot with no mission file yet (G2 not shipped for it, or it has
+    simply never finished a task) shows the honest quiet line `keine
+    Missions-Historie (runner-update ausstehend)` rather than an empty list
+    or a fabricated zero.
 
 Offline runners are tolerated, never fatal: the card dims, the entry is marked
 `offline: true` with a reason, and the rest of the fleet renders normally.
@@ -248,6 +290,7 @@ there is no persistence by design.
 | `GET` | `/api/alerts` | last ~50 lines of the alerts log |
 | `GET` | `/api/todo` | `cave/TODO.md`'s markdown tables, parsed and bucketed into `doing`/`todo`/`done`; cached on the file's mtime |
 | `GET` | `/api/vault` | `cave/audit-snapshot.json`'s per-chest ledger, joined with hand-synced chest coords/labels; cached on the file's mtime, snapshot age always computed fresh |
+| `GET` | `/api/missions?bot=<name-or-port>` | one bot's mission history (v3, `cave/missions/<bot>.jsonl`), newest first, capped at 30 — see `## Mission Control drilldown` above. `bot` accepts the same name/port shapes as `wake`/`stop`. Fetched by the client only while that card's drilldown is open, not on the main poll. |
 | `POST` | `/api/wake` | `{bot}` — push the role-default task, `force: false` |
 | `POST` | `/api/stop` | `{bot}` — forward `POST /stop` |
 
