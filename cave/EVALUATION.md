@@ -1,4 +1,40 @@
-# EVALUATION.md — cavecrew bench doctrine (v1, 2026-09-01)
+# EVALUATION.md — cavecrew bench doctrine (v2, 2026-09-01)
+
+## CHIEF RULING (2026-09-01) — binding, read this first
+
+The bench no longer builds itself a world to run in. Verbatim constraints:
+
+- **RCON world-touch is ILLEGAL, with no exception for test infrastructure.**
+  `bench.mjs` contains no `/fill`, no forceload, no setblock, no RCON of any
+  kind — the `rconchat.js` import is gone. Those words appear in `bench.mjs`
+  only inside its own copy of this ruling.
+- **Allowed instead:** the test bot **TestRock** withdraws a SMALL lean test
+  kit from base **chest A (11,89,55)** — some cobble, wood, a pickaxe, food —
+  walks to the test yard, and runs every check **using its own hands only**.
+- **Per check:** `goto` runs on natural terrain (no built room); `dig+collect`
+  mines natural stone at the yard; `craft` uses kit wood; `place+verify` uses
+  the kit's own cobble, hand-placed and **hand-removed after**; `staircase`
+  digs natural ground, and the resulting far-wilderness scar at the 264+ block
+  yard is accepted rather than restored. If a check ever needs a sealed space,
+  it gets a tiny **hand-built cobble shelter from the kit** (peaceful server,
+  low risk) — never an admin-built room.
+- **Cleanup law:** TestRock returns/banks leftovers to chest A, and the bench
+  kills the TestRock-driven task cleanly at the end. The bot **process** stays
+  up — this bench never starts and never stops a runner.
+
+Two knock-on consequences, both binding:
+
+1. `TESTLAB.md`'s "TestRock never withdraws from camp chests" line is
+   overridden **only** for the bench kit. Both halves of the borrow (withdraw
+   and bank-back) go out as `DEPOT` ledger lines in chat, so the loan is
+   auditable end to end by anyone reading chat.
+2. Because nothing is scaffolded any more, a check can now be **impossible**
+   rather than merely failing (chest A is bare, no natural stone in range).
+   That case is reported as **SKIP**, never as PASS, and a SKIP still exits
+   non-zero: *a check that could not run is not a green light.* See "SKIP is
+   not a pass" below.
+
+---
 
 Adopted from felcrew-mcp's `EVALUATION.md` (their fleet evaluation doctrine, same
 date) after an adoption survey of their evaluation/evolution system. Their stack
@@ -65,6 +101,22 @@ or `movement.js` — new skill, tuned constant, refactor, quirk fix, everything.
 Chat-protocol files, `CIV.md`, driver-guide prose, and this file itself are not
 gated by bench (they can't false-success a live bot).
 
+**Running it** (post-ruling — bench no longer spawns anything of its own):
+
+1. TestRock must already be up on its own lane, per `TESTLAB.md`:
+   `node cave/runner.js --name TestRock --port 3209`. Bench refuses to start
+   otherwise, and refuses outright if port 3209 answers as anything other than
+   TestRock — a production bot (3201-3208) is never risked by a test.
+2. Chest A (11,89,55) must hold the kit: **cobblestone (12 taken), oak_log (2
+   taken), one pickaxe (stone → iron → wooden, first found), and 4 food**
+   (cooked_beef → cooked_porkchop → bread → cooked_mutton → apple, first
+   found). Anything missing is named in the report and skips only the items
+   that need it; food gates nothing, it just removes starvation as a confound.
+3. `node cave/bench.mjs`. It walks TestRock to chest A, borrows the kit
+   (`DEPOT -N` lines), walks the ~264 blocks to the yard in bounded hops,
+   runs the five items, walks back, banks everything (`DEPOT +N` lines), and
+   `/stop`s its own task. The runner process is left running either way.
+
 ## The un-fixtured-run philosophy (no scaffolding in the checklist)
 
 felcrew's clearest statement of the principle, and the reason `bench.mjs` is
@@ -86,30 +138,77 @@ read (a fresh `GET /status` position/inventory snapshot, or a second `/eval`
 call reading `blockAt` — never the task's own `result` object) taken by the
 bench script itself, before and after the action under test:
 
-- goto → position read after an 800ms settle, not `{reached:true}`.
+- goto → position read after an 800ms settle, not `{reached:true}`. The target
+  is a point ~20 blocks out whose standable height came from a fresh `/eval`
+  terrain scan, and the verdict needs **two** independent facts: within 3.5
+  blocks of the target *and* at least 12 blocks of real displacement from the
+  start position. "Arrived" is meaningless if the bot never left.
 - dig+collect → inventory diff computed from bench's own before/after snapshots,
-  not `mineBlocks`'/`collectDrops`' internal counters.
+  not `mineBlocks`'/`collectDrops`' internal counters. The dig site is real
+  terrain: an `/eval` scan picks the nearest **air-exposed** stone-family block
+  (stone / deepslate / andesite / granite / diorite / tuff) no more than 3
+  blocks below the bot's feet, and the diff is graded on what that block
+  actually **drops** — `stone` never lands in a bag as "stone".
 - craft → same: bench's own diff is the verdict; the task's self-reported
   `{before,after,gained}` is logged and cross-checked, and a disagreement
   between the two is itself flagged as a finding, never silently discarded.
+  The `oak_log` it consumes comes out of the kit, not out of an admin command.
 - place → a **second, separate** `/eval` call reads the placed block back from
   the world; the placement call's own resolved promise is not trusted (this is
   literally the shape of the "block confirmed gone but no item drop appeared"
   and "blockUpdate timeout but the block is real" quirks already logged in
   `FEEDBACK.md` — a call resolving is not the same fact as the world agreeing).
+  A `placeBlock` that *throws* is not trusted either: the world read decides,
+  and a throw is recorded as a note beside the verdict. Under the cleanup law
+  the block is then hand-dug and the drop re-collected, and a **third**
+  independent read confirms the removal — a block left standing fails the item.
 - staircase → net Y-drop from bench's own before/after position read. The
   engine's internal net-descent watchdog (`skills.js` `buildStaircase`, "only
   Xy net drop over steps N-M") is a good in-place stall guard, but it grades
   *itself*; it is not a substitute for an external witness confirming the
-  descent actually happened by the amount requested.
+  descent actually happened by the amount requested. The cut is left in the
+  ground: at a yard 264+ blocks from every base, the ruling accepts the scar.
 
-Fixture setup (RCON `give`-ing a pickaxe, logs, a block to place) is fine and
-expected — felcrew's own doctrine says so explicitly ("fixtures are allowed to
-use admin commands to build deterministic scenarios, that's the whole point of
-a local fixture server"). The line is: **scaffolding the precondition is fine,
-scaffolding — or trusting — the verdict is not.** `bench.mjs` gives BenchMole a
-pickaxe so mining is possible at all; it never gives BenchMole the *outcome*
-it's supposed to be proving.
+Fixture setup is still fine and expected — felcrew's own doctrine says so
+("fixtures are allowed to build deterministic scenarios, that's the whole point
+of a local fixture server"). The line is unchanged: **scaffolding the
+precondition is fine, scaffolding — or trusting — the verdict is not.** What
+changed is *who is allowed to do the scaffolding*. Under the ruling the answer
+is "the bot's own hands, out of a chest-A kit" and nothing else:
+
+- The pickaxe is **borrowed**, not conjured, so mining is possible at all — and
+  so `mineBlocks`' internal `ensureTool()` never takes its depot-chest branch
+  mid-check, which from the yard is a 264-block detour into the middle of a
+  graded item.
+- Choosing *where* to dig, *which* face to place against, and *what* height to
+  walk to are all reads of the real world, done up front with `/eval`. A read
+  that picks a target is setup; a read that decides the outcome is the verdict.
+  Bench never lets the second one be the same call as the action.
+- The bench still never hands TestRock the *outcome* it is supposed to be
+  proving.
+
+## SKIP is not a pass
+
+The old bench built its own room, so every item could always run and the only
+outcomes were PASS and FAIL. Hand-run checks on real terrain have a third:
+**the check could not run at all** — chest A had no oak_log, no pickaxe came
+back, no exposed stone within 48 blocks of the yard. Those are reported as
+`SKIP` with the reason, the items that depend on the missing thing are skipped
+rather than failed (a bare chest is not a bug in `skills.js`), and:
+
+- `node cave/bench.mjs` exits **0 only if every item PASSED**. Any FAIL *or*
+  any SKIP exits 1, printing `INCONCLUSIVE, ROLLOUT BLOCKED`.
+- Treat an inconclusive bench exactly like a red one at step 3 of the cycle
+  below. "Nothing failed" is not the same fact as "it works" — that is the same
+  false-success confusion this whole file exists to refuse, one level up.
+
+Two non-checklist rows are recorded the same ground-truth way and gate the run
+alongside the five items: `cleanup-bank-leftovers` (the bag is empty of kit and
+test items afterward, per this script's own inventory diff) and `death-guard`
+(`deathCount` unchanged across the run). The death guard is the direct
+replacement for the old sealed room: nothing shelters the bot now except a
+peaceful server and its kit, so the run states out loud whether that held, and
+a death is the trigger for hand-building a cobble shelter before the re-run.
 
 ## Field-report → fix → bench → ship
 
@@ -208,10 +307,19 @@ hot files untouched):
 Five items today: goto, dig+collect, craft, place, staircase-4-level — chosen
 because together they touch every hot file (`movement.js` via goto,
 `skills.js` for the rest) and every write path a driver actually uses hour to
-hour. When a FEEDBACK.md entry describes a NEW false-success shape (not covered
-by an existing item — e.g. smelting, depositing/withdrawing at a chest,
-hunting), add a sixth checklist item to `bench.mjs` grading it the same
-ground-truth way, rather than special-casing it as a one-off script. That
+hour. Chest withdraw/deposit is no longer on the "not covered yet" list: the
+ruling's kit run exercises both, and both are graded ground-truth (against
+bench's own inventory diff, not `withdrawFromChest`'s `withdrawn[]` or
+`depositToChest`'s `deposited[]`) as the `kit-withdraw` and
+`cleanup-bank-leftovers` rows. They gate the run like any other row, they just
+aren't one of the five named items.
+
+When a FEEDBACK.md entry describes a NEW false-success shape (not covered by an
+existing item or row — e.g. smelting, hunting), add a sixth checklist item to
+`bench.mjs` grading it the same ground-truth way, rather than special-casing it
+as a one-off script. Two constraints on any new item, both from the ruling:
+it sets up its own precondition from the kit or from natural terrain, and it
+leaves the world the way it found it (or takes an accepted yard scar). That
 mirrors felcrew's "one Tier-0 fixture per shipped FEEDBACK entry" convention at
 a scale that fits us: a handful of checklist items in one file, not a
 `bench/fixtures/` directory of dozens — revisit that structure only if this

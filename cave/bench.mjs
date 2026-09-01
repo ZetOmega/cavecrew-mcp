@@ -1,148 +1,193 @@
 #!/usr/bin/env node
 // cave/bench.mjs — one-command pre-flight for the cavecrew runner/skills stack.
 //
-// Adapted from felcrew-mcp's bench/preflight.sh + bench/bench.sh (Tier-0 fixtures,
-// EVALUATION.md doctrine): "grade with something that didn't do the work" (law 1).
-// This script does NOT trust any task's own {reached:true} / {done:true} / self-
-// reported diff. Every checklist item is graded from a SEPARATE ground-truth read
-// (GET /status position, GET /status inventory, or a fresh /eval blockAt) taken by
-// this script, before and after the task under test — never the task's own result
-// object. That is the exact discipline our own commit 4725e84 ("movement:
-// ground-truth reached verification + raw-walk fallback (goto false-success
-// dragon)") had to retrofit onto /goto after it shipped without it: /goto used to
-// resolve {reached:true} while bot.entity.position hadn't moved at all (see
-// FEEDBACK.md "goto false-'reached'" / "TORN-GOTO" entries, 2026-09-01). Bench
-// exists so that class of bug is caught in one command before it reaches a driver.
+// ===========================================================================
+// CHIEF RULING (2026-09-01) — binding, non-negotiable, supersedes the previous
+// design of this file:
 //
-// Spawns a disposable bot ("BenchMole", port 3295 — NOT a roster bot, never added
-// to CIV.md), immediately relocates it 200+ blocks from every cavecrew/FEL base
-// coordinate onto a small RCON-built platform (a fully sealed cobblestone shell
-// around a lit, hollow interior — this world's real terrain at arbitrary
-// coordinates is unpredictable and unloaded, so the bench force-loads the target
-// chunks and builds its own known-good, fully-enclosed room rather than trusting
-// whatever is already there, same reasoning as felcrew's bench/lib/common.sh
-// build_platform), runs the checklist below, then kills the bot and erases the
-// platform. Never lingers.
+//   * RCON world-touch is ILLEGAL, with no exception for test infrastructure.
+//     This bench contains NO /fill, NO forceload, NO setblock, NO RCON of any
+//     kind (the rcon/rconchat imports are gone). Those five words appear in
+//     this file ONLY inside this ruling note.
+//   * Allowed instead: the test bot TestRock withdraws a SMALL lean test kit
+//     from base chest A at (11,89,55) — some cobble, wood, a pickaxe, food —
+//     walks to the test yard, and runs every check using its own hands only.
+//   * Per check: goto runs on natural terrain (no built room); dig+collect
+//     mines natural stone at the yard; craft uses kit wood; place+verify uses
+//     the kit's own cobble, hand-placed and hand-removed after; staircase digs
+//     natural ground and the resulting far-wilderness scar at the 264+ block
+//     yard is accepted rather than restored. If a check ever needs a sealed
+//     space, it gets a tiny hand-built cobble shelter from the kit (peaceful
+//     server, low risk) — never an admin-built room.
+//   * Cleanup law: TestRock returns/banks leftovers to chest A, and the bench
+//     kills the TestRock-driven task cleanly at the end. The bot PROCESS stays
+//     up — this bench never starts and never stops a runner.
+//
+// TESTLAB.md's "TestRock never withdraws from camp chests" line is the one
+// clause the ruling overrides, and only for the bench kit: the withdraw and
+// the matching bank-back are both ledgered in chat (DEPOT lines), so the
+// borrow is auditable end to end.
+// ===========================================================================
+//
+// Adapted from felcrew-mcp's bench/preflight.sh + bench/bench.sh (Tier-0
+// fixtures, EVALUATION.md doctrine): "grade with something that didn't do the
+// work" (law 1). This script does NOT trust any task's own {reached:true} /
+// {done:true} / self-reported diff. Every checklist item is graded from a
+// SEPARATE ground-truth read (GET /status position, GET /status inventory, or
+// a fresh /eval blockAt) taken by this script, before and after the task under
+// test — never the task's own result object. That is the exact discipline our
+// own commit 4725e84 ("movement: ground-truth reached verification + raw-walk
+// fallback (goto false-success dragon)") had to retrofit onto /goto after it
+// shipped without it: /goto used to resolve {reached:true} while
+// bot.entity.position hadn't moved at all (see FEEDBACK.md "goto
+// false-'reached'" / "TORN-GOTO" entries, 2026-09-01). Bench exists so that
+// class of bug is caught in one command before it reaches a driver.
+//
+// Runs against the dedicated test bot (TESTLAB.md): TestRock, port 3209,
+// yard center (12, ~90, 320) — 264 blocks from camp (12,89,56) and 316 from
+// the FEL base (-3,111,4), comfortably past the 200-block rule. Production
+// bots (3201-3208) are never driven by this script; if the port answers as
+// anything other than TestRock the run aborts before touching the world.
 //
 // Usage:
 //   node cave/bench.mjs
 //
-// Exit code: 0 if every checklist item passes, 1 otherwise (setup/connect failure
-// counts as a failed item too). Zero LLM tokens — pure node+RCON+HTTP.
+//   TestRock must already be running (this bench never spawns it):
+//     node cave/runner.js --name TestRock --port 3209
+//
+// Exit code: 0 only if every checklist item PASSED. A FAIL or a SKIP both
+// exit 1 — a check that could not run (missing kit item, no natural stone in
+// range) is not a green light, it is an inconclusive gate. Zero LLM tokens —
+// pure node + the runner's own HTTP API.
 //
 // Checklist (each graded independently, see the philosophy note above):
-//   1. goto ground-truth   — /goto 20 blocks away; verified via a fresh /status
-//                            position read after an 800ms settle (EVALUATION.md
-//                            law 1's own arrival definition), not the task's
-//                            reached:true.
-//   2. dig+collect cycle   — /mine 2x stone + /collect; verified via a cobblestone
-//                            inventory diff computed from this script's own
-//                            before/after /status snapshots.
-//   3. craft single        — /craft 1x oak_planks (hand recipe, no batch>1 — see
-//                            FEEDBACK.md's bot.craft(recipe,N>1) miscount entry);
-//                            verified via this script's own inventory diff, cross-
-//                            checked against (never substituted by) the task's own
-//                            before/after/gained fields.
-//   4. place+verify        — /eval places 1 cobblestone next to the bot, referenced
-//                            purely via Vec3 instance methods (offset/minus — no
-//                            Vec3 constructor is in /eval scope); verified via a
-//                            SEPARATE /eval blockAt read afterward.
-//   5. staircase 4-level   — /staircase toY:-4; verified via this script's own
-//                            position.y before/after diff, independent of the
-//                            engine's internal net-descent watchdog.
+//   1. goto ground-truth   — /goto ~20 blocks across natural terrain, to a
+//                            standable y found by a fresh /eval terrain scan;
+//                            verified via a fresh /status position read after
+//                            an 800ms settle (EVALUATION.md law 1's own
+//                            arrival definition), not the task's reached:true.
+//   2. dig+collect cycle   — /mine 2x natural stone (site chosen by an /eval
+//                            scan for an air-exposed stone-family block) +
+//                            /collect; verified via a drop-item inventory diff
+//                            computed from this script's own before/after
+//                            /status snapshots.
+//   3. craft single        — /craft 1x oak_planks from the kit's oak_log (hand
+//                            recipe, no batch>1 — see FEEDBACK.md's
+//                            bot.craft(recipe,N>1) miscount entry); verified
+//                            via this script's own inventory diff, cross-
+//                            checked against (never substituted by) the task's
+//                            own before/after/gained fields.
+//   4. place+verify        — /eval places 1 kit cobblestone on a natural face
+//                            next to the bot, referenced purely via Vec3
+//                            instance methods (offset/minus — no Vec3
+//                            constructor is in /eval scope); verified via a
+//                            SEPARATE /eval blockAt read, then hand-removed
+//                            and re-collected, with the removal verified the
+//                            same independent way (cleanup law).
+//   5. staircase 4-level   — /staircase toY:-4 into natural ground; verified
+//                            via this script's own position.y before/after
+//                            diff, independent of the engine's internal
+//                            net-descent watchdog.
 //
-// This file intentionally does not import skills.js/runner.js/movement.js — it is
-// a black-box HTTP+RCON client, same as a driver would be, so it can never end up
+// This file intentionally does not import skills.js/runner.js/movement.js — it
+// is a black-box HTTP client, same as a driver would be, so it can never end up
 // "grading itself" with the code under test.
-
-import { execFileSync } from 'node:child_process';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { createRconChat } from './rconchat.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const REPO_ROOT = path.dirname(__dirname);
-const SPAWN_PATH = path.join(__dirname, 'spawn.mjs');
 
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
-const BOT_NAME = 'BenchMole';
-const PORT = 3295; // inside cavecrew's 3200-3299 range (CIV.md), not a roster slot
+const BOT_NAME = 'TestRock';
+const PORT = 3209; // TESTLAB.md test-bot lane (3201-3208 are production)
 
-// Platform: a fully SEALED stone shell (floor + ceiling + 1-block-thick walls
-// on all 4 sides), with a lit hollow interior. Centered far from every base in
-// CIV.md (camp ~11,89,56; trading post ~7,112,22; FEL base ~-3,111,4) and far
-// from the live fleet's current wander range (checked live: nearest bot was Zug
-// at -32,116,101) — every one of those is 250+ blocks from this box, comfortably
-// clearing the 200-block rule. This is x300-339,z300-311 coordinates NEVER
-// visited before, i.e. unloaded/ungenerated chunks — found live, the hard way,
-// on the first real run: a floor+ceiling-only design (air fill over the same
-// footprint as the stone floor, no side walls) leaves the interior OPEN on all
-// 4 sides to whatever the freshly-generated surrounding terrain happens to be.
-// That first run's BenchMole took fatal unexplained damage and died mid-goto
-// (health 20 -> dead in under 90s with no combat logged) — consistent with the
-// "air pocket" actually being a doorway into an unexplored cave system, not an
-// enclosed room. Fix: fully enclose the interior in solid stone on every side,
-// independent of whatever the outside terrain turns out to be (same reasoning
-// as felcrew's own build_platform note: "this world's real terrain at arbitrary
-// coordinates is unpredictable... build your own rather than trusting it" —
-// that note was about the FLOOR; it turns out to apply to every side, not just
-// the floor).
-const PX0 = 300, PX1 = 339; // outer shell x range (40 wide)
-const PZ0 = 300, PZ1 = 311; // outer shell z range (12 wide)
-const PY_FLOOR_TOP = 79;    // shell floor top is at y79 (feet stand at y80)
-const PY_SHELL_BASE = 40;
-const PY_SHELL_TOP = 85;    // the whole outer box, solid, y40..85
-const IX0 = PX0 + 1, IX1 = PX1 - 1; // interior (hollowed, walled on all sides)
-const IZ0 = PZ0 + 1, IZ1 = PZ1 - 1;
-const PY_AIR0 = PY_FLOOR_TOP + 1, PY_AIR1 = PY_SHELL_TOP - 2; // hollow air, walled
-const PY_GLOW = PY_SHELL_TOP - 1; // lit ceiling layer INSIDE the shell (interior footprint only)
+// Base chest A (BASE.md: chest_a_materials, cavecrew access). The only camp
+// fixture this bench touches, and only to borrow + bank back the test kit.
+const CHEST_A = { x: 11, y: 89, z: 55 };
+const CHEST_LABEL = 'chest A';
 
-// Shell material is COBBLESTONE, deliberately NOT "stone" — found live: an
-// all-stone shell means the dig-collect checklist item's /mine {block:'stone'}
-// happily tunnels through the room's own floor/ceiling chasing more "stone" to
-// mine (confirmed live: drops turned up at y93-94, ~9-14 blocks above/outside
-// the sealed shell — the bot mined its own way out through the roof). Cobble
-// doesn't match a 'stone' search, so the shell itself is dig-test-proof; a
-// small dedicated DIG_PATCH below gives the dig-collect item real 'stone' to
-// mine without any risk of breaching the room.
-const DIG_PATCH = [
-  { x: 324, y: PY_FLOOR_TOP, z: 306 },
-  { x: 325, y: PY_FLOOR_TOP, z: 306 },
-  { x: 326, y: PY_FLOOR_TOP, z: 306 },
-]; // 1 block off the goto/dig travel line (z+1) — close enough for /mine's
-   // search radius near GOTO_TARGET, but not sitting directly under it, so it
-   // doesn't collide with waitWorldLoaded()'s cobblestone floor-load check at
-   // GOTO_TARGET itself.
+// Test yard (TESTLAB.md). y is approximate on purpose — it is natural terrain,
+// so the real standable height is read from the world, never assumed.
+const YARD = { x: 12, y: 90, z: 320 };
 
-const HOME = { x: 305, y: 80, z: 305 };
-const GOTO_TARGET = { x: 325, y: 80, z: 305 }; // 20 blocks east of HOME
-const PLACE_STAND = { x: 315, y: 80, z: 305 };
-const STAIR_START = { x: 305, y: 80, z: 308 }; // z+3 off the goto/dig line
+// The lean test kit. Each slot lists candidate item names in preference order:
+// the first one chest A actually holds is what gets borrowed, so the bench
+// survives a chest stocked with a wooden pickaxe instead of a stone one, or
+// bread instead of steak. `needs` names the checklist items that cannot run
+// without this slot — those get SKIPPED (not FAILED) when it is missing.
+const KIT_SLOTS = [
+  {
+    slot: 'cobble',
+    count: 12, // 1 for place+verify, the rest is shelter/contingency material
+    candidates: ['cobblestone'],
+    needs: ['place-verify'],
+  },
+  {
+    slot: 'wood',
+    count: 2, // craft-single consumes 1 oak_log -> 4 planks; 1 spare
+    candidates: ['oak_log'],
+    needs: ['craft-single'],
+  },
+  {
+    slot: 'pickaxe',
+    count: 1,
+    candidates: ['stone_pickaxe', 'iron_pickaxe', 'wooden_pickaxe'],
+    // A pickaxe in the bag also keeps mineBlocks' ensureTool() from taking its
+    // depot-chest branch mid-check — from the yard that is a 264-block detour
+    // back to camp in the middle of a graded item.
+    needs: ['dig-collect-cycle', 'place-verify', 'staircase-4level'],
+  },
+  {
+    slot: 'food',
+    count: 4,
+    candidates: ['cooked_beef', 'cooked_porkchop', 'bread', 'cooked_mutton', 'apple'],
+    // Food gates no checklist item — it isolates the axis being measured (the
+    // five items) from an irrelevant confound (starvation), same reasoning as
+    // EVALUATION.md's C1 provisioning note. Missing food is reported, not fatal.
+    needs: [],
+  },
+];
+
+// Natural blocks the dig+collect item is willing to mine, in preference order,
+// mapped to what they actually drop without silk touch — the drop name is what
+// the inventory diff is graded on, since "stone" never lands in a bag as
+// "stone".
+const STONE_FAMILY = [
+  { block: 'stone', drop: 'cobblestone' },
+  { block: 'deepslate', drop: 'cobbled_deepslate' },
+  { block: 'andesite', drop: 'andesite' },
+  { block: 'granite', drop: 'granite' },
+  { block: 'diorite', drop: 'diorite' },
+  { block: 'tuff', drop: 'tuff' },
+];
+
 const STAIR_DIRECTION = 'east';
 const STAIR_LEVELS = 4;
+const GOTO_DISTANCE = 20; // blocks, the goto item's travel leg
 
 const SETTLE_MS = 800; // EVALUATION.md law 1's own arrival-settle window
-const CONNECT_TIMEOUT_MS = 30000;
-const TASK_TIMEOUT_MS = 60000;
+const POLL_MS = 1200;
+const TASK_TIMEOUT_MS = 90000;
+const CHEST_TASK_TIMEOUT_MS = 120000;
 // goto's own internal retry loop (gotoLoopPf) can eat its whole timeoutMs
 // PER ATTEMPT before reporting anything (observed live: "attempt 1/5 failed
-// (timed out after 60000ms)"), so a goto's timeoutMs must stay well under
-// this script's own poll deadline for it, or the poll gives up on a task
-// that's still legitimately retrying. Kept short on purpose — DRIVER_GUIDE's
-// own default is 45000; this is a smoke test on flat open ground, a real
-// arrival should be fast once chunks are loaded (see the chunk-settle note
-// in relocateAwayFromBases).
+// (timed out after 60000ms)"), so a goto's timeoutMs must stay well under this
+// script's own poll deadline for it, or the poll gives up on a task that is
+// still legitimately retrying.
 const GOTO_TIMEOUT_MS = 25000;
-const GOTO_POLL_TIMEOUT_MS = 40000;
+const GOTO_POLL_TIMEOUT_MS = 45000;
 const STAIRCASE_TIMEOUT_MS = 150000;
-const POLL_MS = 1200;
+
+// Long-haul travel: camp -> yard is ~264 blocks, far past what one /goto is
+// tuned for. Bench walks it in bounded hops and grades its OWN progress from
+// /status between hops, so a silently-stuck bot is caught in seconds instead
+// of after a five-minute timeout.
+const TRAVEL_HOP_BLOCKS = 40;
+const TRAVEL_HOP_TIMEOUT_MS = 45000;
+const TRAVEL_HOP_POLL_MS = 80000;
+const TRAVEL_MAX_HOPS = 24;
 
 // ---------------------------------------------------------------------------
-// tiny HTTP + RCON helpers
+// tiny HTTP helpers
 // ---------------------------------------------------------------------------
 
 async function apiGet(pathname, timeoutMs = 5000) {
@@ -156,7 +201,7 @@ async function apiGet(pathname, timeoutMs = 5000) {
   }
 }
 
-async function apiPost(pathname, body, timeoutMs = 10000) {
+async function apiPost(pathname, body, timeoutMs = 15000) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -166,7 +211,7 @@ async function apiPost(pathname, body, timeoutMs = 10000) {
       body: JSON.stringify(body ?? {}),
       signal: ctrl.signal,
     });
-    return { status: res.status, body: await res.json() };
+    return { status: res.status, body: await res.json().catch(() => ({})) };
   } finally {
     clearTimeout(t);
   }
@@ -176,52 +221,26 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-let rcon = null;
-async function rconSend(cmd) {
-  if (!rcon) rcon = createRconChat();
-  return rcon.send(cmd);
-}
-
-// ---------------------------------------------------------------------------
-// process management (reuses spawn.mjs — bench never reimplements bot lifecycle)
-// ---------------------------------------------------------------------------
-
-function spawnBotProcess() {
+// Narration + protocol ledger lines both go through /chat; the runner's
+// smartChat auto-classifies (DRIVER_GUIDE.md "Chat tiers"), so a DEPOT line
+// goes out verbatim as real white chat and everything else becomes grey.
+// Best-effort: a chat failure must never decide a checklist verdict.
+async function chat(message) {
   try {
-    execFileSync(process.execPath, [SPAWN_PATH, 'stop', BOT_NAME], { cwd: REPO_ROOT, stdio: 'pipe' });
+    await apiPost('/chat', { message }, 8000);
   } catch {
-    // no stale BenchMole — fine, this is best-effort idempotency
+    // narration is never load-bearing
   }
-  execFileSync(process.execPath, [SPAWN_PATH, 'start', BOT_NAME, String(PORT)], { cwd: REPO_ROOT, stdio: 'pipe' });
 }
 
-function stopBotProcess() {
-  try {
-    execFileSync(process.execPath, [SPAWN_PATH, 'stop', BOT_NAME], { cwd: REPO_ROOT, stdio: 'pipe' });
-    return true;
-  } catch (err) {
-    console.error(`bench: spawn.mjs stop ${BOT_NAME} failed: ${err.message}`);
-    return false;
-  }
+async function depotLine(sign, count, item) {
+  if (!count) return;
+  await chat(`DEPOT ${sign}${count} ${item} (${CHEST_LABEL})`);
 }
 
 // ---------------------------------------------------------------------------
-// polling
+// polling / ground-truth reads
 // ---------------------------------------------------------------------------
-
-async function waitConnected(timeoutMs) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const st = await apiGet('/status');
-      if (st?.connected) return st;
-    } catch {
-      // process may not be listening yet
-    }
-    await sleep(POLL_MS);
-  }
-  throw new Error(`bot did not report connected:true within ${timeoutMs}ms`);
-}
 
 // Polls /status until currentTask.state is no longer 'running'. Returns the
 // final /status object. Never throws on task failure — that's a checklist
@@ -242,8 +261,14 @@ async function waitTaskSettled(timeoutMs) {
 // soft-timeout, else returns {note, task:{state:'running',...}} and expects the
 // caller to poll /status — same task-polling contract as every other endpoint.
 // Falls back to that poll rather than treating "still running" as a failure.
+// force:true on every task POST below (this one included): /stop is already
+// issued before each item, but the runner's own idle-guard can self-issue a
+// make-work task in any gap, and a stale cancel can still be winding down. A 409
+// "busy" would then show up as a checklist failure that has nothing to do with
+// the code under test — force cancels-then-starts instead. It changes who owns
+// the mutex, never how a result is graded.
 async function evalCode(code, timeoutMs = 30000) {
-  const resp = await apiPost('/eval', { code }, 15000);
+  const resp = await apiPost('/eval', { code, force: true }, 20000);
   if (resp.body?.error) return { error: resp.body.error };
   if (!resp.body?.note) return resp.body?.result ?? null;
   const status = await waitTaskSettled(timeoutMs);
@@ -251,37 +276,13 @@ async function evalCode(code, timeoutMs = 30000) {
   return status?.currentTask?.result ?? null;
 }
 
-// x300+/z300+ is coordinate space nobody has ever visited — freshly generated,
-// freshly streamed to BenchMole's client. Found live: issuing a goto right
-// after RCON confirms the bot's OWN position lands there is not the same fact
-// as the surrounding chunk data having arrived — a goto issued too early
-// resolved "success" instantly with zero actual movement (caught by the
-// engine's own false-reach retry, which then failed identically 5 times in a
-// row, since the same missing-data condition triggered on every retry). This
-// polls a fresh /eval blockAt read at each corner of the room the checklist
-// actually uses, and only proceeds once every one of them reads back the real
-// placed material — the strongest available signal that the bot's own world
-// model, not just its reported position, has caught up.
-async function waitWorldLoaded(timeoutMs = 20000) {
-  const floorPoints = [HOME, GOTO_TARGET, PLACE_STAND, STAIR_START].map((p) => ({ x: p.x, y: p.y - 1, z: p.z }));
-  const code = `
-    const here = bot.entity.position.floored();
-    const abs = (x, y, z) => here.offset(x - here.x, y - here.y, z - here.z);
-    const pts = ${JSON.stringify(floorPoints)};
-    return pts.map((p) => { const b = bot.blockAt(abs(p.x, p.y, p.z)); return b ? b.name : null; });
-  `;
-  const deadline = Date.now() + timeoutMs;
-  let lastNames = null;
-  while (Date.now() < deadline) {
-    const result = await evalCode(code, 8000);
-    if (Array.isArray(result)) {
-      lastNames = result;
-      if (result.every((n) => n === 'cobblestone')) return;
-    }
-    await sleep(1000);
-  }
-  throw new Error(`world data for the bench room never fully loaded within ${timeoutMs}ms (last floor-block read: ${JSON.stringify(lastNames)})`);
-}
+// /eval's scope is (bot, mcData, skills, log) only — there is no bare Vec3
+// constructor in there, so every absolute coordinate has to be reached through
+// a Vec3 instance the bot already owns. This prelude builds that bridge once.
+const EVAL_PRELUDE = `
+  const __here = bot.entity.position.floored();
+  const abs = (x, y, z) => __here.offset(x - __here.x, y - __here.y, z - __here.z);
+`;
 
 function inventoryMap(status) {
   const m = new Map();
@@ -293,43 +294,370 @@ function countOf(status, name) {
   return inventoryMap(status).get(name) ?? 0;
 }
 
+// Positive entries only: what this script's own two /status snapshots say the
+// bag gained between them.
+function inventoryGain(before, after) {
+  const a = inventoryMap(before);
+  const b = inventoryMap(after);
+  const gained = new Map();
+  for (const [name, count] of b) {
+    const delta = count - (a.get(name) ?? 0);
+    if (delta > 0) gained.set(name, delta);
+  }
+  return gained;
+}
+
+function inventoryLoss(before, after) {
+  return inventoryGain(after, before);
+}
+
 function dist3D(a, b) {
   return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2);
 }
 
+function dist2D(a, b) {
+  return Math.sqrt((a.x - b.x) ** 2 + (a.z - b.z) ** 2);
+}
+
+function fmtPos(p) {
+  return p ? `(${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)})` : '<none>';
+}
+
+// Reads real terrain: the topmost standable y at (x,z) — a solid, non-liquid
+// block with two clear cells above it — searched downward from aroundY+span.
+// This is how the bench finds ground on unbuilt wilderness instead of assuming
+// a height the way the old admin-built platform could.
+async function groundYAt(x, z, aroundY, span = 12) {
+  const code = `${EVAL_PRELUDE}
+    const clear = (b) => b && b.boundingBox === 'empty' && b.name !== 'water' && b.name !== 'lava';
+    const solid = (b) => b && b.boundingBox === 'block' && b.name !== 'water' && b.name !== 'lava';
+    for (let y = ${aroundY + span}; y >= ${aroundY - span}; y--) {
+      const here = bot.blockAt(abs(${x}, y, ${z}));
+      const up1 = bot.blockAt(abs(${x}, y + 1, ${z}));
+      const up2 = bot.blockAt(abs(${x}, y + 2, ${z}));
+      if (!here || !up1 || !up2) continue;
+      if (solid(here) && clear(up1) && clear(up2)) return { y: y + 1, ground: here.name };
+    }
+    return { y: null };
+  `;
+  const result = await evalCode(code, 20000);
+  if (result?.error) throw new Error(`terrain scan at (${x},?,${z}) failed: ${result.error}`);
+  return result ?? { y: null };
+}
+
+// Picks the dig+collect item's target from the REAL world: the nearest
+// stone-family block that has at least one air face (so it is diggable without
+// tunnelling to it) and sits no more than 3 blocks below the bot's feet (so
+// mineBlocks' own pre-descent guard, "too deep, needs staircase" at >4, never
+// discards it). Setup only — the verdict still comes from the inventory diff.
+async function findNaturalStone(maxDistance) {
+  const code = `${EVAL_PRELUDE}
+    const names = ${JSON.stringify(STONE_FAMILY.map((s) => s.block))};
+    const airy = (b) => b && b.boundingBox === 'empty' && b.name !== 'water' && b.name !== 'lava';
+    const feetY = Math.floor(bot.entity.position.y);
+    for (const name of names) {
+      const def = mcData.blocksByName[name];
+      if (!def) continue;
+      const spots = bot.findBlocks({ matching: def.id, maxDistance: ${maxDistance}, count: 300 });
+      for (const p of spots) {
+        if (feetY - p.y > 3) continue;
+        const faces = [p.offset(1, 0, 0), p.offset(-1, 0, 0), p.offset(0, 1, 0), p.offset(0, -1, 0), p.offset(0, 0, 1), p.offset(0, 0, -1)];
+        if (!faces.some((q) => airy(bot.blockAt(q)))) continue;
+        return { block: name, pos: { x: p.x, y: p.y, z: p.z }, distance: bot.entity.position.distanceTo(p) };
+      }
+    }
+    return { block: null };
+  `;
+  const result = await evalCode(code, 30000);
+  if (result?.error) throw new Error(`stone scan failed: ${result.error}`);
+  return result ?? { block: null };
+}
+
 // ---------------------------------------------------------------------------
-// checklist items — each returns { name, pass, detail }
+// checklist bookkeeping — each item lands here exactly once
 // ---------------------------------------------------------------------------
 
 const results = [];
-function record(name, pass, detail) {
-  results.push({ name, pass, detail });
-  console.log(`[${pass ? 'PASS' : 'FAIL'}] ${name} — ${detail}`);
-  return pass;
+
+function push(name, status, detail) {
+  results.push({ name, status, detail });
+  console.log(`[${status}] ${name} — ${detail}`);
+  return status === 'PASS';
 }
 
-// Internal repositioning hop — NOT a graded checklist item, but still
-// ground-truth verified (a silent goto-dragon here would invalidate every
-// test after it). Throws on failure so main() can abort cleanly.
-async function gotoOrThrow(target, range = 1, label = 'reposition') {
-  const { body } = await apiPost('/goto', { x: target.x, y: target.y, z: target.z, range, timeoutMs: GOTO_TIMEOUT_MS, engine: 'pf' });
-  if (body?.error) throw new Error(`${label}: /goto rejected: ${body.error}`);
-  const status = await waitTaskSettled(GOTO_POLL_TIMEOUT_MS);
-  if (status?.currentTask?.state === 'failed') {
-    throw new Error(`${label}: /goto task failed: ${status.currentTask.result?.error}`);
+function record(name, pass, detail) {
+  return push(name, pass ? 'PASS' : 'FAIL', detail);
+}
+
+// A check that could not run is NOT a pass. It is reported separately and
+// still blocks the gate (see the exit-code note in the header) — the whole
+// point of this file is that nothing downstream gets to read "no failures" as
+// "verified".
+function skipped(name, detail) {
+  push(name, 'SKIP', detail);
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// travel — bounded hops, graded from bench's own /status between each one
+// ---------------------------------------------------------------------------
+
+async function travelTo(target, opts = {}) {
+  const label = opts.label ?? 'travel';
+  const arriveRange = opts.arriveRange ?? 3;
+  let last = await apiGet('/status');
+  if (!last?.pos) throw new Error(`${label}: no position in /status (bot not spawned?)`);
+  let stalls = 0;
+
+  for (let hop = 1; hop <= TRAVEL_MAX_HOPS; hop++) {
+    const flat = dist2D(last.pos, target);
+    if (flat <= arriveRange + 1.5) return last;
+
+    const step = Math.min(TRAVEL_HOP_BLOCKS, flat);
+    const final = step >= flat - 0.5;
+    const leg = final
+      ? { x: target.x, y: target.y, z: target.z, range: arriveRange }
+      : {
+          x: Math.round(last.pos.x + ((target.x - last.pos.x) / flat) * step),
+          y: Math.round(last.pos.y),
+          z: Math.round(last.pos.z + ((target.z - last.pos.z) / flat) * step),
+          range: 4,
+        };
+
+    await apiPost('/stop', {}).catch(() => {});
+    const { body } = await apiPost('/goto', {
+      x: leg.x, y: leg.y, z: leg.z, range: leg.range, timeoutMs: TRAVEL_HOP_TIMEOUT_MS, engine: 'pf', force: true,
+    });
+    if (body?.error && body.error !== 'busy') {
+      throw new Error(`${label}: /goto rejected on hop ${hop}: ${body.error}`);
+    }
+    await waitTaskSettled(TRAVEL_HOP_POLL_MS).catch(() => null);
+    await sleep(400);
+
+    const after = await apiGet('/status');
+    if (!after?.pos) throw new Error(`${label}: /status lost position mid-travel on hop ${hop}`);
+    // Ground truth per hop: did the bot actually get closer? A hop that
+    // resolves "done" without closing distance is the goto-dragon again, just
+    // outside a graded item — catch it here rather than letting it silently
+    // strand the whole run.
+    const progressed = dist2D(last.pos, target) - dist2D(after.pos, target);
+    stalls = progressed < 3 ? stalls + 1 : 0;
+    if (stalls >= 3) {
+      throw new Error(
+        `${label}: stalled ${dist2D(after.pos, target).toFixed(1)} blocks short of (${target.x},${target.y},${target.z}) — ` +
+          `3 consecutive hops moved <3 blocks closer (pos ${fmtPos(after.pos)})`
+      );
+    }
+    last = after;
   }
+  throw new Error(
+    `${label}: still ${dist2D(last.pos, target).toFixed(1)} blocks from (${target.x},${target.y},${target.z}) after ${TRAVEL_MAX_HOPS} hops`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// kit — borrow from chest A by hand, ledger it, and bank it back at the end
+// ---------------------------------------------------------------------------
+
+async function readChestContents() {
+  const code = `${EVAL_PRELUDE}
+    const block = bot.blockAt(abs(${CHEST_A.x}, ${CHEST_A.y}, ${CHEST_A.z}));
+    if (!block) return { error: 'no block data at ${CHEST_A.x},${CHEST_A.y},${CHEST_A.z} (chunk not loaded / bot too far)' };
+    if (!/chest|barrel|shulker_box/.test(block.name)) {
+      return { error: 'block at ${CHEST_A.x},${CHEST_A.y},${CHEST_A.z} is ' + block.name + ', not a container' };
+    }
+    const win = await bot.openChest(block);
+    try {
+      const counts = {};
+      for (const it of win.containerItems()) counts[it.name] = (counts[it.name] || 0) + it.count;
+      return { counts };
+    } finally {
+      try { win.close(); } catch { /* window already gone */ }
+    }
+  `;
+  return evalCode(code, 40000);
+}
+
+function chooseKit(counts) {
+  const chosen = new Map();
+  const missing = [];
+  for (const slot of KIT_SLOTS) {
+    let picked = null;
+    for (const candidate of slot.candidates) {
+      const have = counts?.[candidate] ?? 0;
+      if (have > 0) {
+        picked = { name: candidate, count: Math.min(slot.count, have) };
+        break;
+      }
+    }
+    if (picked) chosen.set(slot.slot, picked);
+    else missing.push(slot);
+  }
+  return { chosen, missing };
+}
+
+// Returns { slots: Map<slot,{name,count}>, missing: Map<slot,reason>, borrowed: Map<name,count> }.
+// Never throws: a bare chest is a reportable condition that SKIPs dependent
+// items, not a crash.
+async function withdrawKit() {
+  try {
+    return await withdrawKitInner();
+  } catch (err) {
+    const kit = { slots: new Map(), missing: new Map(), borrowed: new Map() };
+    for (const slot of KIT_SLOTS) kit.missing.set(slot.slot, `kit withdraw threw: ${err.message}`);
+    record('kit-withdraw', false, `kit withdraw threw: ${err.message}`);
+    return kit;
+  }
+}
+
+async function withdrawKitInner() {
+  const kit = { slots: new Map(), missing: new Map(), borrowed: new Map() };
+
+  let contents;
+  try {
+    contents = await readChestContents();
+  } catch (err) {
+    contents = { error: err.message };
+  }
+  if (!contents || contents.error) {
+    const reason = `${CHEST_LABEL} unreadable: ${contents?.error ?? 'no result'}`;
+    for (const slot of KIT_SLOTS) kit.missing.set(slot.slot, reason);
+    record('kit-withdraw', false, reason);
+    return kit;
+  }
+
+  const { chosen, missing } = chooseKit(contents.counts ?? {});
+  for (const slot of missing) {
+    kit.missing.set(slot.slot, `${CHEST_LABEL} holds none of: ${slot.candidates.join(', ')}`);
+  }
+  if (chosen.size === 0) {
+    record('kit-withdraw', false, `${CHEST_LABEL} holds no kit item at all (wanted ${KIT_SLOTS.map((s) => s.slot).join(', ')})`);
+    return kit;
+  }
+
+  const before = await apiGet('/status');
+  const items = [...chosen.values()].map((c) => ({ name: c.name, count: c.count }));
+  const resp = await apiPost('/withdraw', { x: CHEST_A.x, y: CHEST_A.y, z: CHEST_A.z, items, force: true });
+  if (resp.body?.error) {
+    for (const slot of KIT_SLOTS) if (!kit.missing.has(slot.slot)) kit.missing.set(slot.slot, `/withdraw rejected: ${resp.body.error}`);
+    record('kit-withdraw', false, `/withdraw rejected: ${resp.body.error}`);
+    return kit;
+  }
+  const status = await waitTaskSettled(CHEST_TASK_TIMEOUT_MS).catch(() => null);
+  const taskFailed = status?.currentTask?.state === 'failed';
+
   await sleep(SETTLE_MS);
   const after = await apiGet('/status');
-  const d = dist3D(after.pos, target);
-  if (d > range + 1.5) throw new Error(`${label}: ground-truth position after settle is ${d.toFixed(2)} blocks from target (want <= ${range + 1.5})`);
-  return after;
+  // Ground truth: what the BAG gained, not what withdrawFromChest said it
+  // moved. Anything asked for that did not actually arrive is treated as
+  // missing, which SKIPs the items that depend on it.
+  const gained = inventoryGain(before, after);
+
+  for (const [slotName, pick] of chosen) {
+    const got = gained.get(pick.name) ?? 0;
+    if (got > 0) {
+      kit.slots.set(slotName, { name: pick.name, count: got });
+      kit.borrowed.set(pick.name, got);
+    } else {
+      kit.missing.set(slotName, `asked ${CHEST_LABEL} for ${pick.count}x ${pick.name}, inventory diff says 0 arrived`);
+    }
+  }
+
+  for (const [name, count] of kit.borrowed) await depotLine('-', count, name);
+
+  const gotDesc = kit.slots.size
+    ? [...kit.slots.entries()].map(([s, v]) => `${s}=${v.count}x ${v.name}`).join(', ')
+    : 'nothing';
+  const missDesc = kit.missing.size ? `; MISSING: ${[...kit.missing.keys()].join(', ')}` : '';
+  record(
+    'kit-withdraw',
+    kit.slots.size > 0 && !taskFailed,
+    `borrowed ${gotDesc} from ${CHEST_LABEL} (this script's own inventory diff, not the task's withdrawn[])${missDesc}` +
+      (taskFailed ? ` — /withdraw task reported failed: ${status?.currentTask?.result?.error}` : '')
+  );
+  return kit;
 }
+
+// Cleanup law: everything borrowed, everything mined, and everything crafted
+// goes back into chest A. Graded on this script's own inventory diff, and
+// ledgered with DEPOT + lines per item actually moved.
+async function bankLeftovers(kit, extraNames) {
+  const names = new Set([...kit.borrowed.keys(), ...extraNames]);
+  if (names.size === 0) {
+    return record('cleanup-bank-leftovers', true, 'nothing was borrowed or produced — nothing to bank');
+  }
+
+  // Decide BEFORE walking: the yard is 264 blocks from camp, and a run that
+  // borrowed nothing and mined nothing has no reason to make the trip.
+  await apiPost('/stop', {}).catch(() => {});
+  const preTravel = await apiGet('/status');
+  const carried = [...names].filter((n) => countOf(preTravel, n) > 0);
+  if (carried.length === 0) {
+    return record('cleanup-bank-leftovers', true, 'nothing borrowed or produced is still in the bag — no trip to camp needed');
+  }
+
+  await chat('bench: checklist done, banking leftovers at camp');
+  await travelTo(CHEST_A, { label: 'travel-to-chest-a (bank)', arriveRange: 3 });
+
+  const before = await apiGet('/status');
+  const resp = await apiPost('/deposit', { x: CHEST_A.x, y: CHEST_A.y, z: CHEST_A.z, items: carried, force: true });
+  if (resp.body?.error) {
+    return record('cleanup-bank-leftovers', false, `/deposit rejected: ${resp.body.error} (still carrying ${carried.join(', ')})`);
+  }
+  const status = await waitTaskSettled(CHEST_TASK_TIMEOUT_MS).catch(() => null);
+
+  await sleep(SETTLE_MS);
+  const after = await apiGet('/status');
+  const lost = inventoryLoss(before, after);
+  for (const [name, count] of lost) if (names.has(name)) await depotLine('+', count, name);
+
+  const stillHeld = carried.filter((n) => countOf(after, n) > 0).map((n) => `${countOf(after, n)}x ${n}`);
+  const moved = [...lost.entries()].filter(([n]) => names.has(n)).map(([n, c]) => `${c}x ${n}`).join(', ') || 'nothing';
+  if (stillHeld.length) {
+    return record(
+      'cleanup-bank-leftovers',
+      false,
+      `banked ${moved} but the bag still holds ${stillHeld.join(', ')} (chest full?)` +
+        (status?.currentTask?.state === 'failed' ? ` — /deposit task reported failed: ${status.currentTask.result?.error}` : '')
+    );
+  }
+  return record('cleanup-bank-leftovers', true, `banked ${moved} into ${CHEST_LABEL} (this script's own inventory diff, not the task's deposited[])`);
+}
+
+// ---------------------------------------------------------------------------
+// checklist items — each returns true only on PASS
+// ---------------------------------------------------------------------------
 
 async function testGotoGroundTruth() {
   const name = 'goto-ground-truth';
   try {
+    const before = await apiGet('/status');
+    const startY = Math.floor(before.pos.y);
+
+    // Natural terrain: pick the first cardinal leg that actually has standable
+    // ground at roughly the bot's own height (no cliff, no water, no void).
+    const legs = [
+      { dx: GOTO_DISTANCE, dz: 0 }, { dx: -GOTO_DISTANCE, dz: 0 },
+      { dx: 0, dz: GOTO_DISTANCE }, { dx: 0, dz: -GOTO_DISTANCE },
+    ];
+    let target = null;
+    const scans = [];
+    for (const leg of legs) {
+      const x = Math.round(before.pos.x) + leg.dx;
+      const z = Math.round(before.pos.z) + leg.dz;
+      const scan = await groundYAt(x, z, startY);
+      scans.push(`(${x},${scan.y ?? '?'},${z})`);
+      if (scan.y !== null && Math.abs(scan.y - startY) <= 6) {
+        target = { x, y: scan.y, z, ground: scan.ground };
+        break;
+      }
+    }
+    if (!target) {
+      return skipped(name, `no standable natural ground ${GOTO_DISTANCE} blocks out in any cardinal direction from ${fmtPos(before.pos)} (scanned ${scans.join(' ')})`);
+    }
+
     const { body } = await apiPost('/goto', {
-      x: GOTO_TARGET.x, y: GOTO_TARGET.y, z: GOTO_TARGET.z, range: 1, timeoutMs: GOTO_TIMEOUT_MS, engine: 'pf',
+      x: target.x, y: target.y, z: target.z, range: 2, timeoutMs: GOTO_TIMEOUT_MS, engine: 'pf', force: true,
     });
     if (body?.error) return record(name, false, `/goto rejected: ${body.error}`);
 
@@ -342,44 +670,53 @@ async function testGotoGroundTruth() {
     // success — see file header).
     await sleep(SETTLE_MS);
     const after = await apiGet('/status');
-    const d = dist3D(after.pos, GOTO_TARGET);
-    const arrived = d <= 1 + 1.5;
+    const d = dist3D(after.pos, target);
+    const moved = dist3D(after.pos, before.pos);
+    const arrived = d <= 2 + 1.5;
 
     if (claimedReached && !arrived) {
-      return record(name, false, `GOTO-DRAGON: task claimed reached:true but ground-truth position is ${d.toFixed(2)} blocks from target (pos=${JSON.stringify(after.pos)}) — false success`);
+      return record(name, false, `GOTO-DRAGON: task claimed reached:true but ground-truth position is ${d.toFixed(2)} blocks from target (pos=${fmtPos(after.pos)}) — false success`);
     }
     if (!arrived) {
       return record(name, false, `did not arrive: ${d.toFixed(2)} blocks from target after ${SETTLE_MS}ms settle (task claimed reached=${claimedReached})`);
     }
-    return record(name, true, `arrived within ${d.toFixed(2)} blocks of a 20-block target (task claimed reached=${claimedReached}, ground-truth agrees)`);
+    // Second, independent guard against the same dragon in its quieter form:
+    // "arrived" is meaningless if the bot never left, so require real
+    // displacement too.
+    if (moved < GOTO_DISTANCE * 0.6) {
+      return record(name, false, `GOTO-DRAGON: within ${d.toFixed(2)} of target but only moved ${moved.toFixed(2)} blocks from the start position — the target was effectively already underfoot`);
+    }
+    return record(name, true, `arrived within ${d.toFixed(2)} blocks of a ${GOTO_DISTANCE}-block natural-terrain target on ${target.ground}, moved ${moved.toFixed(2)} blocks (task claimed reached=${claimedReached}, ground-truth agrees)`);
   } catch (err) {
     return record(name, false, `exception: ${err.message}`);
   }
 }
 
-async function testDigCollect() {
+async function testDigCollect(kit) {
   const name = 'dig-collect-cycle';
+  if (!kit.slots.has('pickaxe')) return skipped(name, `no pickaxe in the kit — ${kit.missing.get('pickaxe')}`);
   try {
-    const before = await apiGet('/status');
-    const cobbleBefore = countOf(before, 'cobblestone');
+    // Setup read (not the verdict): find real, air-exposed natural stone.
+    const site = await findNaturalStone(48);
+    if (!site?.block) {
+      return skipped(name, 'no air-exposed natural stone/deepslate/andesite/granite/diorite/tuff within 48 blocks of the yard — nothing to dig by hand');
+    }
+    const drop = STONE_FAMILY.find((s) => s.block === site.block).drop;
+    const maxDistance = Math.max(8, Math.ceil(site.distance) + 4);
 
-    // maxDistance kept tight on purpose — found live: the sealed room's
-    // ceiling is only ~6 blocks above the interior floor from the REAL
-    // (natural, unmodified) terrain's own stone starting again above y85, and
-    // mineBlocks' search isn't confined to "inside bench's box", so a generous
-    // maxDistance let it repeatedly target natural stone it could see but not
-    // physically path to (60s of "No path to the goal!"/"unreachable"), never
-    // reaching DIG_PATCH just 1-2 blocks away. 5 safely excludes that exterior
-    // stone (~6.6 blocks away) while covering DIG_PATCH with room to spare for
-    // ordinary goto-arrival slop.
-    const mineResp = await apiPost('/mine', { block: 'stone', count: 2, maxDistance: 5 });
+    const before = await apiGet('/status');
+    const dropBefore = countOf(before, drop);
+
+    const mineResp = await apiPost('/mine', { block: site.block, count: 2, maxDistance, force: true });
     if (mineResp.body?.error) return record(name, false, `/mine rejected: ${mineResp.body.error}`);
     let status = await waitTaskSettled(TASK_TIMEOUT_MS);
     if (status?.currentTask?.state === 'failed') {
       return record(name, false, `/mine task failed: ${status.currentTask.result?.error}`);
     }
 
-    const collectResp = await apiPost('/collect', { radius: 16 });
+    // DRIVER_GUIDE standing law: sweep at 24, not the 16 default, so nothing
+    // is left on the ground after a dig.
+    const collectResp = await apiPost('/collect', { radius: 24, force: true });
     if (collectResp.body?.error) return record(name, false, `/collect rejected: ${collectResp.body.error}`);
     status = await waitTaskSettled(TASK_TIMEOUT_MS);
     if (status?.currentTask?.state === 'failed') {
@@ -388,24 +725,24 @@ async function testDigCollect() {
 
     await sleep(SETTLE_MS);
     const after = await apiGet('/status');
-    const cobbleAfter = countOf(after, 'cobblestone');
-    const diff = cobbleAfter - cobbleBefore;
+    const diff = countOf(after, drop) - dropBefore;
     if (diff < 2) {
-      return record(name, false, `cobblestone diff is ${diff} (want >= 2) — before=${cobbleBefore} after=${cobbleAfter}, this script's own /status snapshots, not the task's self-report`);
+      return record(name, false, `${drop} diff is ${diff} (want >= 2) — before=${dropBefore} after=${countOf(after, drop)}, this script's own /status snapshots, not the task's self-report`);
     }
-    return record(name, true, `cobblestone +${diff} (this script's own before/after /status diff, mineBlocks/collectDrops self-reports not consulted for the verdict)`);
+    return record(name, true, `${drop} +${diff} from natural ${site.block} at (${site.pos.x},${site.pos.y},${site.pos.z}) ~${site.distance.toFixed(1)} blocks out (this script's own before/after /status diff, mineBlocks/collectDrops self-reports not consulted for the verdict)`);
   } catch (err) {
     return record(name, false, `exception: ${err.message}`);
   }
 }
 
-async function testCraftSingle() {
+async function testCraftSingle(kit) {
   const name = 'craft-single';
+  if (!kit.slots.has('wood')) return skipped(name, `no kit wood — ${kit.missing.get('wood')}`);
   try {
     const before = await apiGet('/status');
     const planksBefore = countOf(before, 'oak_planks');
 
-    const resp = await apiPost('/craft', { item: 'oak_planks', amount: 1 });
+    const resp = await apiPost('/craft', { item: 'oak_planks', amount: 1, force: true });
     if (resp.body?.error) return record(name, false, `/craft rejected: ${resp.body.error}`);
     const status = await waitTaskSettled(TASK_TIMEOUT_MS);
     if (status?.currentTask?.state === 'failed') {
@@ -415,41 +752,51 @@ async function testCraftSingle() {
 
     await sleep(SETTLE_MS);
     const after = await apiGet('/status');
-    const planksAfter = countOf(after, 'oak_planks');
-    const diff = planksAfter - planksBefore;
+    const diff = countOf(after, 'oak_planks') - planksBefore;
 
     const agrees = !selfReport || selfReport.gained === undefined || selfReport.gained === diff;
     const note = agrees ? '' : ` (NOTE: task self-reported gained=${selfReport.gained}, this script's own diff is ${diff} — disagreement is itself a finding, not just noise)`;
 
     if (diff < 4) {
-      return record(name, false, `oak_planks diff is ${diff} (want >= 4 from 1 oak_log) — before=${planksBefore} after=${planksAfter}${note}`);
+      return record(name, false, `oak_planks diff is ${diff} (want >= 4 from 1 kit oak_log) — before=${planksBefore} after=${countOf(after, 'oak_planks')}${note}`);
     }
-    return record(name, true, `oak_planks +${diff} (this script's own diff${note || '; agrees with the task self-report'})`);
+    return record(name, true, `oak_planks +${diff} from kit oak_log (this script's own diff${note || '; agrees with the task self-report'})`);
   } catch (err) {
     return record(name, false, `exception: ${err.message}`);
   }
 }
 
-async function testPlaceVerify() {
+async function testPlaceVerify(kit) {
   const name = 'place-verify';
+  if (!kit.slots.has('cobble')) return skipped(name, `no kit cobblestone — ${kit.missing.get('cobble')}`);
+  if (!kit.slots.has('pickaxe')) return skipped(name, `no pickaxe in the kit, so the placed block could not be hand-removed afterward — ${kit.missing.get('pickaxe')}`);
+  const pickName = kit.slots.get('pickaxe').name;
   try {
-    await gotoOrThrow(PLACE_STAND, 1, `${name}: move to stand`);
-
     // Everything below is built from bot.entity.position via .offset()/.minus()
-    // — /eval's scope has bot/mcData/skills/log only, no bare Vec3 constructor,
-    // same constraint felcrew's own fixtures work under.
+    // — /eval's scope has bot/mcData/skills/log only, no bare Vec3 constructor.
+    // The face is chosen from real terrain (solid ground with a clear cell over
+    // it) instead of a fixed offset into a room that no longer exists.
     const placeCode = `
       const feet = bot.entity.position.floored();
-      const refPos = feet.offset(1, -1, 0);
-      const targetPos = feet.offset(1, 0, 0);
-      const refBlock = bot.blockAt(refPos);
-      if (!refBlock) return { error: 'no reference block at ' + JSON.stringify(refPos) };
+      const clear = (b) => b && b.boundingBox === 'empty' && b.name !== 'water' && b.name !== 'lava';
+      const solid = (b) => b && b.boundingBox === 'block' && b.name !== 'water' && b.name !== 'lava';
+      let ref = null, target = null;
+      for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const r = feet.offset(d[0], -1, d[1]);
+        const t = feet.offset(d[0], 0, d[1]);
+        if (solid(bot.blockAt(r)) && clear(bot.blockAt(t))) { ref = r; target = t; break; }
+      }
+      if (!ref) return { error: 'no natural face next to the bot (need solid ground with a clear cell above) at ' + feet.toString() };
       const item = bot.inventory.items().find((it) => it.name === 'cobblestone');
       if (!item) return { error: 'no cobblestone in inventory to place' };
       await bot.equip(item, 'hand');
-      const face = targetPos.minus(refPos);
-      await bot.placeBlock(refBlock, face);
-      return { targetPos: { x: targetPos.x, y: targetPos.y, z: targetPos.z } };
+      let placeError = null;
+      try {
+        await bot.placeBlock(bot.blockAt(ref), target.minus(ref));
+      } catch (err) {
+        placeError = err.message;
+      }
+      return { targetPos: { x: target.x, y: target.y, z: target.z }, placeError };
     `;
     const placeResult = await evalCode(placeCode);
     if (placeResult?.error) return record(name, false, `place /eval failed: ${placeResult.error}`);
@@ -461,36 +808,61 @@ async function testPlaceVerify() {
     // Independent second witness: a FRESH /eval call reading blockAt at the
     // recorded absolute target position — not the placement call's own resolved
     // promise (law 1 — a verifier reading the world, not trusting the actor
-    // that just acted). Built the same offset-from-current-position way, since
-    // /eval scope has no bare Vec3 constructor.
-    const verifyCode = `
-      const here = bot.entity.position.floored();
-      const target = here.offset(${targetPos.x} - here.x, ${targetPos.y} - here.y, ${targetPos.z} - here.z);
-      const b = bot.blockAt(target);
-      return { name: b ? b.name : null };
-    `;
-    const verifyResult = await evalCode(verifyCode);
+    // that just acted). This is also why a thrown placeError is not itself the
+    // verdict: FEEDBACK.md's "blockUpdate timeout but the block is real" quirk
+    // is exactly a placement that throws while the world agrees it happened.
+    const readBack = async () => {
+      const code = `${EVAL_PRELUDE}
+        const b = bot.blockAt(abs(${targetPos.x}, ${targetPos.y}, ${targetPos.z}));
+        return { name: b ? b.name : null };
+      `;
+      return evalCode(code);
+    };
+
+    const verifyResult = await readBack();
     if (verifyResult?.error) return record(name, false, `verify /eval failed: ${verifyResult.error}`);
-    const placedName = verifyResult?.name;
-    if (placedName !== 'cobblestone') {
-      return record(name, false, `independent verify read block "${placedName}" at ${JSON.stringify(targetPos)} (want "cobblestone") — place call's own promise resolving is not trusted here`);
+    const throwNote = placeResult.placeError ? ` (placeBlock itself threw "${placeResult.placeError}" — graded on the world read, not the call)` : '';
+    if (verifyResult?.name !== 'cobblestone') {
+      return record(name, false, `independent verify read block "${verifyResult?.name}" at (${targetPos.x},${targetPos.y},${targetPos.z}) (want "cobblestone")${throwNote} — the place call's own promise is not trusted here`);
     }
-    return record(name, true, `independent /eval read confirms cobblestone at ${JSON.stringify(targetPos)} (separate call from the one that placed it)`);
+
+    // Cleanup law: what the bench placed by hand, the bench removes by hand,
+    // then picks the drop back up so nothing is left on the ground.
+    const removeCode = `${EVAL_PRELUDE}
+      const target = abs(${targetPos.x}, ${targetPos.y}, ${targetPos.z});
+      const b = bot.blockAt(target);
+      if (!b) return { error: 'no block data at the placed position' };
+      if (b.name !== 'cobblestone') return { note: 'already ' + b.name };
+      const pick = bot.inventory.items().find((it) => it.name === '${pickName}');
+      if (pick) await bot.equip(pick, 'hand');
+      let digError = null;
+      try { await bot.dig(b); } catch (err) { digError = err.message; }
+      return { digError };
+    `;
+    const removeResult = await evalCode(removeCode, 40000);
+    await apiPost('/collect', { radius: 8, force: true }).catch(() => {});
+    await waitTaskSettled(TASK_TIMEOUT_MS).catch(() => null);
+    await sleep(SETTLE_MS);
+
+    const afterRemove = await readBack();
+    if (afterRemove?.name === 'cobblestone') {
+      return record(name, false, `placed + verified at (${targetPos.x},${targetPos.y},${targetPos.z})${throwNote}, but the hand-removal left it standing (remove /eval said ${JSON.stringify(removeResult)}) — cleanup law violated, remove it manually`);
+    }
+    return record(name, true, `independent /eval read confirmed cobblestone at (${targetPos.x},${targetPos.y},${targetPos.z}), a second independent read confirms it is now "${afterRemove?.name}" after hand-removal${throwNote} (separate calls from the ones that placed and dug it)`);
   } catch (err) {
     return record(name, false, `exception: ${err.message}`);
   }
 }
 
-async function testStaircase() {
+async function testStaircase(kit) {
   const name = 'staircase-4level';
+  if (!kit.slots.has('pickaxe')) return skipped(name, `no pickaxe in the kit — ${kit.missing.get('pickaxe')}`);
   try {
-    await gotoOrThrow(STAIR_START, 1, `${name}: move to start`);
-
     const before = await apiGet('/status');
     const startY = before.pos.y;
     const toY = Math.floor(startY) - STAIR_LEVELS;
 
-    const resp = await apiPost('/staircase', { toY, direction: STAIR_DIRECTION }, 10000);
+    const resp = await apiPost('/staircase', { toY, direction: STAIR_DIRECTION, force: true }, 10000);
     if (resp.body?.error) return record(name, false, `/staircase rejected: ${resp.body.error}`);
     const status = await waitTaskSettled(STAIRCASE_TIMEOUT_MS);
     const taskFailed = status?.currentTask?.state === 'failed';
@@ -499,6 +871,11 @@ async function testStaircase() {
     const after = await apiGet('/status');
     const netDrop = startY - after.pos.y;
 
+    // Standing law: sweep the dig drops before moving on. Not part of the
+    // verdict, but the cleanup law applies to graded items too.
+    await apiPost('/collect', { radius: 24, force: true }).catch(() => {});
+    await waitTaskSettled(TASK_TIMEOUT_MS).catch(() => null);
+
     // Ground truth is the position diff this script itself took, not the
     // engine's internal net-descent watchdog (which only guards against
     // in-place grinding, it doesn't grade the task as done/not-done) and not
@@ -506,118 +883,39 @@ async function testStaircase() {
     if (netDrop < STAIR_LEVELS - 1) {
       return record(name, false, `net Y-drop is ${netDrop.toFixed(2)} (want >= ${STAIR_LEVELS - 1}) — startY=${startY.toFixed(2)} endY=${after.pos.y.toFixed(2)}, task ${taskFailed ? 'also reported failed: ' + status.currentTask.result?.error : 'reported done'}`);
     }
-    return record(name, true, `net Y-drop ${netDrop.toFixed(2)} over a ${STAIR_LEVELS}-level request (this script's own before/after /status.pos.y, not the engine's internal watchdog)`);
+    // The stairwell is left in place: the ruling accepts a far-wilderness scar
+    // at a yard 264+ blocks from every base, and walking back out of the cut
+    // is itself the cheapest proof the steps are real.
+    return record(name, true, `net Y-drop ${netDrop.toFixed(2)} into natural ground over a ${STAIR_LEVELS}-level request (this script's own before/after /status.pos.y, not the engine's internal watchdog); stairwell left as an accepted yard scar`);
   } catch (err) {
     return record(name, false, `exception: ${err.message}`);
   }
 }
 
 // ---------------------------------------------------------------------------
-// setup / cleanup
+// preflight — never spawns anything, never drives a production bot
 // ---------------------------------------------------------------------------
 
-// RCON /fill silently does NOTHING but reply "That position is not loaded" on
-// chunks nobody has a reason to have loaded — found live: this coordinate
-// space has no player/entity anywhere near it, buildPlatform() runs before
-// BenchMole ever connects, so every fill in this function failed silently
-// this way until forceload was added below. rconSend() itself doesn't
-// validate responses (it's a generic RCON transport), so every write in this
-// function checks its own response instead of trusting the round-trip
-// completed — the same "don't trust the layer below" discipline as the
-// checklist items, just applied to bench's own setup.
-async function rconFill(cmd) {
-  const resp = await rconSend(cmd);
-  // "No blocks were filled" is a legitimate success (the target region
-  // already matched, e.g. re-running bench right after a manual RCON probe
-  // of the same area) — only a genuine refusal (chunk not loaded, fill too
-  // large, syntax error, etc.) should fail this.
-  if (!/^(Successfully filled|No blocks were filled)/.test(String(resp))) {
-    throw new Error(`RCON fill did not report success: "${cmd}" -> "${resp}"`);
-  }
-  return resp;
-}
+const START_HINT =
+  `start it first (TESTLAB.md):\n    cd C:\\Users\\phili\\tools\\cavecrew-mcp\n    node cave/runner.js --name ${BOT_NAME} --port ${PORT}`;
 
-async function buildPlatform() {
-  // 0. Force the target chunks loaded FIRST — see the rconFill note above.
-  //    Vanilla /fill refuses to touch a chunk nobody has a reason to have
-  //    loaded; forceload is the one admin lever that doesn't require an
-  //    entity to physically be there first.
-  await rconSend(`forceload add ${PX0} ${PZ0} ${PX1} ${PZ1}`);
-  // 1. Solid outer shell — the WHOLE box, no interior yet. Cobblestone, not
-  //    stone (see the DIG_PATCH comment above) — guarantees full enclosure
-  //    regardless of what the real (unvisited) terrain out there turns out to
-  //    be, and is immune to a 'stone'-type dig search.
-  await rconFill(`fill ${PX0} ${PY_SHELL_BASE} ${PZ0} ${PX1} ${PY_SHELL_TOP} ${PZ1} minecraft:cobblestone`);
-  // 2. Carve the interior hollow — 1 block in from every outer face, so a
-  //    full-thickness wall/floor/ceiling remains on all 6 sides.
-  await rconFill(`fill ${IX0} ${PY_AIR0} ${IZ0} ${IX1} ${PY_AIR1} ${IZ1} minecraft:air`);
-  // 3. A lit ceiling layer, interior footprint only — full light throughout
-  //    the sealed room regardless of what's outside, so nothing can spawn in
-  //    it for the few minutes this takes (belt-and-suspenders on top of the
-  //    sealing itself).
-  await rconFill(`fill ${IX0} ${PY_GLOW} ${IZ0} ${IX1} ${PY_GLOW} ${IZ1} minecraft:glowstone`);
-  // 4. The dig-collect checklist item's actual target: real 'stone' blocks,
-  //    flush with the floor, small and bounded (see DIG_PATCH comment above).
-  for (const p of DIG_PATCH) {
-    await rconSend(`setblock ${p.x} ${p.y} ${p.z} minecraft:stone`);
-  }
-}
-
-async function erasePlatform() {
+async function preflight() {
+  let status;
   try {
-    await rconFill(`fill ${PX0} ${PY_SHELL_BASE} ${PZ0} ${PX1} ${PY_SHELL_TOP} ${PZ1} minecraft:air`);
+    status = await apiGet('/status', 5000);
   } catch (err) {
-    console.error(`bench: erasePlatform failed (manual cleanup may be needed at x${PX0}-${PX1} z${PZ0}-${PZ1} y${PY_SHELL_BASE}-${PY_SHELL_TOP}): ${err.message}`);
-  } finally {
-    // Always release the forceload, even if the erase-fill itself failed —
-    // an un-erased box is a visible, fixable problem; a permanently
-    // force-loaded chunk range pinning server resources forever is not.
-    await rconSend(`forceload remove ${PX0} ${PZ0} ${PX1} ${PZ1}`).catch((err) => {
-      console.error(`bench: forceload remove failed (chunks x${PX0}-${PX1} z${PZ0}-${PZ1} may still be pinned): ${err.message}`);
-    });
+    throw new Error(`nothing answering on 127.0.0.1:${PORT} (${err.message}) — ${BOT_NAME} is offline; ${START_HINT}`);
   }
-}
-
-async function provisionKit() {
-  await rconSend(`give ${BOT_NAME} minecraft:stone_pickaxe 2`);
-  await rconSend(`give ${BOT_NAME} minecraft:oak_log 4`);
-  await rconSend(`give ${BOT_NAME} minecraft:cobblestone 4`);
-  // Food buffer, same reasoning as EVALUATION.md's C1 provisioning note this
-  // adopts from felcrew: isolate the axis actually being measured (the five
-  // checklist items) from an irrelevant confound (starvation/no-food-to-heal).
-  await rconSend(`give ${BOT_NAME} minecraft:cooked_beef 8`);
-}
-
-async function relocateAwayFromBases() {
-  // "IMMEDIATELY walked/kept 200+ blocks from all bases" — the very first thing
-  // done to a freshly connected BenchMole, before any inventory setup or task.
-  await rconSend(`tp ${BOT_NAME} ${HOME.x} ${HOME.y} ${HOME.z}`);
-  const deadline = Date.now() + 10000;
-  let confirmed = null;
-  while (Date.now() < deadline) {
-    const st = await apiGet('/status').catch(() => null);
-    if (st?.pos && dist3D(st.pos, HOME) < 3) { confirmed = st; break; }
-    await sleep(500);
+  if (status?.name && status.name !== BOT_NAME) {
+    throw new Error(`port ${PORT} answers as "${status.name}", not ${BOT_NAME} — refusing to drive it (TESTLAB.md: production bots must never be risked by a test)`);
   }
-  if (!confirmed) throw new Error(`relocate: BenchMole position never confirmed near HOME (${JSON.stringify(HOME)})`);
-  // Chunk-settle: the bot's OWN reported position confirming above is not the
-  // same fact as its world model having the surrounding (freshly generated,
-  // never-before-visited) chunk data. See waitWorldLoaded()'s header comment —
-  // found live, a goto issued right after the position-confirm above raced
-  // that stream and resolved "success" with zero actual movement.
-  await waitWorldLoaded();
-  return confirmed;
-}
-
-async function verifyGone() {
-  const deadline = Date.now() + 15000;
-  let last = '';
-  while (Date.now() < deadline) {
-    last = await rconSend('list').catch((e) => `<rcon error: ${e.message}>`);
-    if (!String(last).includes(BOT_NAME)) return { gone: true, detail: last };
-    await sleep(1500);
+  if (!status?.connected) {
+    throw new Error(`${BOT_NAME} is up but not connected to the server (connected=${status?.connected}) — check cave/logs/${BOT_NAME}.log, then ${START_HINT}`);
   }
-  return { gone: false, detail: last };
+  if (!status?.pos) {
+    throw new Error(`${BOT_NAME} reports connected but has no position yet (still spawning) — re-run in a few seconds`);
+  }
+  return status;
 }
 
 // ---------------------------------------------------------------------------
@@ -628,47 +926,102 @@ async function main() {
   console.log(`bench :: ${BOT_NAME}:${PORT} :: ${new Date().toISOString()}`);
   console.log('---');
 
-  let connected = false;
+  let start;
   try {
-    await buildPlatform();
-    spawnBotProcess();
-    await waitConnected(CONNECT_TIMEOUT_MS);
-    connected = true;
-    record('connect', true, `${BOT_NAME} connected on port ${PORT}`);
+    start = await preflight();
+  } catch (err) {
+    record('preflight', false, err.message);
+    return finish();
+  }
+  record('preflight', true, `${BOT_NAME} connected on port ${PORT} at ${fmtPos(start.pos)}, health=${start.health}, food=${start.food}, deathCount=${start.deathCount}`);
 
-    await relocateAwayFromBases();
-    await provisionKit();
+  const deathsBefore = start.deathCount ?? 0;
+  let kit = { slots: new Map(), missing: new Map(), borrowed: new Map() };
 
-    // One task mutex per bot (state.currentTask) — a checklist item that
-    // times out on this script's SIDE (waitTaskSettled gives up) can still
-    // leave the actual task running server-side, which then 409s every
-    // subsequent item as "busy" with nothing to do with their own merits.
-    // /stop before each item is idempotent (a no-op task if nothing is
-    // running) and keeps one item's timeout from cascading into every item
-    // after it.
+  try {
+    await apiPost('/stop', {}).catch(() => {});
+    await chat('bench: pre-blink checklist starting, fetching a test kit from chest A');
+
+    await travelTo(CHEST_A, { label: 'travel-to-chest-a', arriveRange: 3 });
+    kit = await withdrawKit();
+    // Food is a confound-remover, not a graded item — best-effort only.
+    if (kit.slots.has('food')) await apiPost('/autoeat', { on: true }).catch(() => {});
+
+    await chat('bench: kit in hand, walking south to the test yard');
+    await travelTo(YARD, { label: 'travel-to-yard', arriveRange: 4 });
+    const atYard = await apiGet('/status');
+    record('yard-arrival', true, `at the test yard, ${dist2D(atYard.pos, YARD).toFixed(1)} blocks from (${YARD.x},~,${YARD.z}), standing at ${fmtPos(atYard.pos)} — ${dist2D(atYard.pos, CHEST_A).toFixed(0)} blocks from camp (200+ rule holds)`);
+
+    // One task mutex per bot (state.currentTask) — a checklist item that times
+    // out on this script's SIDE (waitTaskSettled gives up) can still leave the
+    // actual task running server-side, which then 409s every subsequent item
+    // as "busy" with nothing to do with their own merits. /stop before each
+    // item is idempotent (a no-op task if nothing is running) and keeps one
+    // item's timeout from cascading into every item after it.
     for (const test of [testGotoGroundTruth, testDigCollect, testCraftSingle, testPlaceVerify, testStaircase]) {
       await apiPost('/stop', {}).catch(() => {});
-      await test();
+      await test(kit);
     }
   } catch (err) {
-    record(connected ? 'checklist-aborted' : 'connect', false, `setup/connect failure: ${err.message}`);
+    record('checklist-aborted', false, `setup/travel failure: ${err.message}`);
   } finally {
     console.log('---');
-    const stopped = stopBotProcess();
-    const gone = await verifyGone();
-    record('cleanup-kill-verify-gone', stopped && gone.gone, gone.gone
-      ? `RCON list confirms ${BOT_NAME} is gone: ${String(gone.detail).trim()}`
-      : `RCON list STILL shows ${BOT_NAME} (or stop failed): ${String(gone.detail).trim()}`);
-    await erasePlatform();
-    if (rcon) await rcon.close();
+    // Cleanup law, in order: bank what was borrowed, then kill the bench's own
+    // task cleanly. The bot PROCESS is left running — this bench never started
+    // it, so it is not the bench's to stop.
+    try {
+      await bankLeftovers(kit, ['oak_planks', ...STONE_FAMILY.map((s) => s.drop)]);
+    } catch (err) {
+      record('cleanup-bank-leftovers', false, `banking failed: ${err.message} — ${BOT_NAME} may still be carrying kit items`);
+    }
+
+    let final = null;
+    try {
+      await apiPost('/stop', {}).catch(() => {});
+      await sleep(1000);
+      final = await apiGet('/status');
+      const stillRunning = final?.currentTask?.state === 'running';
+      record('cleanup-task-stopped', !stillRunning, stillRunning
+        ? `/stop sent but ${BOT_NAME} still reports a running task (${final.currentTask.kind}) — check it before the blink`
+        : `${BOT_NAME}'s bench task is stopped (last task ${final?.currentTask?.kind ?? 'none'}: ${final?.currentTask?.state ?? 'none'}); bot process intentionally left running`);
+    } catch (err) {
+      record('cleanup-task-stopped', false, `could not confirm a clean stop: ${err.message}`);
+    }
+
+    // Death guard — the ruling's replacement for the old admin-built sealed
+    // room. Nothing shelters the bot now except a peaceful server and the kit,
+    // so the run says out loud whether that held: a death mid-run makes every
+    // item after it suspect, and it is the trigger for hand-building a cobble
+    // shelter from the kit before the next attempt.
+    const deathsAfter = final?.deathCount;
+    if (typeof deathsAfter !== 'number') {
+      skipped('death-guard', `no final /status read, so the run's deathCount could not be compared against the ${deathsBefore} it started at`);
+    } else {
+      record('death-guard', deathsAfter === deathsBefore, deathsAfter === deathsBefore
+        ? `deathCount unchanged at ${deathsAfter} across the whole run — no sealed space was needed`
+        : `${BOT_NAME} died ${deathsAfter - deathsBefore}x during the run (deathCount ${deathsBefore} -> ${deathsAfter}) — every item after the death is suspect; re-run, and hand-build a cobble shelter from the kit first if the yard turns out to be hostile`);
+    }
+    await chat('bench: pre-blink checklist finished');
   }
 
+  return finish();
+}
+
+function finish() {
   console.log('---');
-  const passN = results.filter((r) => r.pass).length;
-  const failN = results.length - passN;
-  const verdict = failN === 0 ? 'ALL GREEN — bench pre-flight PASS, safe to ship' : `${failN} FAILURE(S) — ROLLOUT BLOCKED, fix before shipping`;
-  console.log(`bench :: ${passN}/${results.length} passed :: ${verdict}`);
-  process.exit(failN === 0 ? 0 : 1);
+  const passN = results.filter((r) => r.status === 'PASS').length;
+  const failN = results.filter((r) => r.status === 'FAIL').length;
+  const skipN = results.filter((r) => r.status === 'SKIP').length;
+  let verdict;
+  if (failN === 0 && skipN === 0) {
+    verdict = 'ALL GREEN — bench pre-flight PASS, safe to ship';
+  } else if (failN === 0) {
+    verdict = `${skipN} SKIPPED, 0 failed — INCONCLUSIVE, ROLLOUT BLOCKED (a check that could not run is not a pass: stock ${CHEST_LABEL} / re-check the yard, then re-run)`;
+  } else {
+    verdict = `${failN} FAILURE(S)${skipN ? ` + ${skipN} skipped` : ''} — ROLLOUT BLOCKED, fix before shipping`;
+  }
+  console.log(`bench :: ${passN} pass / ${failN} fail / ${skipN} skip :: ${verdict}`);
+  process.exit(failN === 0 && skipN === 0 ? 0 : 1);
 }
 
 main().catch((err) => {
