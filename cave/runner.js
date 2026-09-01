@@ -1034,7 +1034,13 @@ async function triggerPanic(b) {
   const hp = typeof b.health === 'number' ? b.health : null;
   logLine('warn', `PANIC: health ${hp} at/below threshold ${PANIC_HEALTH_THRESHOLD}`);
   pushEvent('panic', `health ${hp} — panic reflex firing`);
-  await smartChat(`!HP ${hp != null ? Math.round(hp) : '?'}/20 - breaking off, reacting to danger!`);
+  // CHIEF DECREE (2026-09-01): danger/HP lines are logs + Discord status
+  // feed, NEVER game chat — this used to ride smartChat's "!" path (real
+  // white chat, unmissable by design) which is exactly what's now banned
+  // for routine danger telemetry. logLine + pushEvent above already cover
+  // the record; announce('status', ...) is the Discord/log route (see
+  // announce()'s style==='status' branch) — no game-chat emission at all.
+  await announce('status', `HP ${hp != null ? Math.round(hp) : '?'}/20 - breaking off, reacting to danger!`);
   await cancelCurrentTask('panic: low health');
 
   const pos = b.entity?.position;

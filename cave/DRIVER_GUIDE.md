@@ -233,16 +233,19 @@ Send this line via `/chat` yourself right after a `/deposit` or
 The runner watches health at game-packet speed, not driver-poll speed:
 if health drops below **8**, it fires automatically — no `/chat` or
 `/stop` from you required. It aborts the current task, announces
-`!HP <n>/20 - breaking off, reacting to danger!` (real white chat), and
-then either **flees to camp** (if reasonably close and shallow) or
-**seals itself in place and eats** (if far from camp or deep below it —
-a blind flee across unknown terrain is riskier than holing up). This is
-debounced 30s so it won't refire on every low-health tick. Check
-`/events` for a `panic` entry and `/status` afterward — the panic
-response runs as a normal task (`kind: "panic-response"`), so it shows
-up like anything else. Treat a panic firing as a real incident worth a
-`/status` check and a chat narration of what you find, same as any other
-unexpected task failure.
+`HP <n>/20 - breaking off, reacting to danger!` — **Discord status feed
+and the runner log only, never game chat** (chief decree, 2026-09-01:
+danger/HP telemetry is routine-frequency, not a real-talk moment, and the
+old real-white-chat path got de-chatted along with everything else that
+isn't an actual player-facing announcement) — and then either **flees to
+camp** (if reasonably close and shallow) or **seals itself in place and
+eats** (if far from camp or deep below it — a blind flee across unknown
+terrain is riskier than holing up). This is debounced 30s so it won't
+refire on every low-health tick. Check `/events` for a `panic` entry and
+`/status` afterward — the panic response runs as a normal task
+(`kind: "panic-response"`), so it shows up like anything else. Treat a
+panic firing as a real incident worth a `/status` check and a chat
+narration of what you find, same as any other unexpected task failure.
 
 ## Death protocol
 
