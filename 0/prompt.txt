@@ -341,3 +341,12 @@ If this event is something the user would act on now, send a PushNotification. R
 <event>poll 2: state=running kind=goto pos=12.70,89.88,55.50</event>
 If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
 </task-notification>
+
+---
+
+<task-notification>
+<task-id>bv0bvd22s</task-id>
+<summary>Monitor event: "watching goto back to mine_field road"</summary>
+<event>poll 3: state=running kind=goto pos=12.70,89.88,55.50</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
