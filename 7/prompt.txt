@@ -1,0 +1,51 @@
+<task-notification>
+<task-id>bbx1rbso1</task-id>
+<summary>Monitor event: "Coal batch 1 (count 5, zoned) watch: completion/nogo/stuck"</summary>
+<event>t+30s "lastBaritoneLine":"Skipping traverse to straight ascend" samecount=1</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbx1rbso1</task-id>
+<summary>Monitor event: "Coal batch 1 (count 5, zoned) watch: completion/nogo/stuck"</summary>
+<event>t+60s "lastBaritoneLine":"Skipping traverse to straight ascend" samecount=4</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbx1rbso1</task-id>
+<summary>Monitor event: "Coal batch 1 (count 5, zoned) watch: completion/nogo/stuck"</summary>
+<event>t+120s "lastBaritoneLine":"All done. At GoalComposite[GoalBlock{x=19,y=25,z=47}, GoalBlock{x=19,y=25,z=46}, GoalBlock{x=19,y=25,z=48}, GoalBlock{x=18,y=25,z= samecount=1</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbx1rbso1</task-id>
+<summary>Monitor event: "Coal batch 1 (count 5, zoned) watch: completion/nogo/stuck"</summary>
+<event>t+150s "lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=18,y=19,z=39} to GoalComposite[GoalBlock{x=17,y=25,z=45}, GoalBlock{x=17,y=25,z=45}, samecount=0</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbx1rbso1</task-id>
+<summary>Monitor event: "Coal batch 1 (count 5, zoned) watch: completion/nogo/stuck"</summary>
+<event>t+180s "lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=23,y=33,z=35} to GoalComposite[GoalBlock{x=22,y=33,z=36}, GoalBlock{x=22,y=33,z=36}, samecount=0</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbx1rbso1</task-id>
+<summary>Monitor event: "Coal batch 1 (count 5, zoned) watch: completion/nogo/stuck"</summary>
+<event>t+210s "lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=7,y=23,z=35} to GoalComposite[GoalBlock{x=6,y=23,z=33}, GoalTwoBlocks{x=8,y=23,z=33} samecount=1</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
