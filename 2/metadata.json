@@ -1,0 +1,81 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "01M1EDB3P607SV6S0MWK0E3T15",
+  "session_id": "dd656a72-09d7-4849-9326-e79b76903e60",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-01T11:58:16.810606722Z",
+  "branch": "main",
+  "checkpoints_count": 5,
+  "save_step_count": 5,
+  "files_touched": [
+    "cave/PANEL.md",
+    "cave/panel-client.js",
+    "cave/panel-data.mjs",
+    "cave/panel.mjs"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-5",
+  "turn_id": "e265b5db357a",
+  "checkpoint_transcript_start": 4350,
+  "transcript_lines_at_start": 4350,
+  "compact_transcript_start": 625,
+  "token_usage": {
+    "input_tokens": 86,
+    "cache_creation_tokens": 73521,
+    "cache_read_tokens": 38374656,
+    "output_tokens": 29546,
+    "api_call_count": 43
+  },
+  "session_metrics": {
+    "turn_count": 27
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-01T11:58:16.578831409Z",
+    "agent_lines": 382,
+    "agent_removed": 12,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 382,
+    "total_lines_changed": 394,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 425,
+      "agent_lines_removed": 60
+    }
+  ]
+}
