@@ -3094,6 +3094,28 @@ async function sealStairCell(bot, cellPos, ctx) {
   return false;
 }
 
+// Best real-food item in inventory, or null if none. Uses bot.registry
+// (prismarine-registry, mineflayer's own live per-connection minecraft-data
+// wrapper — same interface mineflayer-auto-eat itself reads foodsByName
+// from) rather than a hand-rolled name regex, so it can never miss a real
+// food the regex didn't happen to list (pumpkin_pie, cookie, rabbit_stew,
+// dried_kelp, sweet_berries, raw meats, ...) and can never accidentally
+// match a non-food whose name shares a substring with one of the regex's
+// alternatives. Excludes the same harmful-food set mineflayer-auto-eat
+// bans by default — a bot already critical enough to need this doesn't
+// need a self-inflicted poison/hunger effect stacked on top.
+const HARMFUL_FOOD_NAMES = new Set(['rotten_flesh', 'pufferfish', 'chorus_fruit', 'poisonous_potato', 'spider_eye']);
+function findBestFoodItem(bot) {
+  const foodsByName = bot.registry?.foodsByName;
+  if (!foodsByName) return null;
+  const candidates = bot.inventory
+    .items()
+    .filter((it) => it.name in foodsByName && !HARMFUL_FOOD_NAMES.has(it.name));
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => (foodsByName[b.name]?.foodPoints ?? 0) - (foodsByName[a.name]?.foodPoints ?? 0));
+  return candidates[0];
+}
+
 // ---------------------------------------------------------------------------
 // (18) emergencySeal — "coffin" response to the panic reflex (adapted from
 // felcrew-mcp survey findings: their unshipped survival-doctrine.md spec
@@ -3139,18 +3161,30 @@ export async function emergencySeal(bot, ctx = {}) {
 
   let ate = false;
   try {
-    if (bot.autoEat && typeof bot.autoEat.eat === 'function') {
-      await bot.autoEat.eat({ food: true, offhand: false });
+    // (FIELD BUG, Grog 2026-09-01 — panic-eat threw "Item switched early to:
+    // wheat_seeds!" while carrying 5 bread) Picking the food explicitly here
+    // instead of leaving it to `{food: true}`: mineflayer-auto-eat's own
+    // normalizeFoodChoice(true) doesn't recognize a bare boolean as a real
+    // selector, falls through every typed branch, computes `true.id`
+    // (undefined), searches inventory for a nonexistent match, and only
+    // THEN lands on its own "pick best real food" fallback — technically
+    // safe today (traced against the installed plugin source: it filters to
+    // bot.registry.foodsByName membership, which correctly excludes seeds),
+    // but implicit and undocumented behavior a boolean was never meant to
+    // trigger. findBestFoodItem below does the same registry-membership
+    // filter explicitly, ours, plus excludes the same harmful-food list
+    // auto-eat itself bans by default (poisonous_potato, spider_eye,
+    // pufferfish, rotten_flesh, chorus_fruit) — the last thing a bot already
+    // critical enough to trigger the panic reflex needs is a self-inflicted
+    // poison effect on top of it.
+    const bestFood = findBestFoodItem(bot);
+    if (bestFood && bot.autoEat && typeof bot.autoEat.eat === 'function') {
+      await bot.autoEat.eat({ food: bestFood, offhand: false });
       ate = true;
-    } else {
-      const food = bot.inventory
-        .items()
-        .find((it) => /(bread|cooked_|apple|carrot|potato|beetroot|melon_slice)/.test(it.name));
-      if (food) {
-        await bot.equip(food, 'hand');
-        await bot.consume();
-        ate = true;
-      }
+    } else if (bestFood) {
+      await bot.equip(bestFood, 'hand');
+      await bot.consume();
+      ate = true;
     }
   } catch (err) {
     ctx.log?.('warn', `emergencySeal: eat attempt failed: ${err.message}`);
