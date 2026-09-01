@@ -1,0 +1,17 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "01M1EF1CAPT72MF3FS3QMDXQJJ",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "cave/BASE.md",
+    "cave/TODO.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "prompt": ""
+    }
+  ]
+}
