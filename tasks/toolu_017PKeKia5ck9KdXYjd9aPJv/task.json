@@ -1,0 +1,14 @@
+{
+  "tool_use_id": "toolu_017PKeKia5ck9KdXYjd9aPJv",
+  "subagent_type": "cavecrew-builder",
+  "task_description": "Fix chop iteration burn + drift",
+  "files": [
+    "cave/BASE.md",
+    "cave/CIV.md",
+    "cave/FEEDBACK.md",
+    "cave/runner.js"
+  ],
+  "started_at": "2026-09-01T11:16:26.429865863+02:00",
+  "completed_at": "2026-09-01T11:16:26.431420882+02:00",
+  "transcript_unavailable_reason": "transcript path unresolvable"
+}

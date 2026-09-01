@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01TEjMaVBshTSyutqRuYWhMw",
+  "subagent_type": "cavecrew-reviewer",
+  "task_description": "Review chop-fix diff",
+  "files": [
+    "cave/BASE.md",
+    "cave/CIV.md",
+    "cave/FEEDBACK.md",
+    "cave/runner.js",
+    "cave/skills.js"
+  ],
+  "started_at": "2026-09-01T11:22:38.350842892+02:00",
+  "completed_at": "2026-09-01T11:22:38.352386206+02:00",
+  "transcript_unavailable_reason": "transcript path unresolvable"
+}
