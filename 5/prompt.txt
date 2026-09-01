@@ -850,3 +850,12 @@ If this event is something the user would act on now, send a PushNotification. R
 <event>hb t+1260s "lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=46,y=57,z=59} to GoalComposite[GoalThreeBlocks{x=46,y=57,z=58}, GoalBlock{x=46,y=56, samecount=0</event>
 If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
 </task-notification>
+
+---
+
+<task-notification>
+<task-id>bvjhdnztp</task-id>
+<summary>Monitor event: "BariBrute final goto to camp-staging (24,90,60): watch arrival/nogo/stuck"</summary>
+<event>t+30s "lastBaritoneLine":"Skipping traverse to straight ascend" samecount=0</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
