@@ -1,0 +1,138 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "01M1EH80XCPVFZMKXQ4MGYAD5H",
+  "session_id": "ebbc4e8d-d11a-41a2-8798-d7e515350594",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-01T13:06:31.902110742Z",
+  "branch": "main",
+  "checkpoints_count": 8,
+  "save_step_count": 8,
+  "files_touched": [
+    "cave/CIV.md",
+    "cave/TODO.md",
+    "cave/schematics/convert-v3-to-v2.mjs",
+    "cave/schematics/github_green-cottage.schem",
+    "cave/schematics/github_samurai-house.schem",
+    "cave/schematics/github_samurai-house.v3-original.schem",
+    "cave/schematics/github_v2_house.schem",
+    "cave/schematics/sites_classic-village-house.schem",
+    "cave/schematics/sites_classic-village-house.v3-original.schem",
+    "cave/schematics/sites_cozy-cabin.schem",
+    "cave/schematics/sites_cozy-cabin.v3-original.schem",
+    "cave/schematics/sites_rustic-farmhouse.schem",
+    "cave/schematics/sites_rustic-farmhouse.v3-original.schem"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-5",
+  "turn_id": "972e40d4ea1f",
+  "checkpoint_transcript_start": 1956,
+  "transcript_lines_at_start": 1956,
+  "compact_transcript_start": 285,
+  "token_usage": {
+    "input_tokens": 28,
+    "cache_creation_tokens": 12805,
+    "cache_read_tokens": 1910504,
+    "output_tokens": 6877,
+    "api_call_count": 14
+  },
+  "session_metrics": {
+    "turn_count": 61
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-01T13:06:31.786520321Z",
+    "agent_lines": 128,
+    "agent_removed": 2,
+    "human_added": 6,
+    "human_modified": 5,
+    "human_removed": 0,
+    "total_committed": 137,
+    "total_lines_changed": 141,
+    "agent_percentage": 92.19858156028369,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 181,
+      "agent_lines_removed": 14
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 181,
+      "agent_lines_removed": 14
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 20,
+      "user_lines_removed": 9,
+      "agent_lines_added": 182,
+      "agent_lines_removed": 15,
+      "user_added_per_file": {
+        "cave/TODO.md": 1,
+        "cave/panel-data.mjs": 19
+      },
+      "user_removed_per_file": {
+        "cave/TODO.md": 1,
+        "cave/panel-data.mjs": 8
+      }
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 17,
+      "user_lines_removed": 2,
+      "agent_lines_added": 203,
+      "agent_lines_removed": 25,
+      "user_added_per_file": {
+        "cave/goals.json": 4,
+        "cave/panel-data.mjs": 13
+      },
+      "user_removed_per_file": {
+        "cave/goals.json": 1,
+        "cave/panel-data.mjs": 1
+      }
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 2,
+      "user_lines_removed": 0,
+      "agent_lines_added": 230,
+      "agent_lines_removed": 30,
+      "user_added_per_file": {
+        "cave/CIV.md": 2
+      }
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 6,
+      "user_lines_removed": 4,
+      "agent_lines_added": 232,
+      "agent_lines_removed": 30,
+      "user_added_per_file": {
+        "cave/CIV.md": 4,
+        "cave/panel-data.mjs": 2
+      },
+      "user_removed_per_file": {
+        "cave/CIV.md": 2,
+        "cave/panel-data.mjs": 2
+      }
+    }
+  ]
+}

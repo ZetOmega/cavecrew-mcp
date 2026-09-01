@@ -3,11 +3,12 @@
   "checkpoint_id": "01M1EH80XCPVFZMKXQ4MGYAD5H",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 31,
+  "checkpoints_count": 39,
   "files_touched": [
     "cave/CIV.md",
     "cave/TODO.md",
     "cave/schematics/convert-v3-to-v2.mjs",
+    "cave/schematics/github_green-cottage.schem",
     "cave/schematics/github_samurai-house.schem",
     "cave/schematics/github_samurai-house.v3-original.schem",
     "cave/schematics/github_v2_house.schem",
@@ -72,13 +73,20 @@
       "compact_transcript": "/8/transcript.jsonl",
       "content_hash": "/8/content_hash.txt",
       "prompt": "/8/prompt.txt"
+    },
+    {
+      "metadata": "/9/metadata.json",
+      "transcript": "/9/full.jsonl",
+      "compact_transcript": "/9/transcript.jsonl",
+      "content_hash": "/9/content_hash.txt",
+      "prompt": "/9/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 4294,
-    "cache_creation_tokens": 2804963,
-    "cache_read_tokens": 835391845,
-    "output_tokens": 993579,
-    "api_call_count": 2147
+    "input_tokens": 4322,
+    "cache_creation_tokens": 2817768,
+    "cache_read_tokens": 837302349,
+    "output_tokens": 1000456,
+    "api_call_count": 2161
   }
 }
