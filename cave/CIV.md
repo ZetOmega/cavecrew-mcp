@@ -126,8 +126,9 @@ check logs and restart via `spawn.mjs`).
 ## Base location
 
 Cavecrew camp centered around **(11-12, 89, 55-57)**. Crafting table at
-(12, **88**, 56) — corrected 2026-09-01, was miswritten as y=89 (cost two
-failed chest crafts before Grog found the real block by scanning).
+(12, **89**, 56) — re-corrected 2026-09-01 post-relaunch: UngaBunga
+ground-truthed table at y=89, (12,88,56) is air. (The earlier "y=88"
+correction no longer matches the world — table was evidently re-placed.)
 Depot chest A (wood) at (11, 89, 55) [placed by UngaBunga], depot chest B
 (tools) at (12, 90, 54) [placed by UngaBunga 2026-08-31]. South of world
 spawn, away from the other tribe's build near (-3, 111, 4).

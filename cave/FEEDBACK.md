@@ -777,6 +777,29 @@ Suggest: whoever owns BASE.md next should re-verify chest A by ground-truth bloc
 the registry, and consider a canDig:false / no-dig-near-furniture regression check across all camp
 chests, not just A.
 
+## [open] chopTrees camp-quarantine (radius 60) blocks the planted grove too, not just structures — UngaBunga, 2026-09-01 08:57
+/chop {"count":4,"maxDistance":48} from camp (10.5,89,56.5) finished "done" with chopped:0,
+trees:[], collected:[] — /events showed EVERY single candidate position it considered (~30,
+tight box x9-19,z52-60,y89-97, all real oak_log blocks — camp's own log pillars/lamp posts)
+got the line "chopTrees: skipping X,Y,Z — inside camp quarantine (<60 of (12,56))". Makes sense
+for those (protects our own built structures from being felled as "trees" — good, matches the
+canDig-eats-furniture lesson). BUT the quarantine check is a flat 60-block radius around camp
+center with no distinction between a built pillar and a real tree, and the tribe's own PLANTED
+GROVE at (8,91,68) is only 12.65 blocks from that center — permanently inside the no-chop ring.
+Confirmed the grove has grown in nicely (blockAt scan: 5+ full oak_log trunks, tons of
+oak_leaves/birch_leaves canopy, well past sapling stage) but /chop can never legally harvest ANY
+of it while this radius stands, contradicting the whole point of planting it. Math check: since
+maxDistance(48) < quarantine radius(60), NO position within chop-reach of anywhere near camp can
+ever pass the filter — this isn't a fluke, it's guaranteed every time a bot chops from camp.
+Workaround used this run: manual /eval bot.dig() on 4 identified oak_log blocks at the grove
+(escape hatch per escalation rule, 2nd distinct failure signature confirmed via math not just
+retry) — worked clean, 4/4 dug, confirmed air after each, /collect swept the 2 that dropped out
+of immediate pickup range. Suggest: either carve the grove out as an explicit quarantine
+exception (radius check keyed off nearest KNOWN build coord, not blanket camp-center distance),
+or give chopTrees a real tree-vs-placed-pillar distinguisher (e.g. only quarantine a log block
+that has no dirt/grass parent block or is adjacent to other build materials) instead of raw
+distance.
+
 ## 2026-09-01 orchestrator self-report: force-fire before arrival (self-two-commanders)
 Rescue staircase task-2 on Grog "done" in 1ms. NOT a bug: dig-law refusal, working as designed.
 Two orchestrator errors stacked: (1) /staircase force:true fired while own /goto (task-1) still
@@ -784,3 +807,44 @@ running — force cancelled the positioning, bot never reached launch cell; (2) 
 z55 is outside rescue_ramp zone z56-58, columnEntersDigZone correctly said no.
 LAW (now in REBUILD.md R1): goto → verify arrival via fresh /status position → THEN dig task.
 force:true is for replacing a WRONG task, never for skipping the wait on your own right one.
+
+## [open] 2X CONFIRMED: idle-guard sweeps driver's KEEP items + retry-spam floods event ring — Grog, 2026-09-01 09:13/09:19
+Left Grog idle ~90s (reading a teammate msg, no task issued) between task-10 and task-11. Runner's
+built-in idle-guard fired its default "deposit toward chest A" and dumped almost the WHOLE
+inventory in one pass — including crafting_table, bread x5, and BOTH furnace x2 — items the driver
+was explicitly told to KEEP on the bot, not bank. No keep-list/allowlist concept exists in
+idle-guard's deposit path; it deposits everything non-tool, full stop. Recovered by withdrawing
+them back afterward (worked fine), but if idle-guard had fired mid-task instead of at a clean idle
+point, or if the driver hadn't caught it, kit loss was real (had it been food during a fight, or a
+tool needed same-session, this bites harder than lost chest slots).
+
+Second, worse finding: once chest A hit its 27-slot cap partway through the sweep, idle-guard did
+NOT stop or back off — it kept cycling (`detail:"idle-guard: cycle 66"` through at least `"cycle
+97"` observed, 31+ cycles in under 30s) re-attempting the SAME failed items (oak_door, oak_log,
+diorite, andesite, dripstone_block, birch_planks, birch_sapling, raw_copper, apple,
+pointed_dripstone) every cycle, each retry logging one `quirk depositToChest: failed to deposit
+X: destination full` event PER ITEM. This produced 400+ ring events in under a minute (confirmed:
+/events?since=34 right after had already rolled seq past 1150, vs. seq 35 before idle-guard fired)
+— blew this bot's entire session history (task-1..task-10, the sethome/goto/bank steps) straight
+out of the 500-entry ring before I could reference it. Same disease as the already-logged "event
+ring flooded by FEL join/leave spam" entry above, different source (own idle-guard retry-loop
+instead of foreign join/leave spam) — both point at the same fix: notable-task-events need their
+own ring, or spam-dedup on repeated identical quirk lines within a short window.
+
+Suggest: (1) idle-guard's default-deposit should accept/consult a driver-set keep-list (or at
+minimum a "keep last N food + first crafting_table + first furnace" heuristic) before sweeping;
+(2) idle-guard should back off (stop retrying, or drop to a single warning) the moment ANY item in
+its batch reports "destination full" instead of full-speed-retrying the identical failing batch
+every cycle; (3) ring buffer should either dedup identical consecutive quirk lines or keep a
+separate task-only ring, so one spam episode can't erase real task history.
+
+UPDATE 09:19Z — RECURRED, same session, ~6 min later: after I'd already withdrawn crafting_table 1
++ furnace 1 (spare) + cobblestone 16 back onto Grog per team-lead's explicit keep-list, another
+idle gap (reading/processing a teammate message, no bot task issued) let idle-guard fire a THIRD
+time and re-deposit all three straight back into chest A — this time pushing chest A to a hard
+27/27 slots FULL (confirmed via containerItems().length). Recovered again (partial-count eval
+withdraw), chest back to 26/27. Two-for-two: every idle gap this session that lasted through a
+message-processing pause triggered a sweep, 100% hit rate, and the second occurrence had a real
+consequence (drove a shared depot chest to capacity) rather than just noise. This is not a rare
+edge case, it's the default outcome of any driver pause long enough to read+act on a teammate
+message — strongly reinforces fix (1) above (keep-list) as high priority, not a nice-to-have.
