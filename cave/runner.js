@@ -473,7 +473,66 @@ function isForeignJoinLeave(text) {
   return !OUR_BOTS.test(who);
 }
 
+// RING RATE CAP (FEEDBACK "2X CONFIRMED: idle-guard sweeps driver's KEEP
+// items + retry-spam floods event ring", Grog 2026-09-01 09:13/09:19) — once
+// chest A hit its cap, idle-guard's own deposit retries logged one 'quirk'
+// event PER FAILED ITEM every ~5s cycle, 400+ events inside a minute, wiping
+// the whole 500-entry ring past any real task history before anyone could
+// read it. Same disease as the join/leave flood above, different source.
+// Cap each event TYPE to RATE_CAP_PER_TYPE entries per RATE_CAP_WINDOW_MS;
+// the rest are dropped and counted, and a single "...suppressed N similar"
+// line replaces them once the window rolls over (either lazily, on the next
+// event of that type, or via the sweep below if the spammy source goes
+// quiet before that happens). Deliberately keyed on type alone, not
+// message content — matches how the flood actually presented (many
+// distinct item names, same 'quirk' type).
+const RATE_CAP_PER_TYPE = 30;
+const RATE_CAP_WINDOW_MS = 60000;
+const rateState = new Map(); // type -> { windowStart, count, suppressed }
+
+function flushSuppressed(type, rs) {
+  if (!rs || rs.suppressed <= 0) return;
+  eventSeq++;
+  eventsBuf.push({
+    seq: eventSeq,
+    ts: new Date().toISOString(),
+    type,
+    msg: `...suppressed ${rs.suppressed} similar ${type} event(s)`,
+  });
+  if (eventsBuf.length > EVENTS_MAX) eventsBuf.shift();
+  rs.suppressed = 0;
+}
+
+// Catches a type whose window went stale WITHOUT a follow-up event (the
+// spam source stopped rather than kept going) — otherwise a trailing
+// suppressed count would sit invisible forever, never flushed by
+// pushEvent's own lazy rollover. Piggybacks the existing idle-guard tick
+// interval below instead of adding a second timer for a cheap periodic scan.
+function sweepStaleRateWindows() {
+  const now = Date.now();
+  for (const [type, rs] of rateState) {
+    if (rs.suppressed > 0 && now - rs.windowStart >= RATE_CAP_WINDOW_MS) {
+      flushSuppressed(type, rs);
+    }
+  }
+}
+
 function pushEvent(type, msg) {
+  const now = Date.now();
+  let rs = rateState.get(type);
+  if (!rs) {
+    rs = { windowStart: now, count: 0, suppressed: 0 };
+    rateState.set(type, rs);
+  } else if (now - rs.windowStart >= RATE_CAP_WINDOW_MS) {
+    flushSuppressed(type, rs);
+    rs.windowStart = now;
+    rs.count = 0;
+  }
+  rs.count++;
+  if (rs.count > RATE_CAP_PER_TYPE) {
+    rs.suppressed++;
+    return;
+  }
   eventSeq++;
   eventsBuf.push({ seq: eventSeq, ts: new Date().toISOString(), type, msg: String(msg) });
   if (eventsBuf.length > EVENTS_MAX) eventsBuf.shift();
@@ -1305,6 +1364,18 @@ const IDLE_GUARD_DEPOT_POS = { x: 11, y: 89, z: 55 };
 const IDLE_GUARD_DEPOT_RADIUS = 40;
 const IDLE_GUARD_SURPLUS_THRESHOLD = 8;
 
+// DEPOSIT BACKOFF (FEEDBACK "2X CONFIRMED: idle-guard sweeps driver's KEEP
+// items + retry-spam floods event ring", Grog 2026-09-01 09:13/09:19) — once
+// chest A was full, idle-guard kept re-attempting the identical deposit
+// every ~5s cycle (31+ cycles observed in under 30s) instead of backing off,
+// burning ring budget for zero effect. Two consecutive failed/empty deposit
+// attempts (chest full, or the call throwing outright) now pause further
+// deposit attempts for IDLE_GUARD_DEPOSIT_BACKOFF_MS — drop-sweeping still
+// runs every cycle as before, only the deposit step is skipped.
+const IDLE_GUARD_DEPOSIT_BACKOFF_MS = 10 * 60 * 1000;
+let idleGuardDepositFailStreak = 0;
+let idleGuardDepositBackoffUntil = 0;
+
 function distance3(a, b) {
   const dx = a.x - b.x;
   const dy = a.y - b.y;
@@ -1348,27 +1419,48 @@ async function idleGuardCycle(task, ctx) {
     const dist = distance3(bot.entity.position, IDLE_GUARD_DEPOT_POS);
 
     if (nonToolCount > IDLE_GUARD_SURPLUS_THRESHOLD && dist <= IDLE_GUARD_DEPOT_RADIUS) {
-      const names = [...new Set(nonTool.map((it) => it.name))];
-      await announce('status', `(idle-guard) depositing ${nonToolCount} surplus items at depot`);
-      try {
-        const result = await skills.depositToChest(bot, { pos: IDLE_GUARD_DEPOT_POS, items: names }, ctx);
-        const deposited = result.deposited || [];
-        if (deposited.length) {
-          // DEPOT ledger, one line per item, in the DRIVER_GUIDE DEPOT format.
-          // Still emitted through smartChat and still worded identically —
-          // but since the DEPOT de-chat decree (2026-09-01, see
-          // PROTOCOL_PREFIX above) "DEPOT " no longer matches the protocol
-          // branch, so these now route through announce('status') to the
-          // Discord status feed instead of public white chat.
-          for (const d of deposited) {
-            await smartChat(`DEPOT +${d.count} ${d.name} (chest A)`);
+      if (Date.now() < idleGuardDepositBackoffUntil) {
+        // Backed off after 2 consecutive failures — see IDLE_GUARD_DEPOSIT_BACKOFF_MS
+        // above. Drop-sweep above still ran this cycle; only the deposit
+        // attempt itself is skipped until the backoff clears.
+        await announce('status', '(idle-guard) deposit backed off (chest full/failing recently), pausing');
+        await cancellableSleep(20000, ctx);
+      } else {
+        const names = [...new Set(nonTool.map((it) => it.name))];
+        await announce('status', `(idle-guard) depositing ${nonToolCount} surplus items at depot`);
+        let depositFailed = false;
+        try {
+          const result = await skills.depositToChest(bot, { pos: IDLE_GUARD_DEPOT_POS, items: names }, ctx);
+          const deposited = result.deposited || [];
+          if (deposited.length) {
+            idleGuardDepositFailStreak = 0;
+            // DEPOT ledger, one line per item, in the DRIVER_GUIDE DEPOT format.
+            // Still emitted through smartChat and still worded identically —
+            // but since the DEPOT de-chat decree (2026-09-01, see
+            // PROTOCOL_PREFIX above) "DEPOT " no longer matches the protocol
+            // branch, so these now route through announce('status') to the
+            // Discord status feed instead of public white chat.
+            for (const d of deposited) {
+              await smartChat(`DEPOT +${d.count} ${d.name} (chest A)`);
+            }
+          } else {
+            depositFailed = true;
+            await announce('status', '(idle-guard) deposited nothing (chest full?)');
           }
-        } else {
-          await announce('status', '(idle-guard) deposited nothing (chest full?)');
+        } catch (err) {
+          depositFailed = true;
+          ctx.log('warn', `idle-guard: deposit failed: ${err.message}`);
+          await announce('status', `(idle-guard) deposit attempt failed: ${err.message}`);
         }
-      } catch (err) {
-        ctx.log('warn', `idle-guard: deposit failed: ${err.message}`);
-        await announce('status', `(idle-guard) deposit attempt failed: ${err.message}`);
+        if (depositFailed) {
+          idleGuardDepositFailStreak++;
+          if (idleGuardDepositFailStreak >= 2) {
+            idleGuardDepositBackoffUntil = Date.now() + IDLE_GUARD_DEPOSIT_BACKOFF_MS;
+            idleGuardDepositFailStreak = 0;
+            logLine('warn', `idle-guard: deposit failed twice in a row, backing off ${IDLE_GUARD_DEPOSIT_BACKOFF_MS / 60000}min`);
+            pushEvent('idle-guard', `deposit backoff: 2 consecutive failures, pausing deposit attempts for ${IDLE_GUARD_DEPOSIT_BACKOFF_MS / 60000}min`);
+          }
+        }
       }
     } else {
       await announce('status', '(idle-guard) nothing to do, pausing');
@@ -1413,6 +1505,7 @@ setInterval(() => {
   try {
     checkIdleGuardSafetyTTL();
     maybeStartIdleGuard();
+    sweepStaleRateWindows();
   } catch (err) {
     logLine('error', `idle-guard tick error: ${err?.stack ?? err}`);
   }
