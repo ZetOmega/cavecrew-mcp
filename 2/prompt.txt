@@ -1,0 +1,622 @@
+<task-notification>
+<task-id>bwj9dhnla</task-id>
+<summary>Monitor event: "watching Grog's coal mine task progress"</summary>
+<event>poll 1: state=running mining coal_ore 0/24 health=20
+CHANGE: running mining coal_ore 0/24</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bwj9dhnla</task-id>
+<summary>Monitor event: "watching Grog's coal mine task progress"</summary>
+<event>poll 2: state=running mining coal_ore 0/24 health=20</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bwj9dhnla</task-id>
+<summary>Monitor event: "watching Grog's coal mine task progress"</summary>
+<event>poll 3: state=running mining coal_ore 0/24 health=20</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bwj9dhnla</task-id>
+<summary>Monitor event: "watching Grog's coal mine task progress"</summary>
+<event>poll 4: state=running mining coal_ore 0/24 health=20</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bwj9dhnla</task-id>
+<summary>Monitor event: "watching Grog's coal mine task progress"</summary>
+<event>poll 5: state=running mining coal_ore 0/24 health=20</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bwj9dhnla</task-id>
+<summary>Monitor event: "watching Grog's coal mine task progress"</summary>
+<event>poll 6: state=running mining coal_ore 0/24 health=20</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bvt06w1wf</task-id>
+<summary>Monitor event: "watching Grog's coal collect sweep"</summary>
+<event>poll 1: state=running None coal=3</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bvt06w1wf</task-id>
+<summary>Monitor event: "watching Grog's coal collect sweep"</summary>
+<event>poll 2: state=running None coal=3</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bvt06w1wf</task-id>
+<summary>Monitor event: "watching Grog's coal collect sweep"</summary>
+<event>poll 3: state=running None coal=3</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bvt06w1wf</task-id>
+<summary>Monitor event: "watching Grog's coal collect sweep"</summary>
+<event>poll 4: state=running None coal=3</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bvt06w1wf</task-id>
+<summary>Monitor event: "watching Grog's coal collect sweep"</summary>
+<event>poll 5: state=running None coal=3</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bvt06w1wf</task-id>
+<summary>Monitor event: "watching Grog's coal collect sweep"</summary>
+<event>poll 6: state=running None coal=3</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bvt06w1wf</task-id>
+<summary>Monitor event: "watching Grog's coal collect sweep"</summary>
+<event>poll 7: state=running None coal=3</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bxpqhecid</task-id>
+<summary>Monitor event: "watching for Grog unwedge after restart"</summary>
+<event>poll 1: connected=True pos=24.30,89.00,64.30</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bxpqhecid</task-id>
+<summary>Monitor event: "watching for Grog unwedge after restart"</summary>
+<event>poll 2: connected=True pos=24.30,89.00,64.30</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bxpqhecid</task-id>
+<summary>Monitor event: "watching for Grog unwedge after restart"</summary>
+<event>poll 3: connected=True pos=24.67,89.00,64.52
+MOVED: 24.30,89.00,64.30 -&gt; 24.67,89.00,64.52, likely unwedged</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>blsmx5vcr</task-id>
+<summary>Monitor event: "watching goto reach coal vein pit"</summary>
+<event>poll 1: state=running detail=None pos=24.30,89.00,64.70</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>blsmx5vcr</task-id>
+<summary>Monitor event: "watching goto reach coal vein pit"</summary>
+<event>poll 2: state=running detail=None pos=24.30,89.00,64.70</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>blsmx5vcr</task-id>
+<summary>Monitor event: "watching goto reach coal vein pit"</summary>
+<event>poll 3: state=running detail=None pos=24.30,89.00,64.70</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>by69aqd90</task-id>
+<summary>Monitor event: "watching goto distance-to-target trend for coal vein pit"</summary>
+<event>poll 1: state=running pos=24.50,89.00,64.70 dist=3.86</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>by69aqd90</task-id>
+<summary>Monitor event: "watching goto distance-to-target trend for coal vein pit"</summary>
+<event>poll 2: state=running pos=24.50,89.00,64.70 dist=3.86</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bf0rf8ufu</task-id>
+<summary>Monitor event: "watching collect sweep for 2 fresh coal drops"</summary>
+<event>poll 1: state=running detail=None coal=3</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bf0rf8ufu</task-id>
+<summary>Monitor event: "watching collect sweep for 2 fresh coal drops"</summary>
+<event>poll 2: state=running detail=None coal=3</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bf0rf8ufu</task-id>
+<summary>Monitor event: "watching collect sweep for 2 fresh coal drops"</summary>
+<event>poll 3: state=running detail=None coal=3</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b1ho41g18</task-id>
+<summary>Monitor event: "watching goto to Mine House door"</summary>
+<event>poll 3: state=running pos=12.70,89.88,55.50</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b1ho41g18</task-id>
+<summary>Monitor event: "watching goto to Mine House door"</summary>
+<event>poll 5: state=running pos=12.70,89.88,55.50</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b3wh9hpo2</task-id>
+<summary>Monitor event: "watching deposit task reach chest D and complete"</summary>
+<event>poll 1: state=running detail=None pos=12.30,89.88,55.50</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b3wh9hpo2</task-id>
+<summary>Monitor event: "watching deposit task reach chest D and complete"</summary>
+<event>poll 2: state=running detail=None pos=12.30,89.88,55.50</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b3wh9hpo2</task-id>
+<summary>Monitor event: "watching deposit task reach chest D and complete"</summary>
+<event>poll 3: state=running detail=None pos=12.30,89.88,55.50</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>brj6t2wx6</task-id>
+<summary>Monitor event: "watching goto out shelter's south door into farm"</summary>
+<event>poll 1: state=running pos=12.70,89.88,55.50</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>brj6t2wx6</task-id>
+<summary>Monitor event: "watching goto out shelter's south door into farm"</summary>
+<event>poll 2: state=running pos=12.70,89.88,55.50</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b40f9ws2a</task-id>
+<summary>Monitor event: "watching sidestep goto around crafting table"</summary>
+<event>poll 1: state=done pos=11.50,90.00,57.28
+TASK_ENDED: done None</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b40f9ws2a</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-phili-tools-cavecrew-mcp/952b8146-8aa4-4409-997b-890cd344ce7a/tasks/b40f9ws2a.output</output-file>
+<status>completed</status>
+<summary>Monitor "watching sidestep goto around crafting table" stream ended</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bcm90d4v7</task-id>
+<summary>Monitor event: "watching goto into farm toward storage house door"</summary>
+<event>poll 1: state=running pos=12.55,89.88,55.47</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bcm90d4v7</task-id>
+<summary>Monitor event: "watching goto into farm toward storage house door"</summary>
+<event>poll 2: state=running pos=12.55,89.88,55.47</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bnmhvlqcr</task-id>
+<summary>Monitor event: "watching deposit retry from improved position"</summary>
+<event>poll 1: state=running pos=12.55,89.88,55.47</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bv0bvd22s</task-id>
+<summary>Monitor event: "watching goto back to mine_field road"</summary>
+<event>poll 1: state=running kind=goto pos=12.70,89.88,55.50</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bv0bvd22s</task-id>
+<summary>Monitor event: "watching goto back to mine_field road"</summary>
+<event>poll 2: state=running kind=goto pos=12.70,89.88,55.50</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bv0bvd22s</task-id>
+<summary>Monitor event: "watching goto back to mine_field road"</summary>
+<event>poll 3: state=running kind=goto pos=12.70,89.88,55.50</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbp5apj5e</task-id>
+<summary>Monitor event: "watching pf-fallback retry ladder resolve the long-range goto"</summary>
+<event>poll 2: state=running pos=12.55,89.88,55.46</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbp5apj5e</task-id>
+<summary>Monitor event: "watching pf-fallback retry ladder resolve the long-range goto"</summary>
+<event>poll 3: state=running pos=12.55,89.88,55.46</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbp5apj5e</task-id>
+<summary>Monitor event: "watching pf-fallback retry ladder resolve the long-range goto"</summary>
+<event>poll 4: state=running pos=12.55,89.88,55.46</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbp5apj5e</task-id>
+<summary>Monitor event: "watching pf-fallback retry ladder resolve the long-range goto"</summary>
+<event>poll 5: state=running pos=12.55,89.88,55.46</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbp5apj5e</task-id>
+<summary>Monitor event: "watching pf-fallback retry ladder resolve the long-range goto"</summary>
+<event>poll 7: state=running pos=12.55,89.88,55.46</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbp5apj5e</task-id>
+<summary>Monitor event: "watching pf-fallback retry ladder resolve the long-range goto"</summary>
+<event>poll 8: state=running pos=12.55,89.88,55.46</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbp5apj5e</task-id>
+<summary>Monitor event: "watching pf-fallback retry ladder resolve the long-range goto"</summary>
+<event>poll 9: state=done pos=12.55,89.88,55.46
+TASK_ENDED: done stopped via /stop</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbp5apj5e</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-phili-tools-cavecrew-mcp/952b8146-8aa4-4409-997b-890cd344ce7a/tasks/bbp5apj5e.output</output-file>
+<status>completed</status>
+<summary>Monitor "watching pf-fallback retry ladder resolve the long-range goto" stream ended</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b67bz037h</task-id>
+<summary>Monitor event: "watching fresh post-relog goto to mine_field"</summary>
+<event>poll 1: state=running pos=12.70,89.88,55.50</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b67bz037h</task-id>
+<summary>Monitor event: "watching fresh post-relog goto to mine_field"</summary>
+<event>poll 2: state=running pos=12.70,89.88,55.50</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b67bz037h</task-id>
+<summary>Monitor event: "watching fresh post-relog goto to mine_field"</summary>
+<event>poll 3: state=running pos=12.70,89.88,55.50</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b67bz037h</task-id>
+<summary>Monitor event: "watching fresh post-relog goto to mine_field"</summary>
+<event>poll 4: state=running pos=12.70,89.88,55.50</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b67bz037h</task-id>
+<summary>Monitor event: "watching fresh post-relog goto to mine_field"</summary>
+<event>poll 5: state=running pos=12.70,89.88,55.50</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b67bz037h</task-id>
+<summary>Monitor event: "watching fresh post-relog goto to mine_field"</summary>
+<event>poll 7: state=running pos=12.70,89.88,55.50</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b67bz037h</task-id>
+<summary>Monitor event: "watching fresh post-relog goto to mine_field"</summary>
+<event>poll 8: state=running pos=12.70,89.88,55.50</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b67bz037h</task-id>
+<summary>Monitor event: "watching fresh post-relog goto to mine_field"</summary>
+<event>poll 10: state=running pos=12.70,89.88,55.50</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b67bz037h</task-id>
+<summary>Monitor event: "watching fresh post-relog goto to mine_field"</summary>
+<event>poll 11: state=running pos=12.70,89.88,55.50</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bwxyg93it</task-id>
+<summary>Monitor event: "watching goto to mine_field from home-teleport spot"</summary>
+<event>poll 1: state=done pos=24.70,90.00,63.56
+TASK_ENDED: done None</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bwxyg93it</task-id>
+<tool-use-id>toolu_01WxC47TXMacgW7cUhuJVJCt</tool-use-id>
+<output-file>/tmp/claude-1000/-home-phili-tools-cavecrew-mcp/952b8146-8aa4-4409-997b-890cd344ce7a/tasks/bwxyg93it.output</output-file>
+<status>completed</status>
+<summary>Monitor "watching goto to mine_field from home-teleport spot" stream ended</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b3op2564u</task-id>
+<summary>Monitor event: "watching goto to y87 coal vein area"</summary>
+<event>poll 1: state=running pos=24.70,90.00,63.56</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b3op2564u</task-id>
+<summary>Monitor event: "watching goto to y87 coal vein area"</summary>
+<event>poll 2: state=running pos=24.70,90.00,63.56</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b3op2564u</task-id>
+<summary>Monitor event: "watching goto to y87 coal vein area"</summary>
+<event>poll 3: state=running pos=24.70,90.00,63.56</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b2wigazvp</task-id>
+<summary>Monitor event: "watching collect sweep of coal drops in open mine_field"</summary>
+<event>poll 1: state=done coal=4
+TASK_ENDED: done coal=4</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b2wigazvp</task-id>
+<tool-use-id>toolu_01QEukzQAWS8sbQzvzydXNqK</tool-use-id>
+<output-file>/tmp/claude-1000/-home-phili-tools-cavecrew-mcp/952b8146-8aa4-4409-997b-890cd344ce7a/tasks/b2wigazvp.output</output-file>
+<status>completed</status>
+<summary>Monitor "watching collect sweep of coal drops in open mine_field" stream ended</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>brph4u5fk</task-id>
+<summary>Monitor event: "watching goto back to vein area after hijack"</summary>
+<event>poll 1: state=done pos=22.03,90.00,64.50
+TASK_ENDED: done None</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>brph4u5fk</task-id>
+<tool-use-id>toolu_01M8WdkzG1FkGCFdXkFeK2Sy</tool-use-id>
+<output-file>/tmp/claude-1000/-home-phili-tools-cavecrew-mcp/952b8146-8aa4-4409-997b-890cd344ce7a/tasks/brph4u5fk.output</output-file>
+<status>completed</status>
+<summary>Monitor "watching goto back to vein area after hijack" stream ended</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b3kogyzlu</task-id>
+<summary>Monitor event: "watching deposit of 8 coal to chest D (reduced cadence)"</summary>
+<event>poll 1: state=done kind=eval coal=[8] result={"x":40.53282994421755,"y":49,"z":60.50246051407919}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b3kogyzlu</task-id>
+<summary>Monitor event: "watching deposit of 8 coal to chest D (reduced cadence)"</summary>
+<event>poll 2: state=running kind=goto coal=[8] result=None</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b72rpnm8p</task-id>
+<summary>Monitor event: "watching withdraw of raw_iron and coal from chest D"</summary>
+<event>poll 1: state=done kind=goto inv=[('raw_iron', 13), ('coal', 8)]
+TASK_ENDED: done {'x': 11, 'y': 89, 'z': 57, 'range': 1, 'reached': True, 'engine': 'ash'}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
