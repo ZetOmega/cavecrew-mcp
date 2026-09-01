@@ -140,6 +140,29 @@ function goalGroundTruth(bot, goal) {
   return { dist: Math.hypot(horizDist, vertDist), horizDist, vertDist, range };
 }
 
+// CROP_BLOCK_NAMES — the single canonical source (FEEDBACK "A/B TEST
+// RESULT: new crop-blocksToAvoid PASSES for /goto+pf, but /collect still
+// tramples farmland", Zug). runner.js's Movements.blocksToAvoid (070661b)
+// and skills.js's collectDrops pre-filter (d5e58fb) both consume this same
+// array — movement.js is the shared module both already import (skills.js:
+// `import * as movement from './movement.js'`, runner.js: same), and
+// neither runner.js nor skills.js is imported back by movement.js, so this
+// is the one place that isn't circular. Exported, not copy-pasted a 3rd
+// time.
+export const CROP_BLOCK_NAMES = ['wheat', 'carrots', 'potatoes', 'beetroots'];
+
+// Floored cell one step from `pos` toward `targetPos`, horizontal only (y
+// held at pos.y) — a cheap approximation of "the next block rawWalkTo's
+// forward pulse is aimed at", good enough for a pre-pulse hazard check
+// without simulating real movement physics.
+function nextCellToward(pos, targetPos) {
+  const dx = targetPos.x - pos.x;
+  const dz = targetPos.z - pos.z;
+  const mag = Math.hypot(dx, dz);
+  if (mag < 0.001) return pos.floored();
+  return new Vec3(pos.x + dx / mag, pos.y, pos.z + dz / mag).floored();
+}
+
 // Last-resort fallback once bot.pathfinder's own goto() has been caught
 // false-reaching (or genuinely failing) across every retry AND the bot is
 // still ground-truthed as actually close (<6 blocks — see call site).
@@ -149,6 +172,17 @@ function goalGroundTruth(bot, goal) {
 // 15s elapses. Deliberately dumb
 // (no obstacle avoidance, no digging) — only meant for the "goal is right
 // there, pathfinder just isn't moving" case, never general navigation.
+//
+// (FIELD BUG, Zug 2026-09-01) "Deliberately dumb" used to mean "zero
+// block-type awareness at all" too — pf's own move-generation correctly
+// REFUSES a path onto a blocksToAvoid-flagged crop cell (that refusal is
+// runner.js's crop-avoid Movements config working as designed), but this
+// exact fallback exists BECAUSE pf attempts exhausted, and used to bulldoze
+// straight over whatever pf had legitimately refused — undoing the
+// protection for the one caller (collectDrops) whose own target can land
+// on a crop cell by chance. Fixed here at the source instead of only at
+// collectDrops' call site, so every gotoLoop caller gets the same
+// guarantee: refuse rather than bulldoze onto a protected block, full stop.
 async function rawWalkTo(bot, goal, range, ctx) {
   const targetPos = new Vec3(
     typeof goal.x === 'number' ? goal.x + 0.5 : bot.entity.position.x,
@@ -162,6 +196,19 @@ async function rawWalkTo(bot, goal, range, ctx) {
       if (ctx.isStaleGeneration?.()) throw new Error('rawWalkTo: stale generation');
       const check = goalGroundTruth(bot, goal);
       if (check && check.horizDist <= check.range + 1.0 && check.vertDist <= 1.5) return;
+      // PROTECTED-BLOCK REFUSAL — checked fresh every pulse (position/
+      // heading can shift between pulses), BEFORE touching the controls
+      // below. Feet cell covers "already standing on one" (shouldn't
+      // happen given this check, but cheap insurance against a pulse that
+      // landed on one before this fix); the projected next cell covers
+      // "about to step onto one".
+      const feetName = bot.blockAt(bot.entity.position.floored())?.name;
+      const aheadName = bot.blockAt(nextCellToward(bot.entity.position, targetPos))?.name;
+      if (CROP_BLOCK_NAMES.includes(feetName) || CROP_BLOCK_NAMES.includes(aheadName)) {
+        throw new Error(
+          `rawWalkTo: refusing to bulldoze onto a protected block (feet=${feetName ?? '?'}, ahead=${aheadName ?? '?'}) — pf's own refusal stands, this fallback does not override it`
+        );
+      }
       // (LOOK-WAKE LAW, Thak 2026-09-01 — FEEDBACK "setControlState no-op
       // without preceding bot.look()") The forced look packet is what makes
       // the control toggles below actually take effect; bare setControlState

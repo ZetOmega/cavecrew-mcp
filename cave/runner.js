@@ -1163,7 +1163,10 @@ function wireBot(b) {
       // Known gap, not solved by this: a BARE (unplanted/freshly-hoed)
       // farmland tile has no crop block above it, so it isn't covered —
       // flagged to team-lead, not silently claimed as complete.
-      for (const cropName of ['wheat', 'carrots', 'potatoes', 'beetroots']) {
+      // Name list lives in movement.js's CROP_BLOCK_NAMES (single canonical
+      // source shared with skills.js's collectDrops pre-filter and
+      // movement.js's own rawWalkTo refusal) — not copy-pasted here.
+      for (const cropName of movement.CROP_BLOCK_NAMES) {
         const cropId = mcData?.blocksByName?.[cropName]?.id;
         if (typeof cropId === 'number') m.blocksToAvoid.add(cropId);
       }

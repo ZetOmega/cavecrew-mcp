@@ -122,14 +122,13 @@ const SEAL_MATERIALS = /cobblestone|_stone$|^stone$|dirt|netherrack|blackstone|d
 // can never eat our own infrastructure.
 const NUISANCE_BLOCKS = /^(torch|leaf_litter|short_grass|snow|pointed_dripstone)$/;
 
-// CROP_BLOCKS — same 4 names as runner.js's Movements.blocksToAvoid (FEEDBACK
-// "goto ROUTES STRAIGHT ACROSS live farmland", Zug). Kept as a separate,
-// deliberately duplicated constant here rather than imported: skills.js
-// can't import from runner.js (circular — see the identical comment on
-// ensurePlanksAndSticks/mcData elsewhere in this file), and this list is
-// consulted somewhere blocksToAvoid structurally cannot help — see
-// collectDrops below.
-const CROP_BLOCKS = /^(wheat|carrots|potatoes|beetroots)$/;
+// Crop block names (wheat/carrots/potatoes/beetroots) now live at
+// movement.CROP_BLOCK_NAMES — single canonical source shared with
+// runner.js's Movements.blocksToAvoid and movement.js's own rawWalkTo
+// refusal (FEEDBACK "goto ROUTES STRAIGHT ACROSS live farmland" /
+// "/collect still tramples farmland", Zug). skills.js already imports
+// movement.js (see top of file), so no separate copy needed here — see
+// collectDrops below for the one place this file consults it.
 
 // (17) PROTECTED-BLOCK DIG GUARD (adapted from felcrew-mcp survey findings —
 // their own digguard.js hardcodes plaza-pillar coordinates as an anti-grief
@@ -1737,7 +1736,7 @@ export async function collectDrops(bot, opts = {}, ctx = {}) {
     // hardening of rawWalkTo itself would close this for every caller, not
     // just collectDrops — flagged to team-lead as a separate, bigger
     // finding, not attempted here.
-    const isCropProtected = (p) => CROP_BLOCKS.test(bot.blockAt(p)?.name ?? '');
+    const isCropProtected = (p) => movement.CROP_BLOCK_NAMES.includes(bot.blockAt(p)?.name ?? '');
     let arrived = false;
     let lastErr = null;
     let skippedCropCells = 0;
