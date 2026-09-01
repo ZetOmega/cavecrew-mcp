@@ -1,0 +1,19 @@
+{
+  "global": false,
+  "bots": {
+    "Durk": false,
+    "Mog": false
+  },
+  "decisionModel": "deepseek-chat",
+  "escalationModel": "deepseek-chat",
+  "reflectionModel": "deepseek-chat",
+  "tickMs": 5000,
+  "driverQuietMs": 15000,
+  "minCallIntervalMs": 20000,
+  "hourlyCallCap": 60,
+  "globalInFlightCap": 5,
+  "escalateAfterFails": 2,
+  "reflectionIntervalMinMs": 600000,
+  "reflectionIntervalMaxMs": 900000,
+  "signalsIntervalMs": 300000
+}

@@ -4,3 +4,6 @@ local.json
 scoreboard-state.json
 deaths-*.json
 alerts.log
+botmind/
+signals.jsonl
+drives/queue/

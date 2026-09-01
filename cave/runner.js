@@ -30,6 +30,18 @@ import * as movement from './movement.js';
 import { createRconChat } from './rconchat.js';
 import { tryStartWebInventory } from './webinv.js';
 import { postStatus, isConfigured as discordConfigured } from './discord.mjs';
+// DRIVES ENGINE (DRIVES-PLAN.md, DRIVES-SPEC.md) — drive-based idle
+// self-selection, flag-off by default (cave/drives.json global:false).
+// See the "DRIVES ENGINE" section below (after the IDLE-GUARD block) for
+// the wiring; these modules are pure/side-effect-free at import time, so
+// importing them unconditionally here costs nothing when drives is off.
+import * as drivesConfig from './drives-config.js';
+import * as drivesDsl from './drives-dsl.js';
+import * as drivesLlm from './drives-llm.js';
+import * as drivesMemory from './drives-memory.js';
+import * as drivesQueue from './drives-queue.js';
+import * as driveSignals from './signals.js';
+import { skillNames as drivesSkillNames, getSkill as getDriveSkill } from './drives-skills-map.js';
 
 const { createBot } = mineflayer;
 const { goals } = pathfinderPkg;
@@ -1019,7 +1031,13 @@ async function startTask(kind, fn, { force = false, source = 'http' } = {}) {
     // Any real task request must preempt it instantly — no 409, no need for
     // the driver to pass force:true — so a driver never has to know or care
     // that idle-guard happened to be running underneath it.
-    const preemptingIdleGuard = state.currentTask.kind === 'idle-guard' && kind !== 'idle-guard';
+    // DRIVES-PLAN.md §1.6 (FLAGGED/inferred from annotation A's "driver
+    // always wins" + K's "safety unchanged — same task layer, no new mutex"):
+    // a drive-issued task (source:'drives') is preemptible by any real
+    // driver call exactly like idle-guard already is — same boolean, same
+    // evidence logging below, no `force` needed either way.
+    const preemptingIdleGuard =
+      (state.currentTask.kind === 'idle-guard' || state.currentTask.source === 'drives') && kind !== 'idle-guard';
     if (!force && !preemptingIdleGuard) {
       const err = new Error('busy');
       err.busy = true;
@@ -1461,6 +1479,11 @@ function wireBot(b) {
     // through this handler too.
     if (isForeignJoinLeave(message)) return;
     pushEvent('chat', `${username}: ${message}`);
+    // DRIVES-PLAN.md §3 — social need reads "minutes since last chat with
+    // another (crew) bot"; markCrewChatHeard (DRIVES ENGINE section below,
+    // function declaration, hoisted) is a no-op whenever drives-memory
+    // hasn't been touched at all, i.e. always safe to call unconditionally.
+    markCrewChatHeard(username);
   });
 
   // System/tellraw capture — mineflayer's 'message' event fires for every
@@ -1725,6 +1748,13 @@ async function idleGuardCycle(task, ctx) {
 }
 
 function maybeStartIdleGuard() {
+  // DRIVES-PLAN.md §1.5 (FLAGGED/inferred — spec's own framing "replace
+  // idle behaviour with drive-based self-selection" + annotation E's
+  // parallel treatment of overseer's goal-engine implies idle-guard must
+  // also stand down for an enrolled+on bot, or the two idle-fillers fight
+  // over the same trigger). Costs one cheap boolean+mtime check per tick
+  // when drives is off/not-enrolled — never short-circuits idle-guard then.
+  if (drivesOwnsIdle(name)) return;
   if (!idleGuardEnabled) {
     const now = Date.now();
     if (now - idleGuardOffLoggedAt > IDLE_GUARD_OFF_LOG_INTERVAL_MS) {
@@ -1760,10 +1790,671 @@ setInterval(() => {
     checkIdleGuardSafetyTTL();
     maybeStartIdleGuard();
     sweepStaleRateWindows();
+    tickDrives(); // DRIVES-PLAN.md §1.4 — reuses this existing 5s cadence, no new timer
   } catch (err) {
     logLine('error', `idle-guard tick error: ${err?.stack ?? err}`);
   }
 }, IDLE_GUARD_TICK_MS);
+
+// ---------------------------------------------------------------------------
+// DRIVES ENGINE (DRIVES-SPEC.md, DRIVES-PLAN.md) — drive-based idle
+// self-selection: no roles, no injected story, vanilla survival. Fires
+// ONLY for a bot explicitly enrolled in cave/drives.json AND with
+// global:true there AND not paused via POST /drives — flag-off by
+// construction (annotation L), and every layer below fails toward
+// dormant/inert, never toward guessing or retrying blind.
+//
+// Structured exactly like idle-guard above: module-level constants/state,
+// a tick function wired into the SAME 5s setInterval, and task dispatch
+// through the SAME startTask()/task-mutex path every taskRoutes handler
+// uses (annotation K — no new movement primitive, no new mutex).
+// ---------------------------------------------------------------------------
+
+// lastCommandAt (DRIVES-PLAN.md §2) — see the "any HTTP call = activity"
+// narrowing note at its stamp site in handleRequest() above. Starts at
+// process-boot time (not 0) so a freshly-started, already-enrolled bot
+// doesn't fire a decision call before anything (bot spawn, driver
+// handshake) has had a chance to settle.
+let lastCommandAt = Date.now();
+
+// Runtime toggle (mirrors idleGuardEnabled exactly) — a driver's per-session
+// pause, NOT the config kill-switch. Defaults to true so an enrolled+
+// global:true bot is armed the instant it boots, same as idle-guard; the
+// real "off by default" guarantee lives in drives.json's global:false and
+// each bot's own absent/false enrollment entry, not here.
+let drivesRuntimeOn = true;
+
+// drivesOwnsIdle(botName) — the three-part check both maybeStartIdleGuard's
+// suppression (§1.5) and buildStatus()'s `drives.on` field read off of:
+// this bot is enrolled, the kill-switch is on, and the driver hasn't
+// paused it this session.
+function drivesOwnsIdle(botName) {
+  return drivesConfig.isEnrolled(botName) && drivesConfig.isGlobalOn() && drivesRuntimeOn;
+}
+
+// Per-process runtime state — reconstructed live (needs) or loaded once at
+// boot (mind) rather than re-read every tick; see drives-memory.js for the
+// on-disk shape (cave/botmind/<bot>.json, gitignored).
+const mind = drivesMemory.loadMind(name);
+const driveState = {
+  needs: null, // {hunger, safety, shelter, resources, social, boredom} | null (null until first enrolled+global tick)
+  lastDecision: null, // {ts, need, skill, why}
+};
+
+let decisionInFlight = false;
+let reflectionInFlight = false;
+let reflectionState = null; // {intervalMs, nextAt} — randomized once per process, see ensureReflectionSchedule
+let reflectionWindowStart = Date.now();
+const recentBlockSightings = new Set(); // nearby block-type names sampled each tick, merged/deduped since last reflection
+
+// LLM readiness — checked ONCE, lazily, the first tick every other trigger
+// condition already holds (annotation F: "never retried until the runner
+// restarts"). llmReadinessResult stays a stable {ready:false,...} or
+// {ready:true, apiKey} for the rest of this process's life either way.
+let llmReadinessChecked = false;
+let llmReadinessResult = null;
+
+// LOG-ONCE latch (DRIVES-PLAN.md Test 1/Test 2: "at most one ... line",
+// "never repeated on later ticks") — same intent as idle-guard's own
+// idleGuardOffLoggedAt, but a permanent one-shot-per-distinct-message latch
+// rather than a periodic re-log, since these are one-time state
+// transitions (config off, no key, model mismatch), not an ongoing
+// condition worth re-announcing.
+const drivesLoggedReasons = new Set();
+function logDrivesOnce(msg) {
+  if (drivesLoggedReasons.has(msg)) return;
+  drivesLoggedReasons.add(msg);
+  logLine('info', msg);
+}
+
+function clamp(v, lo, hi) {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+// markCrewChatHeard(username) — hooked from the b.on('chat', ...) handler
+// above (wireBot()). Only OUR_BOTS chat counts toward the social need
+// (spec: "minutes since last chat with ANOTHER BOT") — FEL/random-player
+// chat doesn't satisfy it, matching OUR_BOTS' existing use elsewhere in
+// this file for exactly this "is this one of ours" question.
+function markCrewChatHeard(username) {
+  const stripped = String(username).replace(/^\[[^\]]*\]/, '');
+  if (stripped === name || !OUR_BOTS.test(stripped)) return;
+  mind.counters.lastCrewChatAt = Date.now();
+}
+
+// isHostileNearby(radius) — entity.kind is mineflayer's own live category
+// string, confirmed against the installed mineflayer 4.35.0 + minecraft-data
+// (entities.js: `entity.kind = entityData.category`; minecraft-data's own
+// entities.json tags e.g. zombie/skeleton/creeper as category "Hostile
+// mobs") — not guessed.
+function isHostileNearby(radius) {
+  const b = bot;
+  if (!b?.entity) return false;
+  const p = b.entity.position;
+  for (const e of Object.values(b.entities)) {
+    if (!e || e === b.entity || e.kind !== 'Hostile mobs' || !e.position) continue;
+    if (distance3(p, e.position) <= radius) return true;
+  }
+  return false;
+}
+
+// countMissingMentionedItems — coarse word-match heuristic against the
+// reflection's free-text want_next line (DRIVES-PLAN.md §3: "spec itself
+// doesn't specify a precise formula here; flagged as tune-after-pilot-data,
+// not exact"). Matches real mcData item names only, so plain English words
+// in want_next ("need", "more", "for") never register as items.
+function countMissingMentionedItems(wantNextText, b) {
+  if (!wantNextText || !mcData) return 0;
+  const haveNames = new Set((b?.inventory?.items() ?? []).map((it) => it.name));
+  const words = String(wantNextText).toLowerCase().split(/[^a-z_]+/).filter(Boolean);
+  const seen = new Set();
+  let missing = 0;
+  for (const w of words) {
+    if (seen.has(w) || !mcData.itemsByName?.[w]) continue;
+    seen.add(w);
+    if (!haveNames.has(w)) missing++;
+  }
+  return missing;
+}
+
+// NEEDS (DRIVES-SPEC.md §1, DRIVES-PLAN.md §3) — code only, no LLM, every
+// tick. "Model never computes needs." Returns null when the bot isn't
+// spawned yet (needs are undefined, not zero, until there's a live bot to
+// read state from).
+function computeNeeds() {
+  const b = bot;
+  if (!b?.entity) return null;
+  const food = typeof b.food === 'number' ? b.food : 20;
+  const hp = typeof b.health === 'number' ? b.health : 20;
+  const isNight = b.time ? !b.time.isDay : false;
+
+  let hunger = clamp(Math.round(((20 - food) / 20) * 100), 0, 100);
+  if (food < 10) hunger = Math.min(100, hunger + 20);
+
+  let safety = 0;
+  if (isNight) safety += 40;
+  if (isHostileNearby(16)) safety += 40;
+  if (hp < 10) safety += 40;
+  safety = Math.min(100, safety);
+
+  const shelter = isNight && !mind.knownShelterSpot ? 80 : 0;
+
+  const resources = Math.min(100, 25 * countMissingMentionedItems(mind.reflection?.want_next, b));
+
+  const minutesSinceChat = mind.counters.lastCrewChatAt ? (Date.now() - mind.counters.lastCrewChatAt) / 60000 : 999;
+  const social = Math.min(100, Math.round(minutesSinceChat * 5));
+
+  const minutesSinceSuccess = mind.counters.lastDrivesSuccessAt ? (Date.now() - mind.counters.lastDrivesSuccessAt) / 60000 : 999;
+  const boredom = Math.min(100, Math.round(minutesSinceSuccess * 15)); // spec's own formula, verbatim
+
+  return { hunger, safety, shelter, resources, social, boredom };
+}
+
+// sampleNearbyBlockTypes — small-radius bot.findBlocks scan (same API shape
+// skills.js's pickNextVein/mineBlocks already use), deduped, capped 8
+// names. Feeds both the decision snapshot and the reflection's "things
+// seen" set. Never throws: an unloaded-chunk edge case just yields [].
+function sampleNearbyBlockTypes(maxDistance, count) {
+  const b = bot;
+  if (!b?.entity) return [];
+  try {
+    const positions = b.findBlocks({ point: b.entity.position, matching: () => true, maxDistance, count });
+    const names = new Set();
+    for (const p of positions) {
+      const blk = b.blockAt(p);
+      if (blk && blk.name !== 'air') names.add(blk.name);
+      if (names.size >= 8) break;
+    }
+    return [...names];
+  } catch {
+    return [];
+  }
+}
+
+// SIGNALS (LEAD ANNOTATION D, DRIVES-PLAN.md §7) — code only, no LLM.
+// Independent of the runtime toggle/LLM layer entirely: this is backend
+// inventory broadcast, never game chat, and costs no API spend either way.
+function maybeSendSignal(guards) {
+  if (Date.now() - lastSignalAt < guards.signalsIntervalMs) return;
+  lastSignalAt = Date.now();
+  const b = bot;
+  if (!b?.entity) return;
+  const counts = new Map();
+  for (const it of b.inventory.items()) counts.set(it.name, (counts.get(it.name) ?? 0) + it.count);
+  const top10 = [...counts.entries()].sort((a, c) => c[1] - a[1]).slice(0, 10).map(([n, c]) => ({ name: n, count: c }));
+  driveSignals.appendSignal({ bot: name, inventory: top10 });
+}
+let lastSignalAt = 0;
+
+// ensureLlmReady() — LEAD ANNOTATION F: key resolution (local.json
+// deepseek.apiKey or DEEPSEEK_API_KEY), then a startup model-list
+// fetch-and-match for decisionModel. Runs at most ONCE per process
+// (llmReadinessChecked latch) — a no-key or model-mismatch bot never
+// retries the network on its own; only a runner restart re-evaluates.
+// Order matters: the no-key check is a hardcoded, pre-network short-circuit
+// — verifyModel() is never even called without a key, so a garbage-key run
+// and a no-key run are provably different code paths, not one swallowed
+// catch-all wearing two faces (DRIVES-PLAN.md §10 Test 2 item 4).
+async function ensureLlmReady() {
+  if (llmReadinessChecked) return llmReadinessResult;
+  llmReadinessChecked = true;
+  const apiKey = drivesLlm.resolveApiKey(getLocalConfig());
+  if (!apiKey) {
+    logDrivesOnce('drives: no DeepSeek API key configured (local.json deepseek.apiKey or DEEPSEEK_API_KEY) — engine dormant');
+    llmReadinessResult = { ready: false, reason: 'no-key' };
+    return llmReadinessResult;
+  }
+  const models = drivesConfig.getModels();
+  const check = await drivesLlm.verifyModel(apiKey, models.decisionModel);
+  if (!check.ok) {
+    logDrivesOnce(
+      `drives: configured decisionModel "${models.decisionModel}" not found in DeepSeek model list (${check.available.join(', ') || check.error || 'none returned'}) — engine dormant`
+    );
+    llmReadinessResult = { ready: false, reason: 'model-mismatch', available: check.available };
+    return llmReadinessResult;
+  }
+  logLine('info', `drives: DeepSeek ready (model=${models.decisionModel})`);
+  llmReadinessResult = { ready: true, apiKey };
+  return llmReadinessResult;
+}
+
+// Prompt text is the chief's own wording, verbatim (DRIVES-SPEC.md §2/§4) —
+// not paraphrased.
+const DECISION_PROMPT =
+  'Vanilla Minecraft survival bot, self-directed, no leader. Pick ONE goal from skills. Highest need first; tie ' +
+  '→ not done recently. Boredom → explore new area, build, or find another bot and talk. Night without ' +
+  'shelter → shelter. Hungry → food. Last goal failed → change target/place/method, never same args. ' +
+  'Reply JSON only: {need, skill, args, done_check, timeout_s, why(<=5 words)}.';
+const REFLECTION_PROMPT = 'Review last N minutes. Answer 3 lines: good_at / village_lacks / want_next. Terse.';
+
+const NEED_NAMES = ['hunger', 'safety', 'shelter', 'resources', 'social', 'boredom'];
+
+// buildStateSnapshot (DRIVES-PLAN.md §5) — pos, hp, food, time, top-10
+// inventory, nearby block types, nearby crew bots, last goal+result+reason,
+// reflection's 3 lines verbatim, top-2 needs+values, skill list.
+function buildStateSnapshot() {
+  const b = bot;
+  const pos = b?.entity?.position ? { x: b.entity.position.x, y: b.entity.position.y, z: b.entity.position.z } : null;
+  const invCounts = new Map();
+  for (const it of b?.inventory?.items() ?? []) invCounts.set(it.name, (invCounts.get(it.name) ?? 0) + it.count);
+  const topInventory = [...invCounts.entries()].sort((a, c) => c[1] - a[1]).slice(0, 10).map(([n, c]) => ({ name: n, count: c }));
+
+  const nearbyBlocks = sampleNearbyBlockTypes(16, 60);
+  for (const n of nearbyBlocks) recentBlockSightings.add(n);
+
+  const nearbyBots = [];
+  if (b) {
+    for (const [uname, player] of Object.entries(b.players ?? {})) {
+      const stripped = uname.replace(/^\[[^\]]*\]/, '');
+      if (stripped === name || !OUR_BOTS.test(stripped) || !player?.entity?.position || !pos) continue;
+      const d = distance3(pos, player.entity.position);
+      if (d <= 24) nearbyBots.push({ name: stripped, distance: Math.round(d) });
+    }
+  }
+
+  const lastGoal = mind.recentGoals[mind.recentGoals.length - 1] ?? null;
+  const needs = driveState.needs ?? {};
+  const topNeeds = NEED_NAMES.map((k) => [k, needs[k] ?? 0])
+    .sort((a, c) => c[1] - a[1])
+    .slice(0, 2)
+    .map(([need, value]) => ({ need, value }));
+
+  return {
+    pos,
+    hp: typeof b?.health === 'number' ? b.health : null,
+    food: typeof b?.food === 'number' ? b.food : null,
+    time: b?.time ? { isDay: b.time.isDay, timeOfDay: b.time.timeOfDay } : null,
+    inventory: topInventory,
+    nearbyBlocks,
+    nearbyBots,
+    lastGoal,
+    reflection: { good_at: mind.reflection.good_at, village_lacks: mind.reflection.village_lacks, want_next: mind.reflection.want_next },
+    topNeeds,
+    skills: drivesSkillNames(),
+    failedArgsRecent: mind.failedArgsRing.slice(-5),
+  };
+}
+
+// validateDecisionReply — JSON.parse in try/catch (a parse failure is an
+// "invalid reply", never partial-eval'd), then need/skill/args/done_check/
+// timeout_s/why validated against the real skill surface + the done_check
+// whitelist DSL (annotation H). Never eval()s anything.
+function validateDecisionReply(text) {
+  let obj;
+  try {
+    obj = JSON.parse(text);
+  } catch (err) {
+    return { ok: false, error: `reply is not valid JSON: ${err.message}` };
+  }
+  if (!obj || typeof obj !== 'object') return { ok: false, error: 'reply is not a JSON object' };
+  if (!NEED_NAMES.includes(obj.need)) return { ok: false, error: `"need" must be one of ${NEED_NAMES.join('/')}` };
+  const skillNames = drivesSkillNames();
+  if (!skillNames.includes(obj.skill)) return { ok: false, error: `"skill" must be one of ${skillNames.join('/')}` };
+  const skillDef = getDriveSkill(obj.skill);
+  let args;
+  try {
+    args = skillDef.validateArgs(obj.args ?? {});
+  } catch (err) {
+    return { ok: false, error: `args: ${err.message}` };
+  }
+  try {
+    drivesDsl.validateDoneCheck(obj.done_check);
+  } catch (err) {
+    return { ok: false, error: `done_check: ${err.message}` };
+  }
+  if (!Number.isInteger(obj.timeout_s) || obj.timeout_s < 5 || obj.timeout_s > 1800) {
+    return { ok: false, error: '"timeout_s" must be an integer in [5,1800]' };
+  }
+  if (typeof obj.why !== 'string' || !obj.why) return { ok: false, error: '"why" must be a non-empty string' };
+  return {
+    ok: true,
+    value: { need: obj.need, skill: obj.skill, args, done_check: obj.done_check, timeout_s: obj.timeout_s, why: obj.why.slice(0, 120) },
+  };
+}
+
+// codeFallbackGoal (DRIVES-SPEC.md §3, "cheapest safe skill: gather nearest
+// wood/food") — reached only when the model's reply is invalid TWICE (see
+// runDecisionCycle) with no further model call. hunger top-need -> collect
+// nearby food drops; any other top-need -> chop (cheapest safe default).
+function codeFallbackGoal() {
+  const needs = driveState.needs ?? {};
+  const topNeed = NEED_NAMES.map((k) => [k, needs[k] ?? 0]).sort((a, c) => c[1] - a[1])[0]?.[0] ?? 'boredom';
+  if (topNeed === 'hunger') {
+    return { need: 'hunger', skill: 'collect', args: { radius: 16 }, done_check: { food_min: 15 }, timeout_s: 60, why: 'code fallback: hunger' };
+  }
+  return {
+    need: topNeed,
+    skill: 'chop',
+    args: { count: 4 },
+    done_check: { has_item: { name: 'oak_log', count: 1 } },
+    timeout_s: 120,
+    why: 'code fallback: cheapest safe skill',
+  };
+}
+
+// runDriveSkill — dispatches through the SAME functions the real HTTP
+// taskRoutes handlers call (annotation K: no new movement/task primitive).
+// Deliberately not routed back through HTTP-to-self; this runs in-process,
+// startTask()'s own mutex/wedge-watchdog/panic-reflex/poison-tracking apply
+// exactly as they do to a driver's own call, "for free".
+async function runDriveSkill(goal, ctx) {
+  const b = requireBot();
+  switch (goal.skill) {
+    case 'goto': {
+      const { x, y, z, range = 1 } = goal.args;
+      ctx.setTargetPos({ x, y, z });
+      return movement.goTo(b, { x, y, z, range, timeoutMs: goal.timeout_s * 1000, engine: defaultEngine }, ctx);
+    }
+    case 'chop':
+      return skills.chopTrees(b, { count: goal.args.count ?? 8, maxDistance: goal.args.maxDistance ?? 48 }, ctx);
+    case 'mine':
+      return skills.mineBlocks(b, { block: goal.args.block, count: goal.args.count ?? 8, maxDistance: goal.args.maxDistance ?? 48 }, ctx);
+    case 'collect':
+      return skills.collectDrops(b, { radius: goal.args.radius ?? 16 }, ctx);
+    case 'hunt':
+      return skills.huntAnimals(b, { mob: goal.args.mob, count: goal.args.count ?? 1 }, ctx);
+    case 'craft':
+      return craftItem(b, goal.args.item, goal.args.amount ?? 1, ctx);
+    case 'smelt':
+      return skills.smeltItems(b, { input: goal.args.input, fuel: goal.args.fuel, count: goal.args.count ?? 1 }, ctx);
+    case 'deposit':
+      if (Number.isFinite(goal.args.x)) ctx.setTargetPos({ x: goal.args.x, y: goal.args.y, z: goal.args.z });
+      return skills.depositToChest(b, { pos: { x: goal.args.x, y: goal.args.y, z: goal.args.z }, items: goal.args.items }, ctx);
+    case 'staircase':
+      return skills.buildStaircase(b, { toY: goal.args.toY, direction: goal.args.direction }, ctx);
+    case 'branchmine':
+      return skills.branchMine(
+        b,
+        { y: goal.args.y, trunkLength: goal.args.trunkLength, branches: goal.args.branches, branchLength: goal.args.branchLength, direction: goal.args.direction },
+        ctx
+      );
+    case 'seal':
+      return skills.emergencySeal(b, ctx);
+    case 'talk':
+      await smartChat(String(goal.args.message));
+      return { said: goal.args.message };
+    default:
+      throw new Error(`drives: no executor wired for skill "${goal.skill}"`);
+  }
+}
+
+// buildDoneCheckReading — plain snapshot handed to drives-dsl's pure
+// evalDoneCheck(), decoupling that module from mineflayer entirely.
+function buildDoneCheckReading(task) {
+  const b = bot;
+  const pos = b?.entity?.position ? { x: b.entity.position.x, y: b.entity.position.y, z: b.entity.position.z } : null;
+  const invCounts = {};
+  for (const it of b?.inventory?.items() ?? []) invCounts[it.name] = (invCounts[it.name] ?? 0) + it.count;
+  return {
+    pos,
+    hp: typeof b?.health === 'number' ? b.health : null,
+    food: typeof b?.food === 'number' ? b.food : null,
+    invCounts,
+    taskStartedAt: task.startedAt ? Date.parse(task.startedAt) : null,
+  };
+}
+
+function onGoalOutcome(goal, outcome, detail) {
+  if (outcome === 'success') {
+    mind.counters.consecutiveFails = 0;
+    mind.counters.lastDrivesSuccessAt = Date.now();
+    drivesMemory.appendRecentGoal(mind, { skill: goal.skill, args: goal.args, result: 'success', detail });
+    logLine('info', `drives: goal ${goal.skill} succeeded (${detail})`);
+  } else {
+    mind.counters.consecutiveFails = (mind.counters.consecutiveFails ?? 0) + 1;
+    drivesMemory.appendFailedArgs(mind, { skill: goal.skill, args: goal.args });
+    drivesMemory.appendRecentGoal(mind, { skill: goal.skill, args: goal.args, result: 'fail', detail });
+    logLine('warn', `drives: goal ${goal.skill} failed (${detail})`);
+  }
+  drivesMemory.saveMind(name, mind);
+  // "Never sleep on fail" (DRIVES-SPEC.md §3) — no designed extra wait is
+  // added here; the very next 5s tick re-evaluates the trigger fresh, still
+  // bounded by guard 4's own min-call-interval (DRIVES-PLAN.md §5 point 4's
+  // reconciliation note — FLAGGED as the resolution of an otherwise-
+  // contradictory pair between spec text and annotation G).
+}
+
+// onGoalSettled — the task ended "out from under" watchGoal's own poll (by
+// natural completion, a driver preemption, panic reflex, or /stop) rather
+// than by watchGoal's own done_check/timeout branches (which report their
+// own outcome inline and never reach here — see watchGoal below).
+function onGoalSettled(goal, task) {
+  if (task.state === 'failed') {
+    onGoalOutcome(goal, 'fail', task.result?.error ?? 'unknown error');
+    return;
+  }
+  if (task.state === 'done' && task.result?.cancelled) {
+    // Driver preemption (annotation A: "drive goal aborts cleanly, driver
+    // wins"), panic reflex, or a plain /stop — the bot had a real reason to
+    // stop that has nothing to do with whether THIS goal was any good.
+    // Neutral: no penalty, no success credit either.
+    logLine('info', `drives: goal ${goal.skill} interrupted (${task.result.reason}) — no penalty`);
+    return;
+  }
+  if (task.state === 'done') {
+    // Natural completion — "logged as success/fail per its own result
+    // regardless of done_check" (DRIVES-PLAN.md §5): a skill finishing
+    // without technically satisfying done_check is not force-failed.
+    onGoalOutcome(goal, 'success', 'natural completion');
+  }
+}
+
+// watchGoal — polls done_check every ~2.5s against a fresh reading;
+// whichever fires first (done_check true, the skill's own promise
+// resolving, or timeout_s elapsing) ends the cycle.
+async function watchGoal(task, goal, startedAt) {
+  const timeoutAt = startedAt + goal.timeout_s * 1000;
+  for (;;) {
+    await sleep(2500);
+    if (state.currentTask !== task || task.state !== 'running') {
+      onGoalSettled(goal, task);
+      return;
+    }
+    let done = false;
+    try {
+      done = drivesDsl.evalDoneCheck(goal.done_check, buildDoneCheckReading(task));
+    } catch {
+      done = false;
+    }
+    if (done) {
+      await cancelCurrentTask('drives: done_check satisfied');
+      onGoalOutcome(goal, 'success', 'done_check satisfied');
+      return;
+    }
+    if (Date.now() >= timeoutAt) {
+      await cancelCurrentTask(`drives: timeout_s (${goal.timeout_s}s) elapsed`);
+      onGoalOutcome(goal, 'fail', 'timeout');
+      return;
+    }
+  }
+}
+
+// dispatchGoal — startTask(goal.skill, fn, {source:'drives'}), the SAME
+// in-process call every taskRoutes handler makes (annotation K). A 'busy'
+// throw here means a driver grabbed the mutex between the trigger check and
+// this call — fine, the next 5s tick re-checks the trigger fresh.
+async function dispatchGoal(goal) {
+  let task;
+  try {
+    task = await startTask(goal.skill, async (t, ctx) => runDriveSkill(goal, ctx), { source: 'drives' });
+  } catch (err) {
+    if (err?.busy) return;
+    logLine('error', `drives: failed to start goal ${goal.skill}: ${err?.message ?? err}`);
+    return;
+  }
+  driveState.lastDecision = { ts: new Date().toISOString(), need: goal.need, skill: goal.skill, why: goal.why };
+  pushEvent('drives', `goal ${goal.skill} (need=${goal.need}): ${goal.why}`);
+  await watchGoal(task, goal, Date.now());
+}
+
+// runDecisionCycle (DRIVES-PLAN.md §5) — model select (decisionModel, or
+// escalationModel once consecutiveFails >= escalateAfterFails), build
+// snapshot, call, validate; invalid -> re-prompt once with the specific
+// error; still invalid -> code fallback, no further model call. `ready` is
+// already-verified (see maybeFireDecision, which checks readiness BEFORE
+// touching the cost guards/queue at all — see its own comment for why).
+async function runDecisionCycle(guards, ready) {
+  const models = drivesConfig.getModels();
+  const useEscalation = (mind.counters.consecutiveFails ?? 0) >= guards.escalateAfterFails;
+  const model = useEscalation ? models.escalationModel : models.decisionModel;
+
+  const snapshot = buildStateSnapshot();
+  const first = await drivesLlm.decisionCall(ready.apiKey, model, DECISION_PROMPT, snapshot);
+  let parsed = first.ok ? validateDecisionReply(first.text) : { ok: false, error: first.error };
+
+  if (!parsed.ok) {
+    const retryPrompt = `${DECISION_PROMPT}\nPrevious reply was invalid: ${parsed.error}. Reply JSON only, fixing that problem.`;
+    const retry = await drivesLlm.decisionCall(ready.apiKey, model, retryPrompt, snapshot);
+    parsed = retry.ok ? validateDecisionReply(retry.text) : { ok: false, error: retry.error };
+  }
+
+  let goal;
+  if (parsed.ok) {
+    goal = parsed.value;
+  } else {
+    goal = codeFallbackGoal();
+    logLine('warn', `drives: invalid model reply twice (${parsed.error}) — code fallback: ${goal.skill}`);
+  }
+
+  await dispatchGoal(goal);
+}
+
+// maybeFireDecision (DRIVES-PLAN.md §5 guard 4) — readiness checked FIRST
+// (cheap once cached — a dormant bot must touch neither the per-bot cost
+// counters nor the cross-process queue dir ever again after the one-time
+// dormancy determination, not just skip the network call); THEN min-
+// interval + hourly cap (drives-queue.js, in-process per bot), a global
+// in-flight slot (drives-queue.js, cross-process file-lock) with recordCall()
+// stamped the instant the slot is actually granted (so the min-interval
+// guard genuinely throttles real attempts — recordCall() living any later,
+// e.g. only after a successful call, would let the min-interval check keep
+// reading a stale lastCallAt and firing every tick forever). Kill-switch is
+// re-checked FRESH here (not cached from tickDrives' outer check) so a
+// toggle mid-tick is always honored.
+async function maybeFireDecision(guards) {
+  if (decisionInFlight) return;
+  if (!drivesConfig.isGlobalOn()) return;
+  const ready = await ensureLlmReady();
+  if (!ready.ready) return; // dormant — already logged once by ensureLlmReady; zero queue/counter churn from here on
+  const cost = drivesQueue.canCallNow(name, guards);
+  if (!cost.ok) return; // too soon / hourly cap — genuinely wait, no forced retry (see runDecisionCycle's own comment)
+  const release = drivesQueue.acquireSlot(guards.globalInFlightCap);
+  if (!release) return; // global queue full this instant — retry next tick
+  decisionInFlight = true;
+  drivesQueue.recordCall(name);
+  try {
+    await runDecisionCycle(guards, ready);
+  } catch (err) {
+    logLine('error', `drives: decision cycle error: ${err?.stack ?? err}`);
+  } finally {
+    decisionInFlight = false;
+    release();
+  }
+}
+
+// REFLECTION SCHEDULER (DRIVES-PLAN.md §6) — per-bot interval randomized
+// once inside [reflectionIntervalMinMs, reflectionIntervalMaxMs] plus a
+// deterministic phase offset (hash(botName) % interval) so the pilot's two
+// bots don't fire together.
+function hashString(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return h;
+}
+
+function ensureReflectionSchedule(guards) {
+  if (reflectionState) return reflectionState;
+  const span = Math.max(1, guards.reflectionIntervalMaxMs - guards.reflectionIntervalMinMs);
+  const intervalMs = guards.reflectionIntervalMinMs + (hashString(name) % span);
+  const phaseOffset = hashString(name) % intervalMs;
+  reflectionState = { intervalMs, nextAt: Date.now() + phaseOffset };
+  return reflectionState;
+}
+
+function parseReflectionReply(text) {
+  const out = { good_at: null, village_lacks: null, want_next: null };
+  for (const line of String(text).split('\n')) {
+    const m = /^\s*(\w[\w_]*)\s*:\s*(.+)$/.exec(line);
+    if (!m) continue;
+    const key = m[1].toLowerCase();
+    if (key in out) out[key] = m[2].trim();
+  }
+  return out;
+}
+
+async function runReflectionCycle(guards) {
+  const ready = await ensureLlmReady();
+  if (!ready.ready) return; // dormant — already logged once by ensureLlmReady
+  const models = drivesConfig.getModels();
+  const since = reflectionWindowStart;
+  const goalsSince = mind.recentGoals.filter((g) => Date.parse(g.ts) >= since);
+  const chatsSince = eventsBuf.filter((e) => e.type === 'chat' && Date.parse(e.ts) >= since).map((e) => e.msg).slice(-20);
+  const peer = driveSignals.readLatestPerBot();
+  const input = {
+    goals: goalsSince.map((g) => ({ skill: g.skill, result: g.result })),
+    thingsSeen: [...recentBlockSightings].slice(0, 20),
+    chats: chatsSince,
+    peerInventories: Object.fromEntries(Object.entries(peer.byBot).map(([botName, e]) => [botName, e.inventory])),
+  };
+  const resp = await drivesLlm.reflectionCall(ready.apiKey, models.reflectionModel, REFLECTION_PROMPT, input);
+  reflectionWindowStart = Date.now();
+  recentBlockSightings.clear();
+  if (!resp.ok) {
+    logLine('warn', `drives: reflection call failed: ${resp.error}`);
+    return;
+  }
+  drivesMemory.setReflection(mind, parseReflectionReply(resp.text));
+  drivesMemory.saveMind(name, mind);
+  logLine('info', `drives: reflection stored (good_at=${mind.reflection.good_at ?? '?'})`);
+}
+
+function maybeFireReflection(guards) {
+  const sched = ensureReflectionSchedule(guards);
+  if (Date.now() < sched.nextAt) return;
+  sched.nextAt = Date.now() + sched.intervalMs;
+  if (reflectionInFlight) return;
+  reflectionInFlight = true;
+  runReflectionCycle(guards)
+    .catch((err) => logLine('error', `drives: reflection cycle error: ${err?.stack ?? err}`))
+    .finally(() => {
+      reflectionInFlight = false;
+    });
+}
+
+// tickDrives (DRIVES-PLAN.md §5 trigger, annotation G) — wired into the
+// existing IDLE_GUARD_TICK_MS setInterval above, no new timer.
+function tickDrives() {
+  const globalOn = drivesConfig.isGlobalOn();
+  if (!globalOn) {
+    logDrivesOnce('drives: disabled (global=false)');
+    return;
+  }
+  const enrolled = drivesConfig.isEnrolled(name);
+  if (!enrolled) {
+    logDrivesOnce('drives: disabled (not enrolled)');
+    return;
+  }
+
+  const guards = drivesConfig.getGuards();
+
+  // NEEDS + SIGNALS — code only, run every tick regardless of the LLM
+  // layer or the runtime toggle (DRIVES-PLAN.md §10 Test 2 item 3: proves
+  // this layer is genuinely independent of DeepSeek being configured at
+  // all; annotation D: signals are "code, no LLM").
+  driveState.needs = computeNeeds();
+  maybeSendSignal(guards);
+
+  if (!drivesRuntimeOn) return; // driver paused via POST /drives {on:false} — needs/signals above still ran
+
+  maybeFireReflection(guards);
+
+  // TRIGGER (annotation G): idle (no running task) AND driver-quiet.
+  const isIdle = !state.currentTask || state.currentTask.state !== 'running';
+  if (!isIdle) return;
+  if (Date.now() - lastCommandAt < guards.driverQuietMs) return;
+
+  maybeFireDecision(guards).catch((err) => logLine('error', `drives: maybeFireDecision error: ${err?.stack ?? err}`));
+}
 
 // ---------------------------------------------------------------------------
 // task-specific helpers not delegated to skills.js
@@ -1980,6 +2671,12 @@ function buildStatus() {
     // it's done, same as currentTask itself, until the next task replaces it.
     lastError: state.currentTask?.result?.error ?? null,
     idleGuard: idleGuardEnabled,
+    // Cheap booleans only — full detail (needs, last decision/reflection,
+    // calls-this-hour, queue depth) lives on GET /drives, not bloating
+    // every /status poll (DRIVES-PLAN.md §1.7). `on` mirrors the same
+    // three-part enrolled+global+runtime check drives itself uses to decide
+    // whether it owns this bot's idle right now (see drivesOwnsIdle()).
+    drives: { enrolled: drivesConfig.isEnrolled(name), on: drivesOwnsIdle(name) },
     engine: defaultEngine,
     deathCount: state.deathCount,
     lastDeath: state.lastDeath,
@@ -2215,6 +2912,13 @@ const taskRoutes = {
     const engine = validateEngineBody(body, '/ensureTool');
     return skills.ensureTool(b, { kind: body.kind, engine }, ctx);
   }),
+  // POST /seal — DRIVES-PLAN.md §1.9: thin wrapper around the already
+  // exported skills.emergencySeal, same shape/precedent as /ensureTool
+  // directly above. Closes the "shelter" need's only real gap: no
+  // shelter-BUILDING skill exists in skills.js, but the emergency-seal-
+  // in-place skill already does and only lacked an HTTP door. No new skill
+  // invented (annotation J).
+  '/seal': taskEndpoint('seal', async (b, body, ctx) => skills.emergencySeal(b, ctx)),
 };
 
 async function handleChat(req, res) {
@@ -2287,6 +2991,62 @@ async function handleIdleGuard(req, res) {
     note: idleGuardEnabled
       ? 'idle-guard armed'
       : 'idle-guard disabled; auto re-arms after 15min with zero incoming HTTP requests (safety TTL)',
+  });
+}
+
+// POST /drives {"on": boolean} — DRIVES-PLAN.md §9, mirrors handleIdleGuard
+// above exactly (annotation B: "like /idleguard"). Toggles an in-memory
+// drivesRuntimeOn flag for THIS runner session only — does not persist to
+// drives.json. Stamped as a POST, so it counts as driver activity for
+// lastCommandAt like any other (a driver toggling drives off IS driver
+// activity).
+async function handleDrivesToggle(req, res) {
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch (err) {
+    return sendJson(res, 400, { error: err.message });
+  }
+  if (typeof body.on !== 'boolean') return sendJson(res, 400, { error: '/drives requires "on" (boolean)' });
+  drivesRuntimeOn = body.on;
+  pushEvent('drives', drivesRuntimeOn ? 'enabled by driver' : 'disabled by driver');
+  logLine('info', `drives: ${drivesRuntimeOn ? 'enabled' : 'disabled'} via /drives`);
+  sendJson(res, 200, {
+    ok: true,
+    drives: drivesRuntimeOn,
+    note: drivesRuntimeOn
+      ? 'drives armed'
+      : 'drives disabled; auto re-arms after 15min with zero incoming HTTP requests (safety TTL)',
+  });
+}
+
+// GET /drives — DRIVES-PLAN.md §9, read-only debug/panel detail. Does NOT
+// stamp lastCommandAt (it's routed as GET, same as /status/`/events`).
+// enrolled:false short-circuits to nulls/zeros — cheap for the panel to
+// poll without a separate "is this bot even in scope" check.
+function handleDrivesStatus(res) {
+  const enrolled = drivesConfig.isEnrolled(name);
+  if (!enrolled) {
+    return sendJson(res, 200, {
+      enrolled: false,
+      on: false,
+      needs: null,
+      lastDecision: null,
+      lastReflection: null,
+      callsThisHour: 0,
+      consecutiveFails: 0,
+      queueDepth: drivesQueue.queueDepth(),
+    });
+  }
+  sendJson(res, 200, {
+    enrolled: true,
+    on: drivesOwnsIdle(name),
+    needs: driveState.needs,
+    lastDecision: driveState.lastDecision,
+    lastReflection: mind.reflection,
+    callsThisHour: drivesQueue.callsThisHour(name),
+    consecutiveFails: mind.counters.consecutiveFails ?? 0,
+    queueDepth: drivesQueue.queueDepth(),
   });
 }
 
@@ -2389,11 +3149,24 @@ async function handleRequest(req, res) {
   const pathname = u.pathname;
   const method = req.method;
 
+  // DRIVES ENGINE §2 (DRIVES-PLAN.md) — "any HTTP call = activity" (LEAD
+  // ANNOTATION A) narrowed to POST-only: overseer.mjs polls GET /status on
+  // every bot every 30s regardless of enrollment (still needs connectivity/
+  // stuck data for enrolled bots — annotation K), and a GET-counts-as-
+  // activity reading would starve drives permanently on any bot overseer
+  // also watches. lastHttpRequestAt above (ANY method) stays the idle-guard
+  // safety-TTL clock, untouched. lastCommandAt (POST only) is the narrower,
+  // literal read of "driver intent" that drives' own precedence check reads
+  // instead — FLAGGED for chief confirmation (DRIVES-PLAN.md §12 item 1).
+  if (method === 'POST') lastCommandAt = Date.now();
+
   if (method === 'GET' && pathname === '/status') return sendJson(res, 200, buildStatus());
   if (method === 'GET' && pathname === '/events') return handleEvents(u, res);
   if (method === 'POST' && pathname === '/chat') return handleChat(req, res);
   if (method === 'POST' && pathname === '/autoeat') return handleAutoEat(req, res);
   if (method === 'POST' && pathname === '/idleguard') return handleIdleGuard(req, res);
+  if (method === 'GET' && pathname === '/drives') return handleDrivesStatus(res);
+  if (method === 'POST' && pathname === '/drives') return handleDrivesToggle(req, res);
   if (method === 'POST' && pathname === '/stop') return handleStop(res);
   if (method === 'POST' && pathname === '/relog') return handleRelog(res);
   if (method === 'POST' && pathname === '/eval') return handleEval(req, res);

@@ -67,6 +67,14 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRconChat } from './rconchat.js'
 import { postStatus, isConfigured as discordConfigured } from './discord.mjs'
+// DRIVES-PLAN.md §1 / LEAD ANNOTATION E: overseer SKIPS enrolled bots — the
+// drive engine owns their idle. Everything ABOVE the isEnrolled() early
+// return inside tick() below (down-poll alert, failed-task escalation,
+// disconnect/relog, goal-claim reconciliation, chop-quarantine enforcer,
+// stuck-detection ladder) stays active for enrolled bots — those are
+// connectivity/safety concerns, not idle-ownership (annotation K: "safety
+// unchanged").
+import { isEnrolled } from './drives-config.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const LOG = path.join(HERE, 'logs', 'overseer.log')
@@ -790,6 +798,12 @@ async function tick(bot) {
     s.idleSince = null
     return
   }
+
+  // DRIVES ENGINE HANDOFF (LEAD ANNOTATION E) — an enrolled+global-on bot
+  // owns its own idle time from here down (recurring chores, idle-defaults,
+  // goal-engine dispatch below). Everything ABOVE this line already ran
+  // unconditionally, so connectivity/stuck/safety handling is unaffected.
+  if (isEnrolled(bot.name)) return
 
   // recurring chores: due + bot free → fire (before idle-defaults, higher value)
   for (const ch of CHORES) {

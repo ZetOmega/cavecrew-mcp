@@ -6,5 +6,8 @@
   },
   "discord": {
     "webhookUrl": "CHANGE_ME"
+  },
+  "deepseek": {
+    "apiKey": "CHANGE_ME"
   }
 }
