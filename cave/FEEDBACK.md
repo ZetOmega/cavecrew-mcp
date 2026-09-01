@@ -8,6 +8,24 @@ cycles consume open entries. Format:
 symptom / evidence / suggested fix
 ```
 
+## [open] pf engine total fail on hillside climb, ash instant success — UngaBunga, 2026-09-01 10:02
+Long trading-post leg (camp ~(10.5,91,66.5) to post (7,112,23), ~44 horiz / +21 vert, open-air
+hillside per CIV.md's own trading-post note, not underground). engine:"pf" with timeoutMs:90000:
+ALL 5 internal gotoLoopPf retries timed out at exactly 90000ms each (~7.5 min total), position
+never moved a single block the entire time (10.461843,108,32.3 byte-identical across every poll).
+Ground-truth diagnostic before escalating: (a) no entities nearby, feet tile clean air, onGround
+true — ruled out entity-blocking and nuisance-wedge; (b) isolated jump-only test via /eval got a
+full real 1-block y-rise — ruled out full-wedge (client-physics frozen), physics/controls fine;
+(c) manual bot.lookAt(target)+forward+sprint via /eval moved 5.6 real blocks toward goal in 2.5s —
+confirms this was 100% a PATHFINDER COMPUTATION problem (pf couldn't find/commit to a route from
+this exact hillside spot), not a movement/physics/wedge problem at all. Retried the same target
+with engine:"ash" (nothing else changed) — reached in under 20s, first try, byte-clean. This is a
+much starker A/B than the DRIVER_GUIDE's existing "ash better for tight cave nav" note — this was
+open-air hillside, and pf didn't just lose to ash, it failed completely (0/5) while ash won
+instantly. Suggest: bump the pf-vs-ash default recommendation for any route with significant
+elevation change / uneven natural terrain (not just caves) toward ash, pending the still-open
+proper A/B safety comparison the guide flags.
+
 ## [open] craft pocket-grid voids materials — Grog, 2026-09-01
 /craft birch_planks ate 19 logs, made 4 torches, usedTable:false. FEL confirms:
 2x2 pocket batch crafts VOID materials. Fix: ALWAYS craft at table (in flight).
@@ -56,9 +74,11 @@ only the destination moved, fleet-wide. Same scoreboard.mjs-style known
 consequence as DEPOT's: any tooling still grepping real chat for these
 prefixes goes silent until repointed at the Discord feed / claims registry.
 
-## [open] health<8 panic listener at game speed — FEL intel, 2026-09-01
+## [shipped] health<8 panic listener at game speed — FEL intel, 2026-09-01
 Injected health listener: abort task, announce, flee home — BUT when deep/far,
 wall off line-of-sight with cobble + eat instead. Game-speed reflex, not LLM.
+SHIPPED: runner.js:991 triggerPanic already does exactly this — flee to camp
+when close/shallow, skills.emergencySeal (wall off + eat) when farOrDeep.
 
 ## [open] torch kit rule — FEL intel (their 3 deaths in dark pockets), 2026-09-01
 Every bot carries ≥8 torches on excursions, lights workspace ~7 spacing.
@@ -131,9 +151,11 @@ after normal partial-success rates everywhere else in open cave this session —
 worth checking whether a region-protection plugin around camp is involved in
 both the placement wall and this freeze.
 
-## [open] toss self-repickup — UngaBunga, 2026-08-31
+## [shipped] toss self-repickup — UngaBunga, 2026-08-31
 bot.toss reports ok but bot re-grabs own drop; toss + walk 3 back (giveItems
 helper in flight).
+SHIPPED: skills.js giveItems (~2017) does exactly this — toss, step 3 back,
+verify the net inventory delta before trusting the toss.
 
 ## [open] pf engine "goal changed" false-fail on short hops — UngaBunga, 2026-09-01
 gotoLoopPf failed twice in a row on a ~1-2 block hop right after the blink
@@ -173,7 +195,10 @@ bot.entity.position at check time. Separate from the known 1.80 constant-gap
 bug (that one is fixed). Check goalGroundTruth's position source in
 movement.js. Workaround that worked: short pf hops instead of one long goto.
 
-## [open] chopTrees root cause: ensureTool axe-craft-chain wedges bare-handed — UngaBunga, 2026-09-01
+## [shipped] chopTrees root cause: ensureTool axe-craft-chain wedges bare-handed — UngaBunga, 2026-09-01
+SHIPPED: skills.js ensureLogs (~2460) does a bare-hand punch (STEP 1, up to
+2 logs) before falling back to the full chop task — same fix as the entry
+right below, both closed together.
 Follow-up to the entry below with the real signature, from a watched
 count:1 test: task failed at detail "ensureTool: craft chain for axe",
 error "wedge: zero progress over 90s (no ite[ms gained?])". Reproduced with
@@ -184,7 +209,9 @@ waiting rather than punching one bare-handed. Suggest: ensureTool's axe
 chain should try one bare-hand log punch first when totally bare, before
 falling back to table/depot logic.
 
-## [open] ROOT CAUSE of chop deaths: ensureTool axe craft-chain wedges when totally bare — UngaBunga, 2026-09-01
+## [shipped] ROOT CAUSE of chop deaths: ensureTool axe craft-chain wedges when totally bare — UngaBunga, 2026-09-01
+SHIPPED: same fix as the entry above (skills.js ensureLogs ~2460, bare-hand
+bootstrap punch before craft-chain fallback).
 Trace test (count:1 chop, live watch): task died at detail "ensureTool: craft
 chain for axe" with wedge-watchdog error "zero progress over 90s". NOT a
 chopTrees stall — ensureTool's craft chain deadlocks when the bot holds ZERO
@@ -206,7 +233,9 @@ rather than retrying the current tree or moving to the next one. Suggest:
 chopTrees should treat a single-tree stall as "skip this tree, try next"
 rather than failing the whole task.
 
-## [open] bot.openChest windowOpen timeout, one-shot — UngaBunga, 2026-09-01
+## [shipped] bot.openChest windowOpen timeout, one-shot — UngaBunga, 2026-09-01
+SHIPPED: skills.js openChestRetry (~1913) — one retry with a short pause on
+any openChest failure, wired into all 3 call sites (deposit/withdraw/ensureTool).
 Single eval-based bot.openChest(chestBlk) call (dist ~1 block, confirmed
 chest block) hung and errored "Event windowOpen did not fire within timeout
 of 20000ms". Immediate retry on the same chest, same position, worked fine.
@@ -240,7 +269,12 @@ coords) added to Movements for any bot pathing near camp. Table repair
 in progress, complicated further by unexplained mid-repair relocation
 (see next entry).
 
-## [open] CONFIRMED: overseer idle-default /collect caused the furniture damage — Bonk, 2026-09-01
+## [shipped] CONFIRMED: overseer idle-default /collect caused the furniture damage — Bonk, 2026-09-01
+SHIPPED (moot): the interim workaround this entry proposed (drop /collect
+from overseer.mjs defaults) is obsolete — the actual root cause it names
+(pf canDig eating furniture) is already fixed (canDig:false), confirmed
+shipped by 3 later FEEDBACK entries acknowledging it "correctly refuses to
+tunnel out." No overseer.mjs change made or needed.
 Root cause found (read cave/overseer.mjs directly, not guessing): overseer
 polls every 30s, and any bot with no "running" task for 60s gets its
 role-default fired. Bonk's default is `/collect {radius:16}`. Careful
@@ -456,7 +490,10 @@ tread or route around), (c) if goto claims reached:true with zero
 displacement AND raw control also does nothing, check whether this
 follows a recent blink — that's torn-goto, just wait for the clean one.
 
-## [open] /collect finds nothing despite real nearby drops — Bonk, 2026-09-01
+## [shipped] /collect finds nothing despite real nearby drops — Bonk, 2026-09-01
+SHIPPED: skills.js collectDrops — DROP_NEIGHBOR_OFFSETS fallback ladder
+(6 neighbor voxels) when the drop's own exact voxel is unreachable in
+honeycombed post-mining terrain, plus logging on every branch.
 Two separate /mine runs (16 then 6 stone, task reported success both
 times, verified real — mined positions confirmed air afterward, not a
 mining-lied bug) each followed immediately by /collect (radius 16 then
@@ -477,7 +514,12 @@ logging why. Interim workaround: after any /mine call, manually scan
 bot.entities for item drops and walk-to each by hand rather than
 trusting /collect's report.
 
-## [open] two distinct /staircase stall modes post-blink, watchdog confirmed working — Thak, 2026-09-01
+## [shipped] two distinct /staircase stall modes post-blink, watchdog confirmed working — Thak, 2026-09-01
+SHIPPED (signatures #2/#3): commit f98395c — interior/flat-floor starts no
+longer dig pits into solid ground (per-step fresh classification), and
+void-ahead steps honor ensureTreadFoundation with one bounded deeper
+attempt then a clean stop instead of walking into air. Workflow
+wf_181b5939, adversarially verified.
 Net-descent watchdog (the fix shipped for my earlier "step 96, zero
 descent" bug) works exactly right in all 4 test runs today — aborts
 cleanly with a clear net-drop error the moment progress stalls, no more
@@ -508,7 +550,10 @@ blockAt in all 4 horizontal directions at the exact spot where net-drop
 goes to 0.00 — an open-air side there is the void case; solid-but-odd
 geometry (like a doorway) on all sides is the interior case.
 
-## [open] dragon-fix (movement.js 4725e84) real progress, 3rd distinct staircase stall pattern — Thak, 2026-09-01
+## [shipped] dragon-fix (movement.js 4725e84) real progress, 3rd distinct staircase stall pattern — Thak, 2026-09-01
+SHIPPED (signature #4, confirmed by the entry below): commit 31b7508 —
+position-verified raw-control step advance (the step counter was counting
+digs, not real movement; field y-trace proved it). Judge-verified.
 Confirms the movement/goto ground-truth fix is a genuine improvement:
 retried /staircase {toY:54} from virgin ground post-fix and got real
 motion for the first time all night — walked x14->16.7 (2.7 actual
@@ -529,7 +574,8 @@ staircase pattern that doesn't count toward net-descent tracking. Given
 real walking now works, this looks like the last piece — the algorithm's
 own step-advancement logic, not the movement layer underneath it.
 
-## [open] window-1 retry CONFIRMS dig-geometry bug: 0.00y net, barely any x/z drift either — Thak, 2026-09-01
+## [shipped] window-1 retry CONFIRMS dig-geometry bug: 0.00y net, barely any x/z drift either — Thak, 2026-09-01
+SHIPPED (signature #4, same fix as the entry above): commit 31b7508.
 Retry from the exact same spot (16.7,87,44.5), same heading, polling y
 every ~15s per team-lead's test design (window 1 = steps 1-9, window 2 =
 steps 10-19 — the plan was: window 1 ≤1y again = confirmed bug, window 2
@@ -552,7 +598,10 @@ computes each step isn't moving forward much at all, in any direction —
 worth checking the ahead-down step math for an off-by-one or a target
 that keeps resolving to the same or an adjacent-but-not-advancing cell.
 
-## [open] new validation rejects a genuinely valid step cell — Thak, 2026-09-01
+## [shipped] new validation rejects a genuinely valid step cell — Thak, 2026-09-01
+SHIPPED (signature #5): commit a09dfd6 — calibrated step-advance aim/landing
++ ground-truth margins (valid steps were being rejected, near-goal successes
+flagged false). Judge-verified.
 Latest code round added new pre-checks (interior-geometry detection +
 likely the void-ahead handling). Relocated to confirmed genuine open
 surface (climbed out of my own old tunnel to real sky, verified visually
@@ -595,7 +644,9 @@ same margin every time). False-reach catcher itself never lies — it just
 can't close this constant gap. Fix in skills.js approach logic (queued
 behind staircase rebuild — same file, one blink).
 
-## [open] ensureTool has no chest-withdraw fallback when no trees nearby — Durk, 2026-09-01
+## [shipped] ensureTool has no chest-withdraw fallback when no trees nearby — Durk, 2026-09-01
+SHIPPED: skills.js ensureTool (~2711) — depot chest is now ALWAYS attempted
+before the craft chain, never as a post-failure fallback.
 Hit the identical failure twice this session, both times bot had zero/low
 planks: "mineBlocks: pickaxe required but ensureTool failed: ensureTool:
 could not gather any logs for planks". Per DRIVER_GUIDE, ensureTool's chain
@@ -621,7 +672,9 @@ withdraw-then-redeposit the full stack to fix it). If you need an exact
 count, skip the HTTP endpoint and go straight to /eval with
 `bot.openChest(block)` + `chest.withdraw(item.type, null, exactCount)`.
 
-## [open] chop task claims progress while full-wedged — no task-level watchdog — team-lead, 2026-09-01
+## [shipped] chop task claims progress while full-wedged — no task-level watchdog — team-lead, 2026-09-01
+SHIPPED: skills.js chopTrees/mineBlocks both wrapped in runTargetWithWatchdog
+(25s), from the generic gathering-task progress guard pass.
 UngaBunga chop ran 8+ min stuck at "chopping tree 1/12": position byte-stable,
 zero logs gained, no axe held, raw forward+jump moved 0.02 blocks (full-wedge
 signature). Task state stayed "running" the whole time — nothing detected the
@@ -643,7 +696,10 @@ retry on mismatch. Code fix for Krug queue: build verify-after-place into
 safePlaceBlock (skills.js) itself — check + one retry + hard error, so callers
 can't skip it.
 
-## [open] force:true task accepted then silently replaced by idle-guard — team-lead, 2026-09-01
+## [shipped] force:true task accepted then silently replaced by idle-guard — team-lead, 2026-09-01
+SHIPPED: runner.js startTask's preemption logic only lets idle-guard preempt
+ITSELF (preemptingIdleGuard requires currentTask.kind==='idle-guard'), never
+a real driver task — structurally can't happen with current code.
 Post-blink pattern, 2 independent hits within minutes: orchestrator force-pushed
 goto tasks to Durk and Mog (both returned {"ok":true, state:"running"}), but
 minutes later BOTH bots sat on idle-guard cycles at their old positions with
@@ -910,3 +966,139 @@ a fluke; (2) whoever owns /trigger home's server-side integration should check w
 home-restore can fail to reach a client stuck in this wedge state — may need the runner to detect
 zero-position-change post-teleport and treat it as a wedge signal itself, distinct from a plain
 false-reach.
+
+RESOLUTION (team-lead, 09:47Z): hit this full-wedge signature a 2nd time same session (fell into
+the same void again mid-mission, then again on a route to chest A that had worked fine minutes
+earlier — the void eats ANY goto passing near it, not just chest-D-bound ones). Confirmed cure:
+hard runner restart (relog alone insufficient, matches Thak's 07:11 entry) + fresh /trigger home
+AFTER the restart lands. Full-wedge ladder is now: (1) look-wake raw-control test to confirm it's
+really full-wedge, (2) /relog, (3) if relog doesn't clear it, ESCALATE to team-lead for a hard
+runner restart, (4) /trigger home again post-restart — that last pair is the confirmed cure. tp
+stays banned. Root read: "/trigger home false-success" = the wedged CLIENT never applied the
+server-side teleport (a desync class), not a bug in the home datapack itself — the hard process
+restart is what resyncs client and server state.
+
+Separately CONFIRMED as a doctrine note, not a bug: /trigger home is unreliable if called twice in
+quick succession even OUTSIDE a full-wedge (same "home restored" message fires, zero real
+position change) — spacing calls ~15s+ apart works reliably. This is server-side (cavehome
+datapack), not our code, so no code fix — just know the spacing rule.
+
+PROBE-TIMING GOTCHA (team-lead, follow-up): after a hard runner restart, the FIRST raw-control
+probe done immediately on reconnect can read moved:0 — a FALSE-DEAD reading, not a real wedge —
+because the freshly-spawned client hasn't settled yet. Wait ~10s+ after a restart/reconnect
+before trusting a raw-control probe's result; a probe run too early can send you back into the
+wedge-escalation ladder for a bot that's actually fine.
+
+TERRAIN FIX (team-lead approved, board monkeorg/botnet-tasks#5): ground-truth blockAt scan found
+8 real air cells in the y88 walking-floor band (x11-14,z53-58) directly under camp/Mine House —
+(11,88,56),(11,88,57),(12,88,54),(12,88,55),(12,88,56),(12,88,57),(13,88,55),(13,88,56) — this is
+why the pathfinder kept falling through: it wasn't imagining a bad path, the floor had real holes.
+Patched all 8 with cobblestone from a single safe stand point at chest A (11,89,55) — every hole
+was within ~2.5 blocks of that one spot, no need to stand over the void at all. Placement order
+mattered: filled edge holes against pre-existing solid neighbors first, then interior holes
+referencing the just-placed cobblestone next to them. Verified via blockAt after every placement
+(2 retries built in, all 8 needed a 2nd attempt to read back solid — matches the known slow-confirm
+placeBlock quirk, not a real failure). Re-scanned the full band after: 0 air cells remain. The
+deeper cavity below y87 is UNTOUCHED (out of scope — only the walking surface needed sealing),
+logged as BASE.md hazard_minehouse_floor_void. Walking floor sealed = confirmed FIXED for goto
+purposes; do not path/dig into the deeper cavity below y87 until board #5 lands.
+
+## [open] real placeBlock false-failure on a torch, genuinely never lands (2x retry, 3rd would still fail) — Grog, 2026-09-01 10:04
+Building the NORTH camp lamp-post (12,89-90,53), both oak_log placements (self-referencing
+straight down, the exact pattern Thak's earlier entry flagged as usually slow-to-confirm)
+succeeded clean on the FIRST attempt each. The torch on top (12,91,53), same reference pattern,
+same code path that worked instantly for 6 other torches/logs this session, failed BOTH attempts
+with identical "Event blockUpdate:(12, 91, 53) did not fire within timeout of 5000ms", and
+blockAt confirmed genuinely air after each — not a slow-confirm illusion, a real non-placement.
+Per doctrine (team-lead), left that post torchless and moved on rather than burning a 3rd retry.
+Only data point so far: 7/8 torches+logs placed clean this session at the same technique, only
+this one exact coordinate failed twice running. Might be the same per-coordinate placeBlock
+curse Grog logged earlier this session (one-tile placeBlock curse, hyper-local) — worth checking
+if (12,91,53) has some hidden listener/lighting-update collision, though no obvious cause found
+(checked blockAt fresh before each attempt, target was plain air both times).
+
+## [shipped] ROOT CAUSE (self-correction): my own "chest has only 12 oak_log / 15 torch" reads were a single-stack read bug, not a real drain — Grog, 2026-09-01 10:15
+Reported chest A oak_log at 12 and chest B torch at 15 mid-lamp-mission (see the DEPOT -8/-4 lines
+and my Phase B report). Team-lead's audit.mjs snapshot came back with the REAL totals: oak_log 76,
+torch 80 — no drain, my reads were just wrong. Root cause, found by re-reading my own eval code:
+every "how much of item X does this chest/inventory hold" check I did this whole session used the
+pattern `containerItems().find(i=>i.name===X)` (or `bot.inventory.items().find(...)`) then reported
+`.count` off that ONE match. `.find()` returns only the FIRST matching stack — if the item is split
+across multiple stacks in the container (very likely for bulk materials that exceed 64, or that
+just got deposited/withdrawn piecemeal by several bots), `.count` silently reports that one stack's
+size, not the item's real total. The actual `c.withdraw(type, null, N)` calls I made were NOT
+affected by this (mineflayer's withdraw pulls N units across however many matching stacks exist,
+confirmed correct both times — my inventory after each withdraw had exactly the requested amount),
+so no materials were actually lost or misdelivered; only my SELF-REPORTED "had:" diagnostic numbers
+in chat/reports were wrong, and I compounded it by reporting those numbers as if they were the
+chest's total instead of one stack's size.
+
+Fix for any driver reading a chest/inventory count for reporting (not just to identify an item
+exists): sum ALL matching stacks, not just the first —
+`containerItems().filter(i=>i.name===X).reduce((s,i)=>s+i.count,0)`. The runner's own `/status`
+inventory list already does this correctly (confirmed earlier this session: it showed
+`iron_pickaxe: count 2` correctly after two separate 1-count tool stacks existed) — trust `/status`
+or a summed reduce, never a bare `.find(...).count`, when the number itself matters. Marking
+[shipped] since this is now understood and the fix is just "read chests correctly next time," not
+a code change — but flagging loudly since I personally used the broken pattern many times this
+session for other chest reads too (not just these two), so any of my earlier "chest X holds Y"
+numbers in this log or in BASE.md should be treated as possibly a single-stack undercount rather
+than gospel until re-verified by audit.mjs.
+
+## [open] bot.dig() gives a FALSE-SUCCESS "air" read when called via /eval from way outside reach — Zug, 2026-09-01
+Hand-rolling a wheat harvest via /eval (no dedicated /harvest skill exists, so this bypasses
+safeDig's reach law entirely — see skills.js REACH LAW comment, which already warns raw
+`bot.dig()`/`bot.placeBlock()` will "happily attempt across arbitrarily long distances"). I called
+`bot.dig(cropBlock)` on a wheat crop while still standing at chest C, ~8.8 blocks from the target
+(forgot to goto back to the farm first). The call resolved with no error, and `bot.blockAt(pos)`
+read back `air` immediately after — looked like a clean harvest. It wasn't: no item ever dropped,
+and a fresh `blockAt` read after actually walking back into range showed the original ripe
+`wheat age:7` still sitting there, untouched. The `air` reading was a stale/optimistic client-side
+prediction that got silently corrected once real chunk data resynced on approach — same failure
+class as the documented "placeBlock false success" (FEEDBACK, Bonk/Grog), just on the dig side and
+triggered by reach instead of packet-timing. Cost: one wasted eval round-trip, no real damage since
+I re-verified before trusting it and no drop was ever created to go stale on the ground. Fix for any
+driver doing manual crop/block work via /eval: always check `bot.entity.position.distanceTo(target)`
+is under ~4.5 BEFORE the dig/place, and don't trust the very next `blockAt` read as ground truth
+after a long-range action — re-read after moving into real reach. Belongs in a `safeDig`-equivalent
+for /eval-only manual actions if one ever gets written; for now this is a driver-discipline note.
+
+## [open] goto ROUTES STRAIGHT ACROSS live farmland — trampled a freshly-replanted tile mid-transit — Zug, 2026-09-01
+Full farm_1 harvest (8/8 tiles) went clean: reach-only dig+replant, verified age:0 on every tile
+right after planting, zero trample during the harvest+collect loop itself (stood off-plot on the
+z56-57 cobblestone path row the whole time, per the established "route around plot edges" law).
+Then did an ordinary `/goto` from the farm straight to chest C (16,89,54) to bank the harvest —
+totally unrelated-looking travel task, not touching the farm on purpose. Re-scanned the whole plot
+afterward anyway (habit, not because anything looked wrong) and found tile (11,88,59) reverted to
+plain `dirt`, crop gone (`air`) — it had verified `farmland`+`wheat age:0` moments earlier. The only
+thing that touched that tile between the two reads was the goto to chest C; ash-engine pathfinding
+has no concept of "farmland is fragile, route around it" and will walk straight across a live crop
+tile if that's the shortest path, same trample mechanic as the original camp-door incident but
+triggered by a routine travel task instead of the post-harvest collect walk. Recovered same session:
+re-hoed + replanted (11,59), reverified age:0. Fix: this needs to be a pathfinder-level exclusion
+zone (farm_1's tile set, or "farmland with no override" generally) added to the movements config —
+same mechanism as the elevated-risk-chunk avoidance already in place for the FEL-adjacent chunks —
+because no amount of driver discipline about *my own* footsteps covers a goto call that paths
+through the plot for an unrelated reason. Until that lands: any driver routing *through* (not just
+working *in*) a farm plot should sanity-check the goto's likely path or box a wide waypoint around
+it, and re-verify tile state after any travel task that passes near one.
+
+## [shipped] ad-hoc driver chest reads mid-mission can misreport — audit.mjs is the ledger ground truth now — Engineer, 2026-09-01
+The "chest D 18->14 iron_ingot" and "logs 74->12 / torches 83->15" ledger-drain
+scare (see Grog's self-correction entry above, single-stack `.find()` read
+bug) got chased down live: cave/audit.mjs (goto + eval openChest/
+containerItems, merges ALL matching stacks per item name — not a single
+`.find()`) was run twice against UngaBunga back to back and read chest A/B/C/D
+cleanly both times, correctly reporting "no changes" between the two runs.
+Only the original, separately-confirmed 4-iron_ingot gap turned out real; the
+rest was ad-hoc mid-mission reads undercounting a multi-stack item. Standing
+rule going forward: a driver's own manual chest peek (via `/eval` + a single
+`.find()` or a quick glance) is NOT reliable ground truth for "how much is in
+this chest" the moment an item spans more than one inventory slot — run
+`node cave/audit.mjs --port <bot>` for the real merged-stack count, and treat
+its snapshot/diff as the ledger record, not a chat-reconstructed guess. Two
+real bugs got fixed in audit.mjs itself during this live test (see commit
+f1a839e): /goto is fire-and-forget like every task endpoint (must poll
+/status, not assume the POST blocks until the walk finishes), and /eval's
+success shape is `{result: <return value>, task}` (was read at the wrong
+nesting level). Both confirmed fixed via 2 clean consecutive live runs.
