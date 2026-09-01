@@ -237,6 +237,9 @@ placing on a normal solid block.
 
 Another tribe shares this server (remote fleet, grows over time):
 **FurzFriedrich, MettMarcel, BuddelBernd, KackboonKevin, PflasterPeter,
-BratwurstBodo**. Humans: ZetOmega (our user), Felsenuboot (their operator). Their chest depot near the crafting-table
+BratwurstBodo, KloputzKarl, SoloSauhund** (last two confirmed 2026-09-01
+from felcrew repo ledger data; KloputzKarl seen restocking FEL shop with
+bread at the trading post). Humans: ZetOmega (our user), Felsenuboot
+(their operator). Their chest depot near the crafting-table
 cluster around **(-3, 111, 4)** is theirs — see `DRIVER_GUIDE.md` for the
 full conduct rules around them.

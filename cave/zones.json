@@ -18,6 +18,11 @@
     {
       "name": "test_yard",
       "box": { "x1": -4, "y1": 40, "z1": 304, "x2": 28, "y2": 110, "z2": 336 }
+    },
+    {
+      "name": "grove_1",
+      "box": { "x1": 4, "y1": 85, "z1": 63, "x2": 13, "y2": 105, "z2": 74 },
+      "note": "planted tree farm — chop allowed here despite camp quarantine"
     }
   ]
 }

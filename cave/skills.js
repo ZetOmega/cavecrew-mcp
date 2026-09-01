@@ -333,6 +333,24 @@ function isInDigZone(pos, zones = loadDigZones()) {
   );
 }
 
+// True when `pos` falls inside a planted grove zone (name starts "grove"),
+// read from the same zones.json/loadDigZones() the dig law uses. Unlike
+// isInDigZone this is NOT fail-open: zero grove zones means zero exception,
+// never "everything permitted" — it exists to punch one tight hole through
+// chopTrees' camp quarantine for tribe-planted farms, not to loosen it.
+function isInGroveZone(pos, zones = loadDigZones()) {
+  return zones.some(
+    (z) =>
+      z.name.startsWith('grove') &&
+      pos.x >= z.x1 &&
+      pos.x <= z.x2 &&
+      pos.y >= z.y1 &&
+      pos.y <= z.y2 &&
+      pos.z >= z.z1 &&
+      pos.z <= z.z2
+  );
+}
+
 // True when the vertical column from `fromY` down to `toY` at this x/z passes
 // through any zone — what makes a descending staircase legal: it is heading
 // INTO the mine, even though it starts outside one.
@@ -1124,10 +1142,13 @@ export async function chopTrees(bot, opts = {}, ctx = {}) {
 
     // (3) CAMP PROTECT RADIUS — never even select a target this close to
     // camp; matches overseer.mjs's own CHOP QUARANTINE ENFORCER center/
-    // radius exactly, but proactive instead of reactive-kill.
+    // radius exactly, but proactive instead of reactive-kill. Exception:
+    // tribe-planted groves (zones.json entries named "grove*", e.g. grove_1)
+    // sit INSIDE this radius on purpose and must stay choppable — a tight
+    // zone-box carve-out, not a loosening of the quarantine itself.
     const campDx = basePos.x - CAMP_PROTECT_CENTER.x;
     const campDz = basePos.z - CAMP_PROTECT_CENTER.z;
-    if (Math.hypot(campDx, campDz) < CAMP_PROTECT_RADIUS) {
+    if (Math.hypot(campDx, campDz) < CAMP_PROTECT_RADIUS && !isInGroveZone(basePos)) {
       skippedKeys.add(key);
       ctx.log?.(
         'warn',
@@ -2248,7 +2269,7 @@ async function punchLogsBareHand(bot, ctx, wanted) {
     skipped.add(posKey(pos));
 
     if (isPoisoned(ctx, pos) || isInNoGoZone(pos, ctx, true)) continue;
-    if (Math.hypot(pos.x - CAMP_PROTECT_CENTER.x, pos.z - CAMP_PROTECT_CENTER.z) < CAMP_PROTECT_RADIUS) continue;
+    if (Math.hypot(pos.x - CAMP_PROTECT_CENTER.x, pos.z - CAMP_PROTECT_CENTER.z) < CAMP_PROTECT_RADIUS && !isInGroveZone(pos)) continue;
     if (!hasLeavesAboveTop(bot, pos)) continue; // built structure, not a tree
 
     try {
