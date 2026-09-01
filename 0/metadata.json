@@ -1,0 +1,107 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "01M1EDB3P607SV6S0MWK0E3T15",
+  "session_id": "7992c114-e9b3-4ed9-984d-93f64f08e2fd",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-01T11:58:15.872163491Z",
+  "branch": "main",
+  "checkpoints_count": 7,
+  "save_step_count": 8,
+  "files_touched": [
+    "cave/panel-client.js",
+    "cave/panel-data.mjs",
+    "cave/panel.mjs"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-5",
+  "turn_id": "86e07a4d13b6",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 404,
+    "cache_creation_tokens": 374280,
+    "cache_read_tokens": 36856898,
+    "output_tokens": 67323,
+    "api_call_count": 202
+  },
+  "session_metrics": {
+    "turn_count": 10
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-01T11:58:15.814478993Z",
+    "agent_lines": 156,
+    "agent_removed": 3,
+    "human_added": 134,
+    "human_modified": 4,
+    "human_removed": 0,
+    "total_committed": 294,
+    "total_lines_changed": 297,
+    "agent_percentage": 53.535353535353536,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 116,
+      "agent_lines_removed": 53
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 6,
+      "user_lines_removed": 4,
+      "agent_lines_added": 222,
+      "agent_lines_removed": 53,
+      "user_added_per_file": {
+        "cave/panel-data.mjs": 6
+      },
+      "user_removed_per_file": {
+        "cave/panel-data.mjs": 4
+      }
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 293,
+      "agent_lines_removed": 60
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 132,
+      "user_lines_removed": 0,
+      "agent_lines_added": 293,
+      "agent_lines_removed": 60,
+      "user_added_per_file": {
+        "cave/panel-client.js": 132
+      }
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 1,
+      "user_lines_removed": 1,
+      "agent_lines_added": 425,
+      "agent_lines_removed": 60,
+      "user_added_per_file": {
+        "cave/BASE.md": 1
+      },
+      "user_removed_per_file": {
+        "cave/BASE.md": 1
+      }
+    }
+  ]
+}
