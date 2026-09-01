@@ -1,0 +1,61 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "01M1EHH564SXSFCMJRZBVYWCRH",
+  "session_id": "ebbc4e8d-d11a-41a2-8798-d7e515350594",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-01T13:11:31.802511859Z",
+  "branch": "main",
+  "checkpoints_count": 2,
+  "save_step_count": 2,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-5",
+  "turn_id": "2ad96ad07a5a",
+  "checkpoint_transcript_start": 2120,
+  "transcript_lines_at_start": 2120,
+  "compact_transcript_start": 313,
+  "token_usage": {
+    "input_tokens": 4,
+    "cache_creation_tokens": 1003,
+    "cache_read_tokens": 293067,
+    "output_tokens": 50,
+    "api_call_count": 2
+  },
+  "session_metrics": {
+    "turn_count": 65
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 174,
+      "user_lines_removed": 15,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "cave/BASE.md": 2,
+        "cave/CIV.md": 1,
+        "cave/FEEDBACK.md": 123,
+        "cave/goals.json": 48
+      },
+      "user_removed_per_file": {
+        "cave/BASE.md": 2,
+        "cave/CIV.md": 1,
+        "cave/goals.json": 12
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 292,
+      "agent_lines_removed": 15
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 292,
+      "agent_lines_removed": 15
+    }
+  ]
+}
