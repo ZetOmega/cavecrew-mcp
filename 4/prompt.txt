@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>b47hnqcd7</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-phili-tools-cavecrew-mcp/dd656a72-09d7-4849-9326-e79b76903e60/tasks/b47hnqcd7.output</output-file>
+<status>completed</status>
+<summary>Background command "until curl -s -m 3 http://127.0.0.1:3301/status 2&gt;/dev/null | grep -q '"phase":"in-world"'; do sleep 2; done; curl -s -m 3 http://127.0.0.1:3301/status; echo" completed (exit code 0)</summary>
+</task-notification>
