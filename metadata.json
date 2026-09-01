@@ -3,7 +3,7 @@
   "checkpoint_id": "01M1EGJ2NFASGXKJ8970KB2FCW",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 46,
+  "checkpoints_count": 51,
   "files_touched": [
     "cave/BARITONE.md"
   ],
@@ -35,13 +35,27 @@
       "compact_transcript": "/3/transcript.jsonl",
       "content_hash": "/3/content_hash.txt",
       "prompt": "/3/prompt.txt"
+    },
+    {
+      "metadata": "/4/metadata.json",
+      "transcript": "/4/full.jsonl",
+      "compact_transcript": "/4/transcript.jsonl",
+      "content_hash": "/4/content_hash.txt",
+      "prompt": "/4/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 4894,
-    "cache_creation_tokens": 3018023,
-    "cache_read_tokens": 980801582,
-    "output_tokens": 1078819,
-    "api_call_count": 2447
+    "input_tokens": 5158,
+    "cache_creation_tokens": 3258010,
+    "cache_read_tokens": 1068287832,
+    "output_tokens": 1186324,
+    "api_call_count": 2579,
+    "subagent_tokens": {
+      "input_tokens": 6,
+      "cache_creation_tokens": 3937,
+      "cache_read_tokens": 2193396,
+      "output_tokens": 3197,
+      "api_call_count": 3
+    }
   }
 }
