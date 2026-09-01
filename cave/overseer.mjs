@@ -1,7 +1,34 @@
 // overseer.mjs — deterministic idle watchdog for the cavecrew fleet.
-// No LLM. Polls every bot; any bot idle >60s gets a role-default task so
-// resources always flow. Stuck bots get teleported, disconnected bots relogged.
+// No LLM. Polls every bot; any bot idle past the idle threshold gets a
+// role-default task so resources always flow. Stuck bots get teleported,
+// disconnected bots relogged.
 // Run: node cave/overseer.mjs   (detached; pid in cave/pids/overseer.json)
+//
+// ---------------------------------------------------------------------------
+// 2026-09-01 — SAFE DEFAULTS RE-ENABLED after the canDig / reach / wedge fixes.
+//
+// Why they were off: an overseer idle-default /collect sent a bot pathing with
+// pathfinder `canDig: true`, which chewed through camp furniture on the way to
+// a drop. Root causes are fixed in shipped code — Movements now runs
+// `canDig: false`, the reach-gap bug is patched, and the runner carries its own
+// wedge watchdog — so defaults are safe to turn back on.
+//
+// 120s threshold (was 60s): driver eval-thinking gaps reliably tripped the 60s
+// timer, so the overseer fired a default on a bot whose driver was mid-thought.
+// See FEEDBACK: "CONFIRMED: overseer idle-default /collect caused the furniture
+// damage". 120s sits above normal driver latency and still catches real stalls.
+//
+// DIG LAW — miners excluded. Thak, Durk and Mog get NO auto-mine default.
+// Mining happens only in dedicated zones, via /buildStaircase + /branchMine,
+// under explicit driver command. Their idle default is a /goto back to their
+// own workstation / wait sector (anti-clump law), which is a cheap no-op walk
+// when they are already parked there.
+//
+// ONE COMMANDER — the overseer pushes defaults ONLY to bots with no running
+// task, and never uses `force`. It never cancels, preempts, or fights a
+// driver's running task; if a driver is working the bot, the overseer stays
+// silent. Drivers command; the overseer only fills dead air.
+// ---------------------------------------------------------------------------
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -12,44 +39,73 @@ const LOG = path.join(HERE, 'logs', 'overseer.log')
 const PIDF = path.join(HERE, 'pids', 'overseer.json')
 
 const CAMP = { x: 12, y: 91, z: 52 }
-const IDLE_MS = 60_000
+// 120s, not 60s: driver eval-thinking gaps tripped the old 60s timer and the
+// overseer stole bots out from under working drivers. See header block.
+const IDLE_MS = 120_000
 const POLL_MS = 30_000
 const STUCK_MS = 150_000
 
-// Role-default tasks: cheap, useful, safely interruptible by drivers.
+// Role-default tasks: cheap, useful, and never forced — a default only ever
+// goes to a bot with no running task, so a driver's work is never preempted.
+// Rows keep the rotation-array shape; single-entry arrays are the norm now.
+// A rotation entry is either a static {ep, body, say} or a chooser function
+// (status) => {ep, body, say} for defaults that depend on live bot state.
+//
+// /mine is PULLED from every idle-default and stays pulled. Two separate
+// incidents: maxDistance is 3D, so it chased ore straight DOWN a ravine and
+// killed Grog (y89→y26, full kit lost), and it tunneled Grog 8 blocks below
+// his own feet (depth-law breach). Under the dig law, unattended mining is
+// gone entirely — ore runs go through /buildStaircase + /branchMine in a
+// dedicated zone, on driver command only.
 const BOTS = [
+  // Wood keeper. Two-step chooser, because the chop-quarantine enforcer below
+  // checks the BOT's position, not the tree's: any chop running while he stands
+  // inside the 60-block camp ring gets stopped on sight. So a bare /chop
+  // default inside the ring would just churn — fire, get killed, refire.
+  // Instead: inside the ring, walk him out to the wood-line waypoint first;
+  // only once he is standing outside the ring does /chop actually get to run.
+  // Real fix (enforcer testing the TREE position instead of the bot's) is
+  // queued for a team-lead decision.
   { name: 'UngaBunga', port: 3201, color: 'yellow', defaults: [
-    { ep: '/chop', body: { count: 4, maxDistance: 48 }, say: 'idle: chop wood' },
-    { ep: '/collect', body: { radius: 16 }, say: 'idle: sweep drops' },
+    (st) => {
+      const dx = (st?.pos?.x ?? CAMP.x) - 12, dz = (st?.pos?.z ?? CAMP.z) - 56
+      return Math.sqrt(dx * dx + dz * dz) < 60
+        // Waypoint sits ~70.8 from the ring center (not the earlier 63.2):
+        // range:2 can park him ~68.8 out, still ~9 blocks of slack against the
+        // 60 ring — drift or a shove can't put his chop back inside it.
+        ? { ep: '/goto', body: { x: 60, y: 104, z: 108, range: 2, engine: 'pf' }, say: 'idle: out to the wood line' }
+        : { ep: '/chop', body: { count: 4, maxDistance: 48 }, say: 'idle: chop wood' }
+    },
   ]},
+  // Camp tidy — tight radius so a sweep stays inside camp and never wanders.
   { name: 'Grog', port: 3202, color: 'green', defaults: [
-    // NO mine defaults — /mine maxDistance ignores depth and tunneled Grog
-    // 8 below feet twice (depth-law breach). Builder role: sweeps only.
-    { ep: '/collect', body: { radius: 16 }, say: 'idle: sweep drops' },
+    { ep: '/collect', body: { radius: 8 }, say: 'idle: tidy camp' },
   ]},
+  // Farm sweep at his farm workstation.
   { name: 'Zug', port: 3203, color: 'light_purple', defaults: [
-    { ep: '/collect', body: { radius: 16 }, say: 'idle: sweep drops' },
-    { ep: '/hunt', body: { mob: 'chicken', count: 1 }, say: 'idle: look for bird' },
+    { ep: '/collect', body: { radius: 12 }, say: 'idle: farm sweep' },
   ]},
+  // Staging tidy — tight radius, door-staging area.
   { name: 'Bonk', port: 3204, color: 'aqua', defaults: [
-    { ep: '/collect', body: { radius: 16 }, say: 'idle: sweep drops' },
+    { ep: '/collect', body: { radius: 8 }, say: 'idle: tidy staging' },
   ]},
+  // DIG LAW: no auto-mine. Idle default parks him at his mine-field
+  // workstation (24, 90, 64) — a no-op walk if he is already standing there.
   { name: 'Thak', port: 3205, color: 'gold', defaults: [
-    { ep: '/mine', body: { block: 'coal_ore', count: 4, maxDistance: 28 }, say: 'idle: dig coal' },
-    { ep: '/mine', body: { block: 'iron_ore', count: 4, maxDistance: 28 }, say: 'idle: dig iron' },
+    { ep: '/goto', body: { x: 24, y: 90, z: 64, range: 2, engine: 'pf' }, say: 'idle: back to mine field post' },
   ]},
+  // Meat runner. /hunt targets passive mobs only by design.
   { name: 'Ook', port: 3206, color: 'red', defaults: [
-    { ep: '/collect', body: { radius: 16 }, say: 'idle: sweep drops' },
     { ep: '/hunt', body: { mob: 'pig', count: 1 }, say: 'idle: sniff for pig' },
   ]},
-  // /mine PULLED from all idle-defaults: maxDistance is 3D — it chased ore
-  // straight DOWN a ravine and killed Grog (y89→y26, full kit lost). No bot
-  // mines unattended until mineBlocks gets a vertical guard.
+  // DIG LAW: no auto-mine. No listed workstation — parked at a camp-adjacent
+  // wait spot picked to satisfy anti-clump (own block, not stacked on anyone).
   { name: 'Durk', port: 3207, color: 'blue', defaults: [
-    { ep: '/collect', body: { radius: 16 }, say: 'idle: sweep drops' },
+    { ep: '/goto', body: { x: 16, y: 89, z: 52, range: 2, engine: 'pf' }, say: 'idle: back to wait spot' },
   ]},
+  // DIG LAW: no auto-mine. Same as Durk — camp-adjacent wait spot, anti-clump.
   { name: 'Mog', port: 3208, color: 'dark_aqua', defaults: [
-    { ep: '/collect', body: { radius: 16 }, say: 'idle: sweep drops' },
+    { ep: '/goto', body: { x: 8, y: 90, z: 52, range: 2, engine: 'pf' }, say: 'idle: back to wait spot' },
   ]},
 ]
 
@@ -186,21 +242,29 @@ async function tick(bot) {
     }
   }
 
-  // idle tracking — DISABLED since runner-level idle-guard shipped (double
-  // tasking caused chat spam + task churn). Overseer keeps: chores, stuck-tp,
-  // relog, phantom purge. Flip back if runner idle-guard regresses.
-  const IDLE_DEFAULTS_ENABLED = false
+  // idle tracking — RE-ENABLED 2026-09-01 with safe per-role defaults (see the
+  // header block). Reachable only when nothing is running: the running-task
+  // branch above returns before this point, so a default can never land on a
+  // busy bot.
+  const IDLE_DEFAULTS_ENABLED = true
   if (!IDLE_DEFAULTS_ENABLED) return
   if (s.idleSince == null) { s.idleSince = now; return }
   if (now - s.idleSince < IDLE_MS) return
 
-  // idle >60s → role-default task (never force; drivers preempt naturally)
-  const d = bot.defaults[s.defaultIdx % bot.defaults.length]
+  // idle past threshold → role-default task. NEVER `force` — one commander:
+  // the overseer fills dead air, it does not cancel a driver's work. If the
+  // runner answers busy, that is the correct outcome; log it and move on.
+  // A rotation entry is either a static {ep, body, say} or a chooser function
+  // (status) => {ep, body, say} that picks based on live bot state. A chooser
+  // may return null/undefined to mean "nothing useful right now" — skip quietly.
+  const slot = bot.defaults[s.defaultIdx % bot.defaults.length]
   s.defaultIdx++
   s.idleSince = null
+  const d = typeof slot === 'function' ? slot(st) : slot
+  if (!d) return
   const res = await api(bot.port, d.ep, d.body)
   if (res && res.ok !== false && !res.error) {
-    log(`${bot.name} idle>60s -> ${d.ep} ${JSON.stringify(d.body)}`)
+    log(`${bot.name} idle>${IDLE_MS / 1000}s -> ${d.ep} ${JSON.stringify(d.body)}`)
     await grey(bot.name, bot.color, `(overseer) ${d.say}`)
   } else {
     log(`${bot.name} idle task ${d.ep} rejected: ${JSON.stringify(res)?.slice(0, 120)}`)
