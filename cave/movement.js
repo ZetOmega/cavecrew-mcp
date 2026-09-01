@@ -517,6 +517,7 @@ async function runPf(bot, { x, y, z, range, timeoutMs }, ctx) {
 
 async function gotoAsh(bot, goal, opts, ctx) {
   const timeoutMs = opts.timeoutMs ?? 45000;
+  const { x: goalX, y: goalY, z: goalZ, range: goalRange } = opts;
 
   const planned = await raceWithCancelAndTimeout(bot.ashfinder.generatePath(goal), {
     timeoutMs,
@@ -550,6 +551,27 @@ async function gotoAsh(bot, goal, opts, ctx) {
     await sleep(150);
     reached = typeof goal.isReached === 'function' ? goal.isReached(bot.entity.position) : true;
   }
+  // (ASH FALSE-FAIL FIX — FEEDBACK "ashfinder 'did not reach goal' fires
+  // while already within requested range", Bonk 2026-09-01) ashfinder's own
+  // GoalNear.isReached() folds horizontal AND vertical offset into one
+  // combined-3D check with zero slack on either axis — the exact same shape
+  // of bug goalGroundTruth() was built to fix on the pf side (see its
+  // CALIBRATION note above): a bot well within lateral range but sitting a
+  // block or so above/below the goal's y can get its 3D distance inflated
+  // past range by the y term alone, even after the settle-retry loop above.
+  // Can't reuse goalGroundTruth() itself here — ash's Goal hides x/y/z/range
+  // behind a floored, private `_position` and a `.distance` field, not the
+  // x/y/z/rangeSq shape pf goals expose — so redo the same horizDist/vertDist
+  // split directly against the raw target the caller asked for (threaded in
+  // via opts below). Same margins already proven safe at rawWalkTo's stop
+  // condition (range+1.0 horizontal, 1.5 vertical) — never masks a genuine
+  // miss, only catches the settle-loop's false negative.
+  if (!reached && typeof goalX === 'number' && typeof goalZ === 'number' && typeof goalRange === 'number') {
+    const pos = bot.entity.position;
+    const horizDist = Math.hypot(pos.x - (goalX + 0.5), pos.z - (goalZ + 0.5));
+    const vertDist = typeof goalY === 'number' ? Math.abs(pos.y - goalY) : 0;
+    if (horizDist <= goalRange + 1.0 && vertDist <= 1.5) reached = true;
+  }
   if (!reached) {
     throw new Error(`ashfinder: did not reach goal after gotoWithPath (search status was "${planned.status}")`);
   }
@@ -565,7 +587,7 @@ async function runAsh(bot, { x, y, z, range, timeoutMs }, ctx) {
   activeEngineByBot.set(bot, token);
   try {
     const goal = new ashMod.goals.GoalNear(new Vec3(x, y, z), range);
-    return await gotoAsh(bot, goal, { timeoutMs }, ctx);
+    return await gotoAsh(bot, goal, { timeoutMs, x, y, z, range }, ctx);
   } catch (err) {
     // CRITICAL: on any ash failure — especially a raceWithCancelAndTimeout
     // timeout that abandoned a still-executing gotoWithPath() — the library's
