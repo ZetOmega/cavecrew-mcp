@@ -15,6 +15,9 @@ pids/
 *.seed
 *.pid.lock
 
+# Per-bot death ledgers (cave/deaths/<name>.json)
+deaths/
+
 # NPM cache
 .npm/
 

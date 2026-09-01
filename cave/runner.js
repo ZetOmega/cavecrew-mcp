@@ -259,8 +259,10 @@ const __dirname = path.dirname(__filename);
 const CAVE_DIR = __dirname;
 const LOG_DIR = path.join(CAVE_DIR, 'logs');
 const PID_DIR = path.join(CAVE_DIR, 'pids');
+const DEATHS_DIR = path.join(CAVE_DIR, 'deaths');
 fs.mkdirSync(LOG_DIR, { recursive: true });
 fs.mkdirSync(PID_DIR, { recursive: true });
+fs.mkdirSync(DEATHS_DIR, { recursive: true });
 
 const logFilePath = path.join(LOG_DIR, `${name}.log`);
 const pidFilePath = path.join(PID_DIR, `${name}.json`);
@@ -356,13 +358,14 @@ const state = {
 // drop lastDeath, erasing death evidence entirely (FEEDBACK: "runner restart
 // erases death evidence" — violates the death-coordinates-always-logged law
 // and breaks evolution scoring). Every death event now also appends to a
-// gitignored per-bot cave/deaths-<name>.json, reloaded here on boot.
+// gitignored per-bot cave/deaths/<name>.json, reloaded here on boot.
 // Best-effort on both sides: a missing/corrupt file just means starting from
-// zero, and a failed write never takes the death handler down with it.
+// zero (one warn line, not silent), and a failed write never takes the death
+// handler down with it.
 // ---------------------------------------------------------------------------
 
-const deathsFilePath = path.join(CAVE_DIR, `deaths-${name}.json`);
-const deathLedger = []; // [{ pos, ts, taskKind }] — capped at the last 100
+const deathsFilePath = path.join(DEATHS_DIR, `${name}.json`);
+const deathLedger = []; // [{ pos, ts, dimension, cause, taskKind }] — capped at the last 100
 
 function persistDeaths() {
   try {
@@ -386,8 +389,12 @@ function loadDeaths() {
     if (raw?.lastDeath) state.lastDeath = raw.lastDeath;
     if (Array.isArray(raw?.deaths)) deathLedger.push(...raw.deaths.slice(-100));
     logLine('info', `death ledger loaded: deathCount=${state.deathCount}, entries=${deathLedger.length}`);
-  } catch {
-    // no ledger yet (or unreadable) — fresh start is the correct fallback
+  } catch (err) {
+    // No ledger yet (fresh bot, ENOENT — expected) or an unreadable/corrupt
+    // file (unexpected) — either way, starting from zero is the correct
+    // fallback, but it must be LOUD: silently resetting deathCount is the
+    // exact evidence-loss bug this whole mechanism exists to prevent.
+    logLine('warn', `death ledger: no usable file at ${deathsFilePath} (${err?.code ?? err?.message ?? err}) — starting fresh`);
   }
 }
 loadDeaths();
@@ -1214,7 +1221,17 @@ function wireBot(b) {
     state.lastDeath = { pos, ts: new Date().toISOString() };
     // Persist the ledger BEFORE anything async below — evidence must survive
     // even if the process dies mid-handler (see DEATH LEDGER PERSISTENCE).
-    deathLedger.push({ pos, ts: state.lastDeath.ts, taskKind: state.currentTask?.kind ?? null });
+    // dimension comes straight off bot.game (cheap, already populated by
+    // mineflayer). cause is left null: mineflayer's 'death' event carries no
+    // cause/attacker info on its own and this codebase has no damage-source
+    // tracking to attach yet — recording null here beats fabricating one.
+    deathLedger.push({
+      pos,
+      ts: state.lastDeath.ts,
+      dimension: b.game?.dimension ?? null,
+      cause: null,
+      taskKind: state.currentTask?.kind ?? null,
+    });
     persistDeaths();
     // IMPORTANT WHITE announcement — the '!' path (see smartChat above)
     // strips the '!' and sends this as real, unmissed chat: every death is
