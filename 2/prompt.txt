@@ -5,3 +5,13 @@
 <status>completed</status>
 <summary>Background command "Wait for chop task to finish (done or failed)" completed (exit code 0)</summary>
 </task-notification>
+
+---
+
+<task-notification>
+<task-id>bfddrondu</task-id>
+<tool-use-id>toolu_01L8KaH4Bhy1nyGbLch5YW1o</tool-use-id>
+<output-file>/tmp/claude-1000/-home-phili-tools-cavecrew-mcp/ebb423eb-48a4-4d86-b91c-e8cb33ab9d63/tasks/bfddrondu.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for deposit task to finish" completed (exit code 0)</summary>
+</task-notification>
