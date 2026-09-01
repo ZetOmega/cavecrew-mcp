@@ -299,3 +299,12 @@ If this event is something the user would act on now, send a PushNotification. R
 <event>hb t+195s "lastBaritoneLine":"Skipping forward 3 steps, to 58"</event>
 If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
 </task-notification>
+
+---
+
+<task-notification>
+<task-id>btg7doz7w</task-id>
+<summary>Monitor event: "BariBrute return-trek watch: heartbeat + nogo/disconnect/task-done alerts, final leg to camp"</summary>
+<event>hb t+226s "lastBaritoneLine":"Skipping forward 3 steps, to 58"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
