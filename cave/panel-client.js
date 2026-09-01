@@ -558,9 +558,23 @@
     if (bt) {
       c.task.hidden = false;
       setText(c.tkind, bt.kind || '?');
+      // Field-presence driven, not kind-driven on purpose: "mine" carries
+      // block/count, "goto" carries x/y/z, "tunnel" carries h/w/d (all three
+      // shapes ground-truthed live, PANEL_V3_SPEC.md integration-round notes
+      // + 2026-09-01 live QA) — checking the fields directly means a bare
+      // {kind,at} or a future 4th shape still renders whatever it actually
+      // has instead of silently dropping to just the raw log line.
       var parts = [];
       if (bt.block) parts.push(bt.block);
       if (typeof bt.count === 'number') parts.push('x' + bt.count);
+      if (typeof bt.x === 'number' && typeof bt.y === 'number' && typeof bt.z === 'number') {
+        parts.push('(' + bt.x + ',' + bt.y + ',' + bt.z + ')');
+      }
+      var dims = [];
+      if (typeof bt.h === 'number') dims.push('h' + bt.h);
+      if (typeof bt.w === 'number') dims.push('w' + bt.w);
+      if (typeof bt.d === 'number') dims.push('d' + bt.d);
+      if (dims.length) parts.push(dims.join(' '));
       var head = parts.join(' ');
       // Raw baritone pathfinder log lines run long ("Finished finding a
       // path from BetterBlockPos{...} to GoalComposite[...]. 2029 nodes
