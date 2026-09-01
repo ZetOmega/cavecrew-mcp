@@ -1,0 +1,62 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "01M1E6MJPQZ61GY0WYZZNW7VY2",
+  "session_id": "9b10d793-efc5-4ce1-a066-68812304810e",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-01T10:01:05.906517142Z",
+  "branch": "main",
+  "checkpoints_count": 3,
+  "save_step_count": 4,
+  "files_touched": [
+    "cave/skills.js"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "5aca6f527b28",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 284,
+    "cache_creation_tokens": 370416,
+    "cache_read_tokens": 29240469,
+    "output_tokens": 122643,
+    "api_call_count": 142
+  },
+  "session_metrics": {
+    "turn_count": 51
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-01T10:01:05.839141242Z",
+    "agent_lines": 18,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 3,
+    "human_removed": 0,
+    "total_committed": 21,
+    "total_lines_changed": 21,
+    "agent_percentage": 85.71428571428571,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
