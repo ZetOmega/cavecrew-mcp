@@ -38,6 +38,8 @@ const CHESTS = [
   { id: 'chest_b_tools', x: 12, y: 90, z: 54, label: 'chest B (building/torch supplies)' },
   { id: 'chest_c_food', x: 16, y: 89, z: 54, label: 'chest C (food, Mine House)' },
   { id: 'chest_d_ore', x: 14, y: 89, z: 57, label: 'chest D (ore, Mine House)' },
+  { id: 'chest_e_overflow', x: 12, y: 89, z: 55, label: 'chest E (build-material overflow)' },
+  { id: 'chest_f_bulk', x: 12, y: 89, z: 57, label: 'chest F (bulk/junk triage)' },
 ];
 
 const DEFAULT_PORT = 3201;

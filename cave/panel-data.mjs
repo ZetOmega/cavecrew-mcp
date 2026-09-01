@@ -819,6 +819,8 @@ const CHEST_META = {
   chest_b_tools: { x: 12, y: 90, z: 54, label: 'chest B (building/torch supplies)' },
   chest_c_food: { x: 16, y: 89, z: 54, label: 'chest C (food, Mine House)' },
   chest_d_ore: { x: 14, y: 89, z: 57, label: 'chest D (ore, Mine House)' },
+  chest_e_overflow: { x: 12, y: 89, z: 55, label: 'chest E (build-material overflow)' },
+  chest_f_bulk: { x: 12, y: 89, z: 57, label: 'chest F (bulk/junk triage)' },
 };
 
 function buildVaultChests(rawChests) {
