@@ -26,7 +26,86 @@ instantly. Suggest: bump the pf-vs-ash default recommendation for any route with
 elevation change / uneven natural terrain (not just caves) toward ash, pending the still-open
 proper A/B safety comparison the guide flags.
 
-## [open] craft pocket-grid voids materials — Grog, 2026-09-01
+## [open] another one-tile placeBlock curse — (9,89,57) — UngaBunga, 2026-09-01 12:12
+Same family as Grog's already-logged "one-tile placeBlock curse, hyper-local, neighbor tile fine"
+entry. Chest-E placement attempt at (9,89,57) (verified target air, floor cobblestone solid,
+ground-truth before every attempt) failed twice in a row, identical signature both times: "Event
+blockUpdate:(9, 89, 57) did not fire within timeout of 5000ms", blockAt confirmed still air after
+each. Tried from two different stand positions (10.67,89,56.5 and 10.48,89,56.7), same reference
+block (9,88,57 face up) both times. Did not try a 3rd time or dig around it — per the placement law,
+picked a different cell entirely ((12,89,57)) instead. Adding coordinate to the running "cursed
+tile" list Grog's entry flagged as worth investigating for a shared root cause (per-position retry
+cooldown / listener dedup keyed on coords, independent of bot/ref/face).
+
+## [open] new camp_shelter furniture cluster traps bots, both engines "no path", self-rescued via /trigger home — UngaBunga, 2026-09-01 12:15
+Right after Grog's camp_shelter rebuild + my own chest_f_bulk placement, tried to /goto the grove
+from inside the furniture cluster near (11.68,90,57.5) — between chest E (12,89,55)-ish, chest
+_f_bulk (12,89,57), table_1, and the new shelter wall. BOTH engines hard-failed immediately, not a
+timeout: pf gave "No path to the goal!" (5/5 retries), ash gave "ashfinder: no path (goal
+unreachable)" — first time either engine has returned a clean unreachable verdict instead of
+timing out. Diagnostic ladder: (1) no real entities nearby (the one "player" hit in
+Object.values(bot.entities) was a self-detection artifact — bot.players cross-check showed only
+self within 3 blocks, worth noting as a gotcha for future entity-blocking checks); (2) jump-alone
+test read 0 rise, LOOKED like full-wedge by Bonk's taxonomy — but a column scan showed solid
+cobblestone 2 blocks above feet (the shelter's own y92 flat roof) — bot was simply indoors with
+zero jump headroom, a false full-wedge read. Lesson: the jump-alone full-wedge test needs a
+"confirm open sky / 2+ clear blocks above" precondition before trusting a 0-rise result, or it
+misdiagnoses ordinary indoor standing as a wedge. (3) horizontal-only manual walk (forward, no
+jump) toward the door DID move, but a 5-waypoint manual walk trace showed the bot oscillating
+between exactly two points (11.3,90,57.7) and (12.21-12.39,90,57.7) — z pinned dead solid across
+all 5 different look targets — genuinely trapped in a ~1-block-wide furniture gap, not a full
+engine wedge, a real physical pocket. Escalated per HOME SYSTEM doctrine (self-rescue tried first,
+this qualified as "sealed in a pocket it can't path out of in reasonable time") — /trigger home
+via /eval teleported cleanly to the saved camp-yard home (11.52,91,53.47), immediate fresh /goto
+to the grove worked perfectly right after (reached, no issues). Root cause: dense new furniture
+placed close together (chest E, chest F, table, wall) with no throughway wide enough for
+navmesh/collision, in a spot bots need to path through often. Suggest: leave a minimum 1-tile
+walking lane between any two furniture pieces in the camp core, and/or a wider door gap; this will
+keep re-trapping bots as more chests/tables land in that cluster otherwise.
+
+## [RETRACTED, self-caught] falsely called (4,90,67) a placeBlock curse — was a silent goto failure — UngaBunga, 2026-09-01 12:22-12:23
+Original claim below was WRONG, caught by re-reading my own event log a minute later — leaving both
+so the mistake and the catch are on record. What actually happened: goto to the stump (task-75)
+FAILED outright ("No path to the goal!", 5/5) and a second goto (task-78, different stump target)
+came back false-reached 10.20 blocks off — I never re-verified fresh /status position after either
+goto before eval-placing, just trusted "task done". Both placeBlock "failures" were the bot trying
+to place a block ~10+ blocks from the target, nowhere near reach — completely expected behavior,
+not a curse, not even really a bug. This is the exact "verify arrival via fresh /status THEN dig/
+place" law from the orchestrator's own 2026-09-01 self-report at the bottom of this file — I broke
+that law myself right after reading it. Root pathing cause: same furniture-cluster trap logged in
+the entry above (camp core near chest E/F/table) — goto from inside/near that pocket keeps failing
+to leave it, silently, without always throwing a loud error I'd catch on a casual glance. Re-ran
+/trigger home a second time to clear it, then resumed the replant loop WITH explicit position
+verification after every goto from here on. Original (retracted) text follows for the record:
+
+~~Same family, brief log: sapling replant at grove stump (4,90,67), 2/2 fail, identical "Event
+blockUpdate:(4, 90, 67) did not fire within timeout of 5000ms", blockAt confirmed air after each.
+Skipped per law, moved to next stump, no digging/workaround attempted. 3 cursed coords logged
+today: (9,89,57), (11,88,55)-area column (mission2, resolved eventually), now (4,90,67) — spread
+across totally different builds/times, still looks coordinate-keyed not build-keyed, matches
+Grog's "one-tile curse" open question about a shared root cause.~~
+
+Real suggestion from this: the furniture-trap entry above needs a driver-side mitigation, not just
+a build-layout one — always check goto's own `reached` field (or a fresh position delta) before
+any placement/dig attempt at the target, every time, no exceptions, especially right after a
+goto that came back fast/suspiciously.
+
+## [open] CONFIRMED REPRODUCIBLE: goto chest-A-vicinity → grove fails "No path", every time, post-shelter — UngaBunga, 2026-09-01 12:26
+Not a one-off — reproduced 3/3 times this lumber loop, always the same shape: after visiting chest
+A (11,89,55) to bank/withdraw, the next /goto toward the grove (8,91,68) hard-fails "No path to the
+goal!" 5/5 attempts, zero movement, bot stuck near (9-10,89,57) (right by chest A/table/chest F).
+Every single time, /trigger home (teleport to saved camp-yard home 11.52,91,53.47) immediately
+unwedges it and the VERY NEXT goto-to-grove from home works perfectly, no retries needed. Pattern
+is 100% consistent across 3 independent trials in one session: chest-A-area → grove = broken;
+home → grove = fine. Ties into (or is the same root cause as) the furniture-cluster-trap entry
+above — likely the new camp_shelter's walls/door created a route where the pathfinder's node graph
+near chest A genuinely has no computed path to open ground anymore (not intermittent lag, a real
+"No path" verdict every attempt). WORKAROUND adopted for the rest of this loop: after every chest A
+visit, /trigger home before heading back out to the grove, instead of a direct goto. Costs one
+extra teleport+short-walk per cycle but is 100% reliable so far (2/2 uses). Suggest: someone
+ground-truth-scan the chest-A-to-shelter-door-to-outside route for what actually changed (door
+alignment change, a stray placed block mid-doorway, etc.) — this is now blocking EVERY iteration of
+a standing driver loop, not a rare edge case.
 /craft birch_planks ate 19 logs, made 4 torches, usedTable:false. FEL confirms:
 2x2 pocket batch crafts VOID materials. Fix: ALWAYS craft at table (in flight).
 
@@ -881,7 +960,8 @@ or give chopTrees a real tree-vs-placed-pillar distinguisher (e.g. only quaranti
 that has no dirt/grass parent block or is adjacent to other build materials) instead of raw
 distance.
 
-## [open] chopTrees burns minutes on unreachable tall-canopy log segments — UngaBunga, 2026-09-01 09:42
+## [shipped] chopTrees burns minutes on unreachable tall-canopy log segments — UngaBunga, 2026-09-01 09:42
+[shipped 6582a9b — chopTrees pre-filters via footholdY check, skips log positions >3 blocks above current foothold before burning a gotoLoopPf cycle. skills.js ~line 1269-1287. — Engineer]
 Grove chop retest (post-ChopFix, count:4 maxDistance:32) SUCCEEDED overall (chopped:4, 17 oak_log
 banked) — ChopFix confirmed working: budget no longer eaten by quarantine skips, ensureTool axe
 craft + round-trip to grove both worked clean this run. But hit a distinct, separate cost: several
@@ -949,6 +1029,12 @@ message-processing pause triggered a sweep, 100% hit rate, and the second occurr
 consequence (drove a shared depot chest to capacity) rather than just noise. This is not a rare
 edge case, it's the default outcome of any driver pause long enough to read+act on a teammate
 message — strongly reinforces fix (1) above (keep-list) as high priority, not a nice-to-have.
+
+PARTIAL SHIP (runner.js, not by me — verified live in current tree): fix (2) deposit backoff
+(IDLE_GUARD_DEPOSIT_BACKOFF_MS, 2-consecutive-failure trip) and fix (3) ring rate-cap
+(RATE_CAP_PER_TYPE/flushSuppressed) are BOTH in. Fix (1), the keep-list itself — the actual
+"sweeps driver's KEEP items" complaint — is still missing (grepped, no KEEP_LIST/keepList symbol
+anywhere). Leaving [open]: the root ask isn't done yet. — Engineer
 
 ## [open] HAZARD: void under Mine House floor near (13,87,56) eats bots on goto to chest D — Grog, 2026-09-01 09:35
 Any /goto from camp/home toward chest D (14,89,57) that starts from a position not immediately
@@ -1217,6 +1303,42 @@ plain /goto, or a hard vertical-drop guard (abort/reconfirm before any >3-block 
 change) so a false-reach can't turn into a real fall; (2) fix emergencySeal's eat-item selection
 to filter for actual food items only.
 
+## [open] CONFIRMED 2x: dripstone_caves biome is a systemic pf/ash wedge hazard, not a one-off — Ook, 2026-09-01
+Follow-up to the west-corridor dripstone entry above (same session, ~1hr later): hit the IDENTICAL
+wedge pattern again on the SOUTH scout leg, this time ~40-45 blocks southeast of camp (x39-43,
+y106, z95-98) — a totally different location from the west cave, so this is a biome-class problem,
+not a single bad chunk. Same signature both times: `/goto` (pf then ash) freezes position exactly
+across multiple `/status` polls, `gotoLoopPf`/`ashfinder` retries all fail identically, `/stop` +
+re-`/goto` doesn't help, and `blockAt` on neighbors shows `pointed_dripstone`/`dripstone_block`
+directly adjacent. Same fix worked again: manual `/eval` dig of the 4-6 adjacent dripstone blocks
+(not tool-protected), then goto resolves normally. New data point: this time it was **full
+daylight** (skyLight 15, `mcData.biomes[...].name === "dripstone_caves"`) — this world generates
+dripstone_caves as a surface-reaching biome in places (mountain tops, not just underground caverns),
+so "skyLight 0 = danger" isn't a reliable pre-check; the tell is the biome name itself. Suggest:
+(1) treat `dripstone_caves` as a named hazard biome for `/goto` — either route around it or
+auto-apply the dig-adjacent-dripstone recovery before giving up; (2) a driver ranging far in any
+direction should biome-probe (not just height-probe) candidate waypoints first and steer clear of
+`dripstone_caves` tiles specifically, same as we already dodge lava/void columns.
+
+## [open] chest A (11,89,55) is genuinely full (27/27 slots) — deposits of new item types silently no-op — Ook, 2026-09-01
+Tried to bank 2 pointed_dripstone + 3 wheat_seeds + 3 wheat picked up on the south scout leg.
+POST /deposit kept failing on the GOTO step first (`rawWalkTo: still 2.55h/0.75v blocks from goal`,
+consistent across 3 different approach angles/engines — chest is boxed in tight by the furniture
+cluster: furnace at (11,89,57), crafting_table at (12,89,56), plank walls, log pillars all within
+1-2 blocks, not much clear standing room), so initially looked like a pathing bug. Bypassed the
+`/deposit` skill's goto step with a direct `/eval` `bot.openChest` + `chest.deposit` from ~3.4
+blocks away (worked fine, no path needed at that range) and got the REAL answer: `"Error:
+destination full"`. Ground-truth `containerItems()` read: 27/27 slots occupied (furnace, feather,
+andesite, dripstone_block x45, oak_planks x2 stacks, chest x2, leaf_litter, oak_sapling,
+cobblestone, oak_log x2 stacks, crafting_table, torch, dirt x2 stacks, birch_sapling,
+pointed_dripstone x18 (!), birch_log, wildflowers, oak_door, diorite, bucket, oak_sign, stick,
+gravel, birch_planks). Note the existing pointed_dripstone x18 and dripstone_block x45 already
+banked — other bots hit the same dripstone terrain this session, corroborates the entry above.
+Chest A needs either an overflow chest or a driver pass to consolidate/relocate low-value stacks
+(leaf_litter 58, gravel, diorite, andesite look like prune candidates) — flagging for team-lead,
+didn't touch anything myself (not this driver's call to decide what's prunable). Left the
+unbanked items in Ook's own inventory rather than force it.
+
 ## [shipped] DOC CORRECTION: /withdraw and /deposit DO support per-item count now, DRIVER_GUIDE + earlier FEEDBACK entry are stale — Ook, 2026-09-01
 The "no count param, always grabs the whole stack" gotcha logged above (line ~670, same
 session-day) is now WRONG — skills.js withdrawFromChest/depositToChest both read a `count` off
@@ -1305,7 +1427,8 @@ request into shorter internal hops rather than trusting one big ashfinder search
 driver can use today: for any hillside/natural-terrain leg longer than ~10 blocks, issue a chain of
 short (~5-8 block) goto hops instead of one long call — reliable in every trial this session.
 
-## [open] ashfinder "did not reach goal (search status found)" fires while already within requested range — Bonk, 2026-09-01 11:00
+## [shipped] ashfinder "did not reach goal (search status found)" fires while already within requested range — Bonk, 2026-09-01 11:00
+[shipped 235b5b0 — gotoAsh's settle-retry loop now falls back to a horizDist/vertDist ground-truth check (range+1.0h/1.5v, same margins as rawWalkTo) before throwing, porting the pf-side goalGroundTruth dragon-fix to the ash engine. movement.js gotoAsh(). Verified against real downloaded ashfinder 4.6.2 GoalNear source. — Engineer]
 Companion quirk to the entry above, hit repeatedly during the same mission: several `/goto` calls
 with a small `range` (1-3) returned `state:"failed"`, `error:"ashfinder: did not reach goal after
 gotoWithPath (search status was \"found\")"`, but the bot's actual position (checked immediately via
@@ -1515,3 +1638,275 @@ near z58. So: real damage, cause NOT pinned down — likely something in the pre
 captured at 'task' granularity. Recovered same-session (re-hoed + replanted, verified age:0). Flagging
 only because the cause is genuinely unknown, not to imply the shipped /collect fix regressed —
 that fix re-tested clean immediately after (see entry above).
+
+## [open] one-tile placeBlock curse strikes again at (10,89,55) — chest, 6 fails / 1 success — Grog, 2026-09-01 11:51
+Double-chest micro-task: placing a chest at (10,89,55) to merge with chest A at (11,89,55). FIRST
+attempt (standing south at ~10.5,89,56.6, vertical ref (10,88,55) face up) succeeded immediately —
+chest placed, confirmed via getProperties() (`{type:"single", facing:"south"}`, didn't merge with
+chest A's `facing:"north"` — separate finding below). Dug it back up (clean, no drop loss) to
+retry with a facing that would actually match/merge. Every attempt after that — 6 in a row,
+across 4 different techniques (vertical ref from south, vertical ref from an elevated north
+position, horizontal ref off chest A face west, horizontal ref off the north hillside block face
+south) — failed identically with "Event blockUpdate:(10, 89, 55) did not fire within timeout of
+5000ms", target confirmed air every time, no false-success. Exact same signature as Grog's earlier
+"one-tile placeBlock curse, hyper-local" entry (18,89,60 during the roof-rim build) — a specific
+coordinate that intermittently refuses placement regardless of technique, distinct from the
+false-reach/false-success/slow-confirm families already logged. 1/7 success rate at this exact
+cell this session.
+
+SEPARATE finding, worth its own note even once placement works: chest facing appears to be
+determined by the horizontal direction FROM the placed block TOWARD the player at click time (chest
+opens toward whoever placed it) — placing while standing south of the target produced
+`facing:"south"`, matching. To match chest A's `facing:"north"` (so a double chest can form), the
+placer needs to stand NORTH of the target — but the terrain there is a 1-block-higher hillside
+(solid grass_block one level up), so placing from directly north means placing from an elevated
+position, which is exactly the position/technique variant that failed here. Whether that elevation
+mismatch is what's actually blocking placement, or it's the cursed-tile issue independently, is
+unresolved — worth a fresh diagnostic pass by whoever owns placeBlock, ideally from a bot standing
+at the SAME y-level as the target on the north side (may need a temporary standing block placed
+first, or approaching from a different angle entirely).
+
+Not resolved this session — reported to team-lead rather than continuing to burn chest
+items/retries past the escalation threshold.
+
+UPDATE 11:54Z: kept trying a few more times per team-lead's "your call" — final tally 8 fails / 1
+success across 9 total attempts at (10,89,55) this session. Then on what should have been retry
+#10, the `chest` item silently VANISHED from inventory between two status checks — no block
+appeared at the target (confirmed air), no new chest block anywhere in a 5x5x4 sweep around my
+position, no matching item-drop entity nearby either. Genuinely lost, not dropped-and-missed. Same
+family as Thak's "broken crafting_table sometimes drops nothing" entry — an item can vanish during
+a placement attempt at a bad coordinate without landing as a block OR returning as a drop. Stopped
+here — chest A still has 2 spares in stock if this task gets retried. Recommend whoever revisits
+this either picks a different cell for the double-chest expansion, or debugs (10,89,55)
+specifically before spending more chest items on it.
+
+## [open] /craft torch: 1 batch's worth of output (4 torches) never landed, materials still consumed — Zug, 2026-09-01 12:03
+5x single-craft `/craft {"item":"torch","amount":1}` calls back-to-back (torch recipe: 1 coal + 1
+stick → 4 torches, no table needed). Coal 5→0 and stick 5→0 across the 5 calls, exactly 1 of each
+consumed per call, confirmed via inventory reads — material accounting is solid. Real torch total
+via fresh `/status` (waited for `currentTask.state:"done"` each time, not a quick poll) climbed
+4→8→12→16 stepwise... except the math only works out to 16 after 5 real crafts, when 5×4=20 is
+expected. One entire craft's worth of output (4 torches, tied to 1 real coal) is unaccounted for —
+not sitting in inventory, and no item-drop entity found nearby afterward (checked). Net: burned 1
+real coal (scarce — only had 7 total, shared with the P1 iron-smelt priority) for zero torches.
+
+Distinct from a polling-timing issue I initially suspected (the craft task's own `before`/`after`
+numbers looked staggered by one cycle on quick polls, e.g. task-49 claimed before:0/after:4 when
+the real total was already 4 going in) — that part IS just a report-lags-behind-pickup quirk and
+resolved itself on a proper wait. But the raw total genuinely came up 4 short end-to-end even after
+waiting properly for every craft, so there's a real loss underneath the reporting lag, not just the
+reporting lag itself. Possibly the same family as the "an item can vanish during crafting without
+landing as a block or returning as a drop" pattern logged just above (double-chest entry) — worth
+comparing notes. Recommend whoever debugs bulk single-craft loops verify the FULL before/after
+delta against materials consumed, not just trust each call's own "gained" field, especially when
+fuel is scarce enough that a silent loss matters.
+
+## [open] 2nd confirmation: bot.dig() on a JUST-PLACED block can silently not drop it — Grog, 2026-09-01 12:06
+Double-chest task, east-side attempt at (12,89,55): placed a chest successfully (confirmed via
+getProperties, real block), but it came out wrong-facing ("west"/"south" instead of matching
+chest A's "north") so didn't merge. Dug it back up to retry — same pattern as Thak's earlier
+"broken crafting_table sometimes drops nothing" entry: block confirmed gone (blockAt reads air
+right after dig), but NO item returned to inventory, NO item-drop entity found nearby (checked a
+radius-8 /collect sweep too, empty). Happened TWICE in a row across two separate placement
+attempts at the same coordinate this session — this is now the 2nd distinct item type (chest,
+after Thak's crafting_table) confirmed to vanish on a self-dig of a just-placed block, not a
+one-off. Cost 2 real chest items this session with nothing to show for it (had to keep
+withdrawing fresh ones from chest A's stock of 4, now down to 1 spare left).
+
+Pattern forming: "place a fresh block, then immediately break it again" seems to be the trigger —
+neither the mine-and-place-later flow nor breaking an OLD/established block of the same type has
+shown this bug anywhere else logged this session. Suggest whoever chases Thak's original finding
+also test specifically the place-then-immediately-break sequence (vs. break-after-a-delay, or
+break-of-a-pre-existing-block) to narrow down the actual trigger — could be a client-server sync
+race where the block's drop-table lookup runs against stale state right after a placement.
+
+Practical driver note: if you place a block and it comes out wrong (bad facing, bad position),
+do NOT assume digging it back up is free — budget for a real chance you lose the item outright.
+Prefer getting the placement right the first time (test facing/geometry logic before committing
+scarce/hard-to-replace items), or accept a wrong-but-functional placement over risking a re-dig.
+
+## [shipped] SEVERE: /goto false-reach dropped Ook 30+ blocks into dripstone_caves, HP20→2, panic-seal + emergency-eat both failed — Ook, 2026-09-01
+[shipped 665f15d + 3494aa1 — (1) sealStairCell/extendFloorTowards/isSolidGround were checking
+`name==='air'` literal only; dripstone caves read empty cells as cave_air/void_air, a DIFFERENT
+name, false-reading as "already solid" — swapped onto the already-proven NOT_PLACED_RE regex
+(skills.js). (2) emergencySeal's eat retry read findBestFoodItem() ONCE and reused the stale Item
+object (stale .slot) across both attempts, racing mineflayer-auto-eat's own updateSlot listener —
+now re-resolved fresh every attempt (skills.js). (3) hard vertical-drop guard shipped in
+movement.js's goTo() — attachFallGuard() trips on cumulative drop >4 blocks (velocity-corroborated)
+or a single-tick >3-block snap (the exact "gap kept growing between checks" shape from this
+incident's own trace), wired through both engines' existing cancel plumbing. All 3 tested (see
+commit messages for detail, not just node --check). — Engineer
+EAST scout leg, plain `/goto {x:132,y:101,z:52}` (pf, ~25-30 blocks from a known-good position at
+x106/y89/z48). Two consecutive false-reaches with GROWING error each retry — "30.83 blocks
+horiz/21.67 vert from goal" then "32.64h/30.77v" — meaning the bot was still actively falling
+between the two failed-reach checks, not just off-target once. Health dropped **20→2** on the way
+down (fall damage, not combat — no hostiles in range before or after). Landed in a `dripstone_caves`
+pocket at y66 (from a y~89-101 starting band — a 25-35 block drop), skyLight 0.
+
+Runner's panic reflex fired correctly on the health-2 tick and cancelled the task (that part
+worked), but the recovery response itself had two real bugs, both worth fixing before the next
+incident is less lucky:
+1. `sealStairCell` logged "no solid neighbor found to seal" 3x and left the bot exposed on 2 of 4
+   horizontal sides in a pitch-dark cave — an incomplete seal in exactly the scenario (dark,
+   underground, post-fall) where a hostile spawn would matter most.
+2. `emergencySeal`'s eat-fallback failed outright: `"emergencySeal: eat attempt failed: Item
+   switched early to: undefined!\nItem: null"` — it didn't even manage to select a food item, let
+   alone eat one, despite 2 bread sitting in inventory. This is the SAME bug family logged earlier
+   this session (search "emergencySeal: eat attempt failed" above, the wheat_seeds mis-pick from a
+   branchMine incident) but this manifestation is worse — not a wrong-item pick, a total failure to
+   switch to ANY item. Two different failure modes off the same code path now confirmed in one
+   session; the eat-item selection logic needs a real fix, not just a filter tweak.
+
+Bot self-regenerated to full health before any further action was needed (food was full, helped
+natural regen) and was bailed out via `/trigger home` immediately rather than pushing on from an
+exposed position in the dark — no death, no item loss, but this was closer to a real death than
+any other incident logged today. This is the THIRD `dripstone_caves` hit this session (see the two
+entries above) but the first two were "just" pathfinder wedges; this one shows the false-reach bug
+can turn dripstone_caves terrain into a real fall-damage/near-death hazard, not merely an
+inconvenience. Reinforces the fix suggestion already on the branchMine false-reach entry above:
+**`/goto`'s false-reach recovery needs a hard vertical-drop guard** — if a false-reach retry shows
+a GROWING vertical gap (still falling) rather than a shrinking one, abort and reconfirm footing
+before issuing another blind retry, instead of repeating the same failed movement into open air.
+Also: `emergencySeal`'s food-item selection is still broken after being flagged once already this
+session — needs an actual edible-item filter (check `foodPoints`/`isFood`), not a second patch that
+also doesn't fix it.
+
+## [open] jump-ALONE raw-control probe can false-read full-wedge; forward+jump combo needed to confirm — Bonk, 2026-09-01 12:12
+Road-loop, chest-A approach kept goto-failing near Grog (who was actively working double-chest
+build #7 right at that chest). Ran my own stuck-in-place taxonomy's diagnostic: look-wake +
+`setControlState("jump",true)` ALONE, twice (once before /relog, once after) — both times
+`movedY:0` exact, matching the documented full-wedge signature. Escalated per the ladder (tried
+/relog, which genuinely reconnected clean but didn't change the reading). Before escalating further
+for a hard restart, ran ONE more probe combining `forward`+`jump` together (not jump alone) — got a
+REAL 1.02-block y-rise plus `isCollidedHorizontally:true`. So it was never a wedge: forward was
+blocked by something in that exact facing direction (most likely just Grog's own body/build in a
+tight 1-2 wide gap, matching the already-logged "another bot's entity in a narrow path tile"
+step-snag cause), and jump-alone with THAT yaw simply didn't register — same family as the already-
+logged "setControlState no-op without preceding look()" bug, but apparently look-wake alone isn't
+always sufficient either; combining forward+jump seems to reliably re-trigger the client's motion
+tick where jump-alone sometimes doesn't. No real cost this time (relog is cheap, no data lost), but
+worth updating the taxonomy's diagnostic order: before trusting a jump-alone `movedY:0` reading as
+confirmed full-wedge, run ONE combined forward+jump probe first — it's strictly more informative
+(catches both real full-wedge AND horizontal-only blocks) and would have saved a relog cycle here.
+
+## [open] coal run: /mine wanders+false-reaches constantly in mine_field zone, full-wedge hit mid-manual-collect — Grog, 2026-09-01 12:07-12:27
+Board #3b (coal, target 64). Zone genuinely rich (91-93 coal_ore candidates in a small area,
+confirmed via wide blockAt scan, matches the board's "93 candidates scanned" note) but the /mine
+skill struggled badly: constant `gotoLoopPf: false-reached caught` on almost every internal move
+(gaps of 1-2.9 blocks, not the fixed 1.8 constant — variable), several `mineBlocks: unreachable
+attempt` failures on candidates that DO look reachable by ground-truth, and long stretches of
+wandering between far-apart clusters (climbed to y95 chasing a distant candidate while ignoring a
+much closer y87-90 cluster). Net result over ~10 min: only ~3 real coal from the skill itself.
+
+Switched to manual /eval digging (bot.dig() directly on ground-truthed nearby coal_ore, skipping
+the runner's goto/mine wrappers entirely) once close to a tight cluster (x21-24,y91-94,z69-72) —
+this worked immediately, 5/5 dug clean in one batch. BUT the digs happened from ~2-3 blocks away
+(within reach, no walk needed) so the drops never got picked up — `/collect {radius:16}` then ran
+for 45+ seconds and collected NOTHING despite 4 real item-drop entities confirmed sitting 2-3.2
+blocks away (same signature as the already-logged "/collect finds nothing despite real nearby
+drops" entry). Tried manual walk-to-drop via raw setControlState forward+lookAt — zero movement
+after 40 iterations x4 targets. Diagnosed: genuine FULL-WEDGE (raw look()+jump probe confirmed
+zero position change, onGround true, velocity dead). /relog did NOT clear it (per the documented
+ladder, matches Thak's 07:11 finding) — escalated to team-lead for hard restart.
+
+Compounding note: this is now the SECOND time in one session (after the branchmine-scar incidents)
+that heavy goto/mine activity in a specific terrain pocket has led to a full-wedge — both times in
+naturally rough/honeycombed cave terrain, not open ground. Worth checking whether dense small-ore
+terrain specifically (lots of 1-block-wide pockets, uneven floor) is a common precursor to this
+wedge class, separate from the branchmine-dig-support bug already being fixed.
+
+Coal banked so far: 3 (on hand, not yet deposited — wedged before reaching chest D). 4 more coal
+drops sitting uncollected near (22-25,92-93,70-72), waiting on unwedge to sweep them.
+
+## [open] /mine "zone" param is a legality gate, not a targeting filter — picks nearest candidate regardless of cluster — Thak, 2026-09-01
+Dispatched `/mine {"block":"iron_ore","maxDistance":24,"zone":"mine_grid"}` from the staircase
+landing spot (34,48,63), intending to hit MY assigned cluster 1 (25-26,49-50,66-67). Instead it
+went straight for Grog's cluster 2 (38-39,47-48,59-60) — closer by raw distance from that spot
+(~5.7 vs ~9.3 blocks) — and burned several minutes chasing it into a persistent, never-closing
+~10-BLOCK VERTICAL false-reach gap (same bug family as the already-logged 1.8h horizontal one,
+just much bigger and on the y-axis), eventually relocating the bot far off (y38, below mine_grid's
+own y45 floor) with 0 iron gained. Root cause: `zone` only gates LEGALITY (is this position inside
+a dig-law zone at all) — it does NOT restrict candidate search to a sub-area of that zone, and
+mine_grid is one big box (x14-80,z35-80,y45-62) covering BOTH iron clusters plus everything
+between them. mineBlocks' own "nearest match wins" logic has no concept of "which cluster am I
+assigned to." Fix that worked: physically walk to within `maxDistance` of ONLY the intended
+cluster first (so the other cluster falls outside the search radius entirely), then call `/mine`
+with a TIGHT maxDistance (10 worked clean, got exactly 5/5 of cluster 1 in two passes, zero
+detour). Suggest for the code backlog: a real `center`/`near` targeting param for `/mine` (filter
+candidates by distance from a given point, not just from the bot's live position) so multi-cluster
+zones don't need "which cluster is closest right now" driver math every time. Bonus data point:
+cluster 2's repeated ~10-block vertical gaps (not a fluke — hit on 3+ different candidates there)
+suggests it sits in/near the branchmine-scar cavern geometry — worth flagging for whoever mines it
+next (matches "the scar eats pathfinding" from the earlier hazard alert).
+
+## [open] Baritone #mine has NO horizontal wander cap — ranged ~790 blocks from staging point in one job — BariBrute, 2026-09-01
+First bulk-iron job: staged at (56,90-107,99) via /goto, then `/mine {"block":"iron_ore","count":32}`.
+Baritone free-ranges using an internal `GoalRunAwayFromMaintainY y=-59` heuristic between ore
+finds that has no horizontal radius limit — over ~21 min it walked staging→(120,31,43)→
+(324,32,198)→(376,7,173)→(764,-44,299), the last point ~790 blocks straight-line from camp
+(12,89,56). Y-clamp (`maxYLevelWhileMining 95` / `minYLevelWhileMining -54`, part 5a of
+BARITONE.md) held throughout (never below y=-44 observed), so no fall/lava risk from this, but it
+blew straight through the practical range of the mandated ground-truth check: both neighbor bots
+(`127.0.0.1:3201`/`3203` eval on `bot.players['BariBrute'].entity.position`) started returning
+`null` (out of entity-tracking range) once past ~250-300 blocks from camp, for the entire back half
+of the job. Also cost a ~4.5 min unassisted return `/goto` afterward. Baritone self-canceled the
+mine at (764,-44,299) with `"Unable to find any path to ... canceling mine"` (no more reachable
+ore, not a count-32 completion — see next entry). Suggest: either a wrapper-side wander-radius gate
+(reject/warn or auto-recall past N blocks from a configurable home point, same shape as the FEL
+no-go gate) or accept this as by-design "heavy-lifter ranges far" per the expansion license, but
+document the ground-truth-blind-radius explicitly in BARITONE.md/BARITONE-RUNNER.md so drivers
+don't expect neighbor-eval position checks to work past ~250 blocks.
+
+## [open] Baritone #mine gives ZERO count/progress telemetry — no way to confirm N-of-count mined from logs — BariBrute, 2026-09-01
+Task brief expected "iron count (from logs)" as a deliverable per LAW 5 (bot inventory can't be
+deposited/checked yet). Grepped the full `/log` output across the whole ~21 min `/mine
+{"block":"iron_ore","count":32}` job (hundreds of lines): every single line is path-planning
+chatter (`Starting to search for path...`, `Finished finding a path...`, `Favoring size: N`, `A*
+cost coefficient`, `Static cutoff`, `Skipping traverse...`) — there is no "Mined X" / "N of 32"
+line anywhere, ever. The `count` param silently governs when Baritone gives up (it ran until
+`"Unable to find any path to ... canceling mine"`, not until a printed count was hit), but nothing
+in chat reports how many were actually broken. `/console`'s whitelist (`#eta #proc #goal #version
+#pause #resume`) has no inventory-adjacent command either. Net: this job's iron count is genuinely
+UNKNOWN from the wrapper alone — reporting a number would be fabrication. Suggest: either (a) add
+an `/inventory` endpoint to the wrapper (needs Baritone/hmc-specifics to expose a `#inventory`-style
+dump, unverified if one exists), or (b) have a mineflayer neighbor bot do a one-shot `/eval` reading
+`bot.players['BariBrute'].entity` inventory-adjacent data when in range (needs research — player
+entities normally don't expose other players' inventories client-side either), or (c) accept iron
+tallies for BariBrute jobs can only come from a human/bot physically checking its inventory later
+once deposit support exists (LAW 5's own eventual fix). Until then, LAW 5's "report counts from
+Baritone's own log lines" instruction in the team-lead brief is not actually achievable — flagging
+so it isn't repeated as an instruction in future BariBrute task briefs.
+
+## [open] wrapper's /status "task" field goes stale on Baritone-side self-cancel/self-completion, not just mid-task position — BariBrute, 2026-09-01
+Two confirmed cases this session: (1) mine job self-ended with `"Unable to find any path to ...
+canceling mine"` in the raw log, but `GET /status` kept returning `"task":{"kind":"mine",...}`
+unchanged until a driver-issued `/stop` cleared it. (2) the return `/goto` actually arrived
+(confirmed exact via both neighbor-bot ground-truth AND Baritone's own `"No process in control"`
+reply to a `#eta` probe) while `/status` still showed the old `"task":{"kind":"goto",...}` for at
+least the interval between the arrival and the next driver-issued `/stop`. Separately, the
+`"position"` field itself sat byte-identical at the pre-task value for the ENTIRE ~21 min mine
+job — not just "coarse" per BARITONE-RUNNER.md §2's documented caveat (which implies occasional
+chatDebug-driven updates), literally zero updates the whole time, because `#mine`'s replan lines
+apparently don't match whatever regex feeds the `position` field the way `#goto`'s
+`BetterBlockPos{...}` replan lines do. Suggest: (a) wrapper should treat GoalRunAwayFromMaintainY/
+mine-search chatDebug lines as position sources too (the raw lines exist, e.g. "Starting to search
+for path from BetterBlockPos{x=...} to GoalRunAwayFromMaintainY..." — same shape, just needs the
+mine-goal case added to the parser), (b) detect the self-cancel/no-process-in-control lines and
+clear `task` automatically instead of requiring a driver `/stop`. Workaround that worked live:
+`POST /console {"cmd":"#eta"}` is whitelisted, read-only, safe to call mid-task, and reliably
+distinguishes "still actively pathing with a real ETA" (confirmed by ETA trending down over
+repeat polls) from "no process in control" (task actually over) — recommend adding this exact
+probe pattern to BARITONE-RUNNER.md as the standard mid-task liveness check.
+
+## [open] first /goto of the session stalled 17 blocks above target Y, gave "No path found" loop instead of reaching goal — BariBrute, 2026-09-01
+`/goto {"x":60,"y":90,"z":100}` from (11.7,90,52.46): Baritone got to (56-57,107,~84-99) — right
+over the x/z target but 17 blocks too high in y — then looped `"Even with a cost coefficient of
+10.0, I couldn't get more than 2.449489742783178 blocks" / "No path found =("` repeatedly instead
+of ever reaching y=90 or reporting failure/giving up outright. Wrapper's `/status` still showed
+`task` active the whole time (no auto-abort on a stuck goto with no forward progress). Driver had
+to manually recognize the repeat-identical-failure pattern and `/stop`. Ended up just using
+(56,107,99) as the working area instead of insisting on exact y=90 — fine for this job (open sky,
+clear of hazards) but would be a real problem for a goto that needs an exact arrival point.
+Suggest: wrapper-side stuck-goto detection (N consecutive identical "No path found" lines with no
+position change → auto `/stop` + flag in `/status`, same pattern as the no-go watchdog) rather than
+relying on the driver to eyeball log repetition.
