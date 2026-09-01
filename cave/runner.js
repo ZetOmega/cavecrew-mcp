@@ -1873,6 +1873,23 @@ function buildStatus() {
     food: spawned ? b.food : null,
     gamemode: b?.game ? b.game.gameMode : null,
     inventory: spawned ? summarizeInventory(b) : [],
+    // G1 (PANEL_V3_SPEC.md) — bot.heldItem is mineflayer's own live,
+    // authoritative getter for "what's actually equipped right now" (not
+    // a heuristic guess off the inventory list — a bot can carry a
+    // pickaxe AND an axe AND a sword at once, only one is equipped).
+    // durability mirrors the same {used,max} shape summarizeInventory
+    // attaches below; undefined/omitted for non-durable items (food,
+    // blocks, materials) rather than a fake 0/0.
+    heldItem:
+      spawned && b.heldItem
+        ? {
+            name: b.heldItem.name,
+            count: b.heldItem.count,
+            durability: b.heldItem.maxDurability
+              ? { used: b.heldItem.durabilityUsed ?? 0, max: b.heldItem.maxDurability }
+              : undefined,
+          }
+        : null,
     currentTask: taskToJSON(state.currentTask),
     // Per-task, not global: reflects the CURRENT task's own failure (if it
     // failed) and nothing else — a fresh task starting always reads back
@@ -1889,12 +1906,25 @@ function buildStatus() {
   };
 }
 
+// G1 (PANEL_V3_SPEC.md) — attaches a `durability` object to any item that
+// has one (prismarine-item's .durabilityUsed/.maxDurability, confirmed
+// against node_modules/prismarine-item — tools/weapons/armor; food/blocks/
+// materials simply don't have maxDurability, so they stay plain
+// {name,count}, unchanged/backward-compatible). Durability doesn't sum
+// meaningfully across a merged stack (each tool wears independently), so
+// this surfaces the first instance's wear per name — exact in practice
+// since tools don't stack past 1 in vanilla anyway.
 function summarizeInventory(b) {
   const map = new Map();
   for (const it of b.inventory.items()) {
-    map.set(it.name, (map.get(it.name) || 0) + it.count);
+    const entry = map.get(it.name) || { name: it.name, count: 0 };
+    entry.count += it.count;
+    if (it.maxDurability && entry.durability === undefined) {
+      entry.durability = { used: it.durabilityUsed ?? 0, max: it.maxDurability };
+    }
+    map.set(it.name, entry);
   }
-  return Array.from(map, ([itemName, count]) => ({ name: itemName, count }));
+  return Array.from(map.values());
 }
 
 // Task-producing endpoints share the same shape: validate + start a task,
