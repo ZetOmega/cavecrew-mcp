@@ -1405,6 +1405,24 @@ const IDLE_GUARD_DEPOT_POS = { x: 11, y: 89, z: 55 };
 const IDLE_GUARD_DEPOT_RADIUS = 40;
 const IDLE_GUARD_SURPLUS_THRESHOLD = 8;
 
+// KEEP-LIST HEURISTIC (FEEDBACK "2X CONFIRMED: idle-guard sweeps driver's
+// KEEP items", Grog 2026-09-01 09:13/09:19) — idle-guard's deposit sweep had
+// no concept of "keep this on the bot": a real idle gap (reading a teammate
+// message, no task issued) dumped crafting_table x1, bread x5, furnace x2 —
+// items the driver needed on-hand, not banked — straight into chest A, twice
+// in one session. FEEDBACK's own fix (1) proposed either a full driver-set
+// keep-list (bigger: needs a new endpoint + validation + docs) or, "at
+// minimum," a fixed heuristic — keep last N food + first crafting_table +
+// first furnace. Implemented the minimum here: it directly stops the
+// reported damage without new API surface. FOOD_MIN(8) matches
+// DRIVER_GUIDE's own "8 food" deep-kit baseline, not a new number invented
+// here. Food detection uses mcData.foodsByName (populated on spawn — see
+// wireBot), not a hardcoded name list, so it stays correct across recipe/
+// item-set changes for free.
+const IDLE_GUARD_KEEP_CRAFTING_TABLE = 1;
+const IDLE_GUARD_KEEP_FURNACE = 1;
+const IDLE_GUARD_KEEP_FOOD_MIN = 8;
+
 // DEPOSIT BACKOFF (FEEDBACK "2X CONFIRMED: idle-guard sweeps driver's KEEP
 // items + retry-spam floods event ring", Grog 2026-09-01 09:13/09:19) — once
 // chest A was full, idle-guard kept re-attempting the identical deposit
@@ -1456,7 +1474,26 @@ async function idleGuardCycle(task, ctx) {
     if (!bot || !bot.entity) break;
 
     const nonTool = bot.inventory.items().filter((it) => !skills.isToolLike(it.name));
-    const nonToolCount = nonTool.reduce((sum, it) => sum + it.count, 0);
+    // KEEP-LIST HEURISTIC — merge same-name stacks first (multiple
+    // inventory slots of one item are separate Item objects), then subtract
+    // each item's keep-minimum before deciding what's actually surplus.
+    // depositToChest supports {name, count} specs (caps how much of a
+    // matching stack moves), so a keep-protected item either drops out of
+    // the deposit list entirely (count <= keep-min) or only its true
+    // surplus goes out — ordinary items (keepMin 0) behave exactly as
+    // before: full stack, unchanged.
+    const mergedCounts = new Map();
+    for (const it of nonTool) mergedCounts.set(it.name, (mergedCounts.get(it.name) ?? 0) + it.count);
+    const depositSpecs = [];
+    for (const [itemName, count] of mergedCounts) {
+      let keepMin = 0;
+      if (itemName === 'crafting_table') keepMin = IDLE_GUARD_KEEP_CRAFTING_TABLE;
+      else if (itemName === 'furnace') keepMin = IDLE_GUARD_KEEP_FURNACE;
+      else if (mcData?.foodsByName?.[itemName]) keepMin = IDLE_GUARD_KEEP_FOOD_MIN;
+      const surplus = count - keepMin;
+      if (surplus > 0) depositSpecs.push({ name: itemName, count: surplus });
+    }
+    const nonToolCount = depositSpecs.reduce((sum, s) => sum + s.count, 0);
     const dist = distance3(bot.entity.position, IDLE_GUARD_DEPOT_POS);
 
     if (nonToolCount > IDLE_GUARD_SURPLUS_THRESHOLD && dist <= IDLE_GUARD_DEPOT_RADIUS) {
@@ -1467,11 +1504,10 @@ async function idleGuardCycle(task, ctx) {
         await announce('status', '(idle-guard) deposit backed off (chest full/failing recently), pausing');
         await cancellableSleep(20000, ctx);
       } else {
-        const names = [...new Set(nonTool.map((it) => it.name))];
         await announce('status', `(idle-guard) depositing ${nonToolCount} surplus items at depot`);
         let depositFailed = false;
         try {
-          const result = await skills.depositToChest(bot, { pos: IDLE_GUARD_DEPOT_POS, items: names }, ctx);
+          const result = await skills.depositToChest(bot, { pos: IDLE_GUARD_DEPOT_POS, items: depositSpecs }, ctx);
           const deposited = result.deposited || [];
           if (deposited.length) {
             idleGuardDepositFailStreak = 0;
