@@ -3,7 +3,7 @@
   "checkpoint_id": "01M1EHDF2ZE87AMD4ZCZNES0Z0",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 10,
+  "checkpoints_count": 11,
   "files_touched": [
     "cave/TODO.md"
   ],
@@ -49,6 +49,10 @@
       "compact_transcript": "/5/transcript.jsonl",
       "content_hash": "/5/content_hash.txt",
       "prompt": "/5/prompt.txt"
+    },
+    {
+      "metadata": "/6/metadata.json",
+      "prompt": ""
     }
   ],
   "token_usage": {
