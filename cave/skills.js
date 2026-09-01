@@ -3054,6 +3054,41 @@ async function placeTorchHere(bot, ctx) {
   return false;
 }
 
+// (SEAL-FALLBACK, priority incident 2026-09-01 — Grog's emergencySeal
+// failed 0/10 cells landing in a wide-open cavern.) sealStairCell's own
+// 6-neighbor search only looks at each cell's IMMEDIATE natural
+// neighbors — in an open cavern those can ALL be air even though the
+// bot's own standing floor is solid (that's what stopped the 17-block
+// fall in the first place): the floor one column over, under a
+// feet-ring cell, just isn't guaranteed to share that same solid ground.
+// Extends the bot's own KNOWN-solid floor sideways by one block, toward
+// a feet-ring cell, BEFORE that cell's own seal attempt — a single
+// valid horizontal face placement against `footFloor` (which must
+// already be solid, or the bot wouldn't be standing on it), so the
+// ring cell's downward neighbor exists by the time sealStairCell goes
+// looking for it. Chains entirely off the one anchor guaranteed to
+// exist; invents no new placement geometry. Returns true/false, never
+// throws — a failure here just means that ring cell's own seal attempt
+// is no better/worse off than before this fallback existed.
+async function extendFloorTowards(bot, footFloor, dx, dz, ctx) {
+  const target = footFloor.offset(dx, 0, dz);
+  const existing = bot.blockAt(target);
+  if (existing && existing.name !== 'air' && existing.name !== 'water' && existing.name !== 'lava') return true;
+  const anchor = bot.blockAt(footFloor);
+  if (!anchor || anchor.name === 'air' || anchor.name === 'water' || anchor.name === 'lava') return false;
+  const material = bot.inventory.items().find((it) => SEAL_MATERIALS.test(it.name));
+  if (!material) return false;
+  const faceVec = target.minus(footFloor);
+  try {
+    await bot.equip(material, 'hand');
+    await safePlaceBlock(bot, anchor, faceVec, ctx, target, { retry: false });
+    return true;
+  } catch (err) {
+    ctx.log?.('warn', `emergencySeal: floor-extend toward ${posKey(target)} failed: ${err.message}`);
+    return false;
+  }
+}
+
 // Seals one cell (air/water/lava) by placing a seal-material block against
 // whichever solid neighbor is available — used by buildStaircase's
 // side+below exposure checks.
@@ -3152,8 +3187,16 @@ export async function emergencySeal(bot, ctx = {}) {
     [0, 2, 0],
   ];
   let sealed = 0;
+  const footFloor = pos.offset(0, -1, 0);
   for (const [dx, dy, dz] of offsets) {
     if (ctx.isCancelled?.()) break;
+    // Feet-ring cell (dy===0, horizontal offset only, not the floor cell
+    // itself) — pre-extend the bot's own known-solid floor toward it
+    // first, so an open-cavern landing with no natural neighbor still has
+    // something to seal against. See extendFloorTowards above.
+    if (dy === 0 && (dx !== 0 || dz !== 0)) {
+      await extendFloorTowards(bot, footFloor, dx, dz, ctx).catch(() => {});
+    }
     const cellPos = pos.offset(dx, dy, dz);
     const ok = await sealStairCell(bot, cellPos, ctx).catch(() => false);
     if (ok) sealed++;
@@ -3178,13 +3221,41 @@ export async function emergencySeal(bot, ctx = {}) {
     // critical enough to trigger the panic reflex needs is a self-inflicted
     // poison effect on top of it.
     const bestFood = findBestFoodItem(bot);
-    if (bestFood && bot.autoEat && typeof bot.autoEat.eat === 'function') {
-      await bot.autoEat.eat({ food: bestFood, offhand: false });
-      ate = true;
-    } else if (bestFood) {
-      await bot.equip(bestFood, 'hand');
-      await bot.consume();
-      ate = true;
+    if (bestFood) {
+      // (FIELD BUG, Grog 2026-09-01, same incident) Selection now correctly
+      // picks bread, but the eat action itself threw "Eating timed out
+      // 3000ms" (mineflayer-auto-eat's default eatingTimeout) mid-crisis —
+      // right after emergencySeal's own placeBlock burst (10 cells, now up
+      // to 14 with the floor-extend fallback above), plausibly leaving the
+      // client's control loop momentarily unsettled. Two cheap mitigations,
+      // neither touching the plugin itself: (1) a forced look packet before
+      // the FIRST attempt — same LOOK-WAKE LAW already proven for
+      // setControlState in movement.js's rawWalkTo (Thak's FEEDBACK entry:
+      // bare control changes can get silently dropped until a look/position
+      // packet "wakes" the client tick loop); (2) one retry with a short
+      // pause on ANY eat failure, not just a timeout string match — a
+      // genuinely out-of-food case would already have been ruled out by
+      // findBestFoodItem returning null, so anything that throws here is
+      // presumed transient.
+      for (let attempt = 1; attempt <= 2 && !ate; attempt++) {
+        try {
+          await bot.look(bot.entity.yaw, bot.entity.pitch, true);
+        } catch {
+          // ignore — still attempt to eat even if the look packet itself fails
+        }
+        try {
+          if (bot.autoEat && typeof bot.autoEat.eat === 'function') {
+            await bot.autoEat.eat({ food: bestFood, offhand: false });
+          } else {
+            await bot.equip(bestFood, 'hand');
+            await bot.consume();
+          }
+          ate = true;
+        } catch (err) {
+          ctx.log?.('warn', `emergencySeal: eat attempt ${attempt}/2 failed: ${err.message}`);
+          if (attempt < 2) await sleep(500);
+        }
+      }
     }
   } catch (err) {
     ctx.log?.('warn', `emergencySeal: eat attempt failed: ${err.message}`);
