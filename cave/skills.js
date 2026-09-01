@@ -357,7 +357,16 @@ function goalTargetInfo(goal) {
     return { pos: goal.entity.position, range: typeof goal.range === 'number' ? goal.range : 1 };
   }
   if (typeof goal.x === 'number' && typeof goal.y === 'number' && typeof goal.z === 'number') {
-    const range = typeof goal.range === 'number' ? goal.range : 0;
+    // (REACH-GAP FIX, same class as movement.js's goalGroundTruth) pathfinder
+    // goals never carry a plain `range` field — GoalNear stores rangeSq, and
+    // GoalGetToBlock stores neither — so this always read 0 and the (11)
+    // spurious-throw recheck (dist <= range + 0.8) almost never accepted a
+    // genuinely-arrived bot. Derive from rangeSq when present; treat
+    // GoalGetToBlock's "stand adjacent" semantics as an effective 1.5.
+    let range = 0;
+    if (typeof goal.range === 'number') range = goal.range;
+    else if (typeof goal.rangeSq === 'number') range = Math.sqrt(goal.rangeSq);
+    else if (goals?.GoalGetToBlock && goal instanceof goals.GoalGetToBlock) range = 1.5;
     return { pos: new Vec3(goal.x, goal.y, goal.z), range };
   }
   return null;

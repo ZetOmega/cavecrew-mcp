@@ -113,7 +113,19 @@ function sleep(ms) {
 function goalGroundTruth(bot, goal) {
   if (typeof goal?.x !== 'number' && typeof goal?.z !== 'number') return null;
   const pos = bot.entity.position;
-  const range = typeof goal.rangeSq === 'number' ? Math.sqrt(goal.rangeSq) : 0;
+  // (REACH-GAP FIX) GoalGetToBlock extends Goal directly — it has NO rangeSq,
+  // so this used to ground-truth it as range 0, making every downstream
+  // margin check (false-reach at range+1.0, rawWalkTo's stop condition)
+  // demand <=1.0h from the block CENTER. Physically impossible whenever the
+  // target's adjacent cell isn't standable: a bot pressed flush against the
+  // next wall bottoms out at 1.0 (cell) + 0.5 (center) + 0.3 (body radius)
+  // = exactly the fixed 1.80h shortfall in every field log. "Stand adjacent"
+  // semantics = an effective range of 1.5, which puts the margin checks at
+  // 2.5h — and the dig itself is still gated separately by skills.js's
+  // ensureWithinReach 4.2 eye-distance law, so this loosens nothing unsafe.
+  let range = 0;
+  if (typeof goal.rangeSq === 'number') range = Math.sqrt(goal.rangeSq);
+  else if (pfGoals?.GoalGetToBlock && goal instanceof pfGoals.GoalGetToBlock) range = 1.5;
   let horizDistSq = 0;
   if (typeof goal.x === 'number') {
     const dx = pos.x - (goal.x + 0.5);
