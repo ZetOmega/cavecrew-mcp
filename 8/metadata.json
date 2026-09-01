@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "01M1EGXPH6BFKFVH8QAKG0PV33",
+  "session_id": "ebb423eb-48a4-4d86-b91c-e8cb33ab9d63",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-01T13:00:54.045181239Z",
+  "branch": "main",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "cave/TODO.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-5",
+  "turn_id": "4ca971b596b4",
+  "checkpoint_transcript_start": 4125,
+  "transcript_lines_at_start": 4125,
+  "compact_transcript_start": 620,
+  "token_usage": {
+    "input_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 0,
+    "api_call_count": 0
+  },
+  "session_metrics": {
+    "turn_count": 35
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-01T13:00:53.854568706Z",
+    "agent_lines": 10,
+    "agent_removed": 6,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 10,
+    "total_lines_changed": 16,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
