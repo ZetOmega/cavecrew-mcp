@@ -86,6 +86,14 @@ filler task, and that is the runner's behaviour, not the panel's: `startTask()`
 in `runner.js` treats any real task as an automatic preemption of idle-guard,
 with or without `force`. That is exactly what "wake an idle bot" means.
 
+WAKE also tags the push with `source: 'panel'`, so it shows up as itself in
+the runner's own task/event log and the `/status` `currentTask.source` field
+— previously indistinguishable from any other unidentified HTTP caller
+(runner.js's own fallback is `'http'` when a caller doesn't self-identify).
+The dashboard surfaces this as a small "via panel"/"via idle-guard" tag next
+to the task's state pill, hidden for the plain `'http'` case since that is
+today's common default for undated driver calls, not new information.
+
 A card counts as **idle** — amber border, WAKE button — when it has no current
 task, its last task has already finished, or it is only running `idle-guard`.
 

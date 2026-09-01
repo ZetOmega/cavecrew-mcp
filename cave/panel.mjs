@@ -482,7 +482,11 @@ async function doWake(botArg) {
   const plan = bot.wake ?? FALLBACK_WAKE;
   // force:false is built here, not copied from the plan and not read from the
   // request — there is no code path in this file that can send force:true.
-  const body = { ...plan.body, force: false };
+  // source:'panel' tags the runner's own task/event log with who actually
+  // pushed this (issue #6 arbitration forensics) — previously indistinguishable
+  // from any other unidentified HTTP caller (runner.js defaults body.source
+  // to 'http' when absent).
+  const body = { ...plan.body, force: false, source: 'panel' };
 
   try {
     const { status, json } = await postJson(`http://127.0.0.1:${bot.port}${plan.ep}`, body);
@@ -714,8 +718,13 @@ function renderPage() {
   }
   .stat b { font-size: 13px; color: var(--text); font-weight: 600; }
   .stat.idle b { color: var(--amber); }
+  /* The fleet's one shared KPI gets more visual weight than the other stat
+     pills: a bigger number and a wider, taller track, so the number every
+     driver is actually working toward doesn't read as just another pill in
+     the row. */
   .quota { display: flex; align-items: center; gap: 9px; }
-  .quota .track { width: 84px; height: 5px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
+  .quota b { font-size: 15px; }
+  .quota .track { width: 130px; height: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
   .quota .fill { height: 100%; background: linear-gradient(90deg, #9aa4b2, #dfe6f0); transition: width .4s ease; }
   .tick { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); transition: background .3s; }
   .tick.live { background: var(--green); box-shadow: 0 0 8px rgba(95,227,107,.6); }
@@ -734,16 +743,19 @@ function renderPage() {
     padding: 13px 15px 14px;
     transition: border-color .3s, opacity .3s;
   }
-  .card.idle { border-color: rgba(242,176,53,.42); border-left-color: var(--amber); }
+  /* Severity escalates in two dimensions at once — colour AND weight — so the
+     four states read as a clear ladder even to a glance that only catches
+     the left edge: idle (waiting, unremarkable) = amber, default 3px width;
+     err (a task actually failed) = red, 4px, heavier than idle on purpose;
+     panic (the runner's own emergency reflex) = red, 5px, full-ring glow,
+     outranks everything. Idle previously tinted the WHOLE border ring the
+     same as a real error would — that made "bot is waiting for a driver"
+     look almost as alarming as "something broke", working against the calm
+     end of the hierarchy. Idle now only accents the left edge. */
+  .card.idle { border-left-color: var(--amber); }
   .card.offline { opacity: .55; }
-  .card.err { border-left-color: var(--red); }
-  /* PANIC — the runner's own low-health flee/seal reflex (kind
-     "panic-response") took over. Rarest, most urgent state a card can be in,
-     so it outranks idle/err for the border and gets a visible glow: this is
-     the one thing that must survive a from-across-the-room glance. Persists
-     until the next task replaces currentTask, same STATUS-HOLD rule as
-     lastError. */
-  .card.panic { border-color: rgba(255,107,99,.6); border-left-color: var(--red); box-shadow: 0 0 0 1px rgba(255,107,99,.25); }
+  .card.err { border-left-color: var(--red); border-left-width: 4px; }
+  .card.panic { border-left-width: 5px; border-color: rgba(255,107,99,.6); border-left-color: var(--red); box-shadow: 0 0 0 1px rgba(255,107,99,.25); }
   .task.panic { background: rgba(255,107,99,.12); }
   .task.panic .kind { color: var(--red); }
 
@@ -756,7 +768,7 @@ function renderPage() {
   .port { font-size: 11px; color: var(--dim); }
   .age { margin-left: auto; font-size: 11px; color: var(--muted); white-space: nowrap; }
 
-  .pos { margin-top: 5px; font-size: 11.5px; color: var(--muted); letter-spacing: .02em; }
+  .pos { margin-top: 5px; font-size: 11px; color: var(--muted); letter-spacing: .02em; }
 
   .delta { margin-top: 5px; display: flex; align-items: baseline; gap: 6px; font-size: 11px; }
   .dl { color: var(--dim); letter-spacing: .03em; }
@@ -766,7 +778,7 @@ function renderPage() {
   .vitals { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; margin-top: 10px; }
   .vital { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--muted); }
   .vital .lbl { width: 12px; flex: none; text-align: center; }
-  .vital .track { flex: 1; height: 5px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
+  .vital .track { flex: 1; height: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
   .vital .fill { height: 100%; border-radius: 3px; transition: width .45s ease, background .3s; }
   .vital .num { width: 26px; flex: none; text-align: right; color: var(--text); font-size: 11px; }
 
@@ -776,11 +788,18 @@ function renderPage() {
   .task .state { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
   .task .state.running { color: var(--green); border-color: rgba(95,227,107,.35); }
   .task .state.failed { color: var(--red); border-color: rgba(255,107,99,.4); }
-  .task .detail { margin-top: 4px; font-size: 11.5px; color: var(--muted); word-break: break-word; }
+  .task .src { margin-left: auto; font-size: 10px; color: var(--dim); white-space: nowrap; text-align: right; }
+  .task .detail { margin-top: 4px; font-size: 11px; color: var(--muted); word-break: break-word; }
 
-  .err-box { margin-top: 9px; padding: 7px 10px; border-radius: 8px; font-size: 11.5px; color: #ffb3ae; background: rgba(255,107,99,.09); border: 1px solid rgba(255,107,99,.3); word-break: break-word; }
+  .err-box { margin-top: 9px; padding: 7px 10px; border-radius: 8px; font-size: 11px; color: #ffb3ae; background: rgba(255,107,99,.09); border: 1px solid rgba(255,107,99,.3); word-break: break-word; }
 
-  .meta { margin-top: 9px; display: flex; flex-wrap: wrap; gap: 5px 12px; font-size: 11px; color: var(--dim); }
+  /* Footer divider — one hairline splits each card into two read zones:
+     identity/vitals/task above, history+inventory+actions below. Eight
+     flush-stacked blocks with only whitespace between them read as one
+     undifferentiated pile at a glance; this line is the one chunk-point
+     worth having, not sprinkled everywhere (that would be noise, not
+     rhythm). */
+  .meta { margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 5px 12px; font-size: 11px; color: var(--dim); }
   .meta b { color: var(--muted); font-weight: 600; }
   .meta .guard.warn { color: var(--amber); }
 
@@ -789,7 +808,7 @@ function renderPage() {
     display: inline-flex; align-items: center; gap: 5px;
     padding: 2px 4px 2px 8px; border-radius: 999px;
     background: var(--panel-2); border: 1px solid var(--line);
-    font-size: 10.5px; color: var(--muted); max-width: 100%;
+    font-size: 10px; color: var(--muted); max-width: 100%;
   }
   .chip .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .chip .c { padding: 0 6px; border-radius: 999px; background: #2c3441; color: var(--text); font-size: 10px; font-weight: 600; }
@@ -822,10 +841,10 @@ function renderPage() {
   #alerts { overflow-y: auto; display: flex; flex-direction: column; gap: 7px; }
   .alert { padding: 7px 9px; border-radius: 7px; background: rgba(255,107,99,.07); border-left: 2px solid rgba(255,107,99,.55); }
   .alert .t { font-size: 10px; color: var(--dim); }
-  .alert .m { font-size: 11.5px; color: #ffc0bb; word-break: break-word; }
+  .alert .m { font-size: 11px; color: #ffc0bb; word-break: break-word; }
   .alert.bot { background: rgba(255,107,99,.12); border-left-color: var(--red); }
-  .alert .src { font-size: 9.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--dim); }
-  .none { font-size: 11.5px; color: var(--dim); font-style: italic; }
+  .alert .src { font-size: 10px; letter-spacing: .09em; text-transform: uppercase; color: var(--dim); }
+  .none { font-size: 11px; color: var(--dim); font-style: italic; }
 
   footer { padding: 0 22px 28px; font-size: 11px; color: var(--dim); }
   footer code { color: var(--muted); }
@@ -901,6 +920,10 @@ function renderPage() {
     }
     return t.state;
   }
+  // Shared by both HP and FD bars — same 0-20 scale, same thresholds. FD used
+  // to render a constant blue-grey regardless of value, so a bot starving at
+  // 2 food looked exactly like one sitting at a full 20: a real gap against
+  // the green/amber/red mandate, not just a missed lick of paint.
   function healthColor(v) {
     if (v == null) return '#3a4150';
     if (v <= 6) return '#ff6b63';
@@ -955,13 +978,14 @@ function renderPage() {
       return { fill: fill, num: num, color: color };
     }
     var hp = vital('HP', healthColor);
-    var fd = vital('FD', function (v) { return v == null ? '#3a4150' : '#8fa8d8'; });
+    var fd = vital('FD', healthColor);
 
     var task = el('div', 'task');
     var thead = el('div', 'head');
     var tkind = el('span', 'kind');
     var tstate = el('span', 'state');
-    thead.appendChild(tkind); thead.appendChild(tstate);
+    var tsrc = el('span', 'src');
+    thead.appendChild(tkind); thead.appendChild(tstate); thead.appendChild(tsrc);
     var tdetail = el('div', 'detail');
     task.appendChild(thead); task.appendChild(tdetail);
 
@@ -998,7 +1022,7 @@ function renderPage() {
 
     return { root: c, dot: dot, name: name, port: port, age: age, pos: pos,
       d30v: d30v, d60v: d60v,
-      hp: hp, fd: fd, task: task, tkind: tkind, tstate: tstate, tdetail: tdetail,
+      hp: hp, fd: fd, task: task, tkind: tkind, tstate: tstate, tsrc: tsrc, tdetail: tdetail,
       errBox: errBox, deaths: deaths, lastDeath: lastDeath, guard: guard, engine: engine,
       inv: inv, invSig: null,
       wake: wake, stop: stop, flash: flash };
@@ -1076,6 +1100,16 @@ function renderPage() {
       setText(c.tkind, t.kind);
       setText(c.tstate, t.state || '');
       setCls(c.tstate, 'state ' + (t.state || ''));
+      // Origin tag — who commanded this task (issue #6 arbitration: was this
+      // the panel's own WAKE, the runner's idle-guard filler, the panic
+      // reflex, or a driver that self-identified). "http" is the sanitizer's
+      // fallback for a plain caller that didn't say who it was — the common
+      // case today since most drivers don't tag themselves yet — so it's
+      // deliberately not shown: a chip that reads the same thing on every
+      // card forever is noise, not information.
+      var src = t.source;
+      c.tsrc.hidden = !src || src === 'http';
+      if (!c.tsrc.hidden) setText(c.tsrc, 'via ' + src);
       var det = t.detail || (t.result && t.result.error) || '';
       setText(c.tdetail, det);
       c.tdetail.hidden = !det;
@@ -1084,6 +1118,7 @@ function renderPage() {
       setText(c.tkind, bot.offline ? 'no data' : 'no task');
       setText(c.tstate, '');
       setCls(c.tstate, 'state');
+      c.tsrc.hidden = true;
       setText(c.tdetail, bot.offline ? '' : 'runner idle since start');
       c.tdetail.hidden = bot.offline;
     }
