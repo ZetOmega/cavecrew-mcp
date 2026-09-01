@@ -14,7 +14,8 @@ executes it top-down at its own pace. Delete when R2 complete.
   safePlaceBlock verify-retry, panel v1.1 deltas, ghwatch daemon.
 - All 9 runners stopped (8 fleet + TestRock). Overseer + scoreboard daemons
   stopped (scoreboard chat-scrape is obsolete post-DEPOT-de-chat anyway).
-  Panel (:3200) + ghwatch still running — observability stays.
+  Panel (:3200) still running — observability stays. (ghwatch retired
+  2026-09-01 by chief order; repo checks happen on orchestrator ticks.)
 - Bots' logout positions: SIX trapped in pocket y81-86 under camp (Bonk, Thak,
   Ook, Durk, Mog, Zug). Grog y90 surface, UngaBunga y95 surface.
 - Drivers: 8 solo drivers retired (shutdown sent). 4 paired drivers spawned

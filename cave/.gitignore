@@ -3,6 +3,4 @@ pids/
 local.json
 scoreboard-state.json
 deaths-*.json
-ghwatch-state.json
-ghwatch.pid
 alerts.log
