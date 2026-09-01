@@ -10,12 +10,11 @@ lease if ANY slot non-empty.
 | id | coords | status | access |
 |----|--------|--------|--------|
 | table_1 | (12,89,56) | built | shared |
-| chest_a_materials | (9,89,55) | DESTROYED (Bonk, 2026-09-01) — dug it by accident running a blind "clear ceiling above me" loop while escaping an underground pocket, didn't check block name before digging, no drop recovered (contents unknown, likely lost). Needs rebuild + contents audit. Driver error, not an engine bug — lesson: always read block.name before any dig near known furniture coords. | cavecrew |
+| chest_a_materials | (11,89,55) | built — CANONICAL depot (truth fix 2026-09-01: the "duplicate" here was the live account all along — every code constant (skills DEPOT_POS, runner IDLE_GUARD_DEPOT_POS, bench CHEST_A) and all session deposits point here; the (9,89,55) rebuild was destroyed by Bonk mid-escape (blind ceiling-dig, no drop, contents were the post-incident restock). Hole at (9,88-89,55) → terrain-heal/plaza fill. Lesson: block.name check before EVERY dig near furniture. | cavecrew |
 | chest_b_tools | (12,90,54) | built | cavecrew |
 | furnace_1 | (11,89,57) | planned (rebuild — destroyed w/ shelter) | shared-lease |
 | trading_post | (6-8,112,22) | built | inter-tribe (TRADE.md) |
 | storage_house | (~x13-21,z53-59) | BUILT + verified 2026-09-01 (Mine House: walls, 4 pillars, window, door, sealed floor, stone roof 63/63, log rim 36, 4 lamp-posts; chests C+D inside; console sign (18,90,60) facing south, waxed) | cavecrew |
-| chest_a_duplicate | (11,89,55) | ANOMALY — second live chest answering as "chest A" (original spot); real chest A = (9,89,55). Merge contents into (9,89,55) chore, then remove this row | cavecrew |
 | path_camp_post | door(11,90,58)→(7,112,23) | planned (Bonk, stepped) | shared |
 | farm_1 | (x8-11,z58-59,y88) | planned (Zug, 8 tiles + water hole) | cavecrew |
 | mine_main | entrance (15,89,57) | planned (grand staircase → y54) | cavecrew |

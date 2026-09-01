@@ -760,3 +760,11 @@ false-success bugs — worth checking if there's a per-block-position retry
 cooldown or listener dedup keyed on coordinates that can wedge itself against
 one specific (x,y,z) after enough failed attempts land on it, independent of
 which bot/ref/face is used.
+
+## 2026-09-01 orchestrator self-report: force-fire before arrival (self-two-commanders)
+Rescue staircase task-2 on Grog "done" in 1ms. NOT a bug: dig-law refusal, working as designed.
+Two orchestrator errors stacked: (1) /staircase force:true fired while own /goto (task-1) still
+running — force cancelled the positioning, bot never reached launch cell; (2) actual stand cell
+z55 is outside rescue_ramp zone z56-58, columnEntersDigZone correctly said no.
+LAW (now in REBUILD.md R1): goto → verify arrival via fresh /status position → THEN dig task.
+force:true is for replacing a WRONG task, never for skipping the wait on your own right one.
