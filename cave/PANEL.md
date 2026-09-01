@@ -109,7 +109,12 @@ blinks green on each successful poll.
 - rounded `xyz`, task age (best-effort)
 - movement deltas, `Δ30s 12.3 | Δ60s 25.1` (see below)
 - health and food as 0-20 bars; health goes amber under 12, red under 6
-- current task kind, state, and detail
+- current task kind, state, and detail — when the task's `kind` is
+  `panic-response` (the runner's own low-health flee/seal reflex taking over,
+  see `runner.js`'s `triggerPanic`), the whole card and task box flag red,
+  overriding the idle/err border colours. Rarest state a card can be in and
+  the one most worth a glance across the room. Persists until the next task
+  replaces `currentTask`, same STATUS-HOLD rule `lastError` already follows.
 - `deathCount`, last death age (`(3m ago)`, hidden when there is none), the
   runner's `idleGuard` state (`guard on`/muted, `guard off`/amber — off is
   normal while a driver actively drives, see issue #6; older runners without

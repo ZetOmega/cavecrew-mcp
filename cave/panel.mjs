@@ -737,6 +737,15 @@ function renderPage() {
   .card.idle { border-color: rgba(242,176,53,.42); border-left-color: var(--amber); }
   .card.offline { opacity: .55; }
   .card.err { border-left-color: var(--red); }
+  /* PANIC — the runner's own low-health flee/seal reflex (kind
+     "panic-response") took over. Rarest, most urgent state a card can be in,
+     so it outranks idle/err for the border and gets a visible glow: this is
+     the one thing that must survive a from-across-the-room glance. Persists
+     until the next task replaces currentTask, same STATUS-HOLD rule as
+     lastError. */
+  .card.panic { border-color: rgba(255,107,99,.6); border-left-color: var(--red); box-shadow: 0 0 0 1px rgba(255,107,99,.25); }
+  .task.panic { background: rgba(255,107,99,.12); }
+  .task.panic .kind { color: var(--red); }
 
   .row1 { display: flex; align-items: center; gap: 8px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); flex: none; }
@@ -1023,7 +1032,13 @@ function renderPage() {
     var c = cards[key] || (cards[key] = build(bot));
 
     var idle = !bot.offline && bot.idle;
-    var cls = 'card' + (bot.offline ? ' offline' : '') + (idle ? ' idle' : '') + (bot.lastError ? ' err' : '');
+    // panic-response is the runner's own low-health flee/seal reflex taking
+    // the wheel — rarest and most urgent state a card can be in, so it gets
+    // its own flag on top of (not instead of) idle/err, and CSS gives it
+    // priority for the border colour. Persists until the next task replaces
+    // currentTask, same STATUS-HOLD rule lastError already follows.
+    var isPanic = !!(bot.currentTask && bot.currentTask.kind === 'panic-response');
+    var cls = 'card' + (bot.offline ? ' offline' : '') + (idle ? ' idle' : '') + (bot.lastError ? ' err' : '') + (isPanic ? ' panic' : '');
     setCls(c.root, cls);
 
     // Three real states, three colours: offline (runner unreachable, grey),
@@ -1055,6 +1070,7 @@ function renderPage() {
     vit(c.fd, bot.food);
 
     var t = bot.currentTask;
+    setCls(c.task, 'task' + (isPanic ? ' panic' : ''));
     if (t) {
       c.task.hidden = false;
       setText(c.tkind, t.kind);
