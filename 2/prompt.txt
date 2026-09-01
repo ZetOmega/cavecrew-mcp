@@ -1,0 +1,224 @@
+<task-notification>
+<task-id>bwj9dhnla</task-id>
+<summary>Monitor event: "watching Grog's coal mine task progress"</summary>
+<event>poll 1: state=running mining coal_ore 0/24 health=20
+CHANGE: running mining coal_ore 0/24</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bwj9dhnla</task-id>
+<summary>Monitor event: "watching Grog's coal mine task progress"</summary>
+<event>poll 2: state=running mining coal_ore 0/24 health=20</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bwj9dhnla</task-id>
+<summary>Monitor event: "watching Grog's coal mine task progress"</summary>
+<event>poll 3: state=running mining coal_ore 0/24 health=20</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bwj9dhnla</task-id>
+<summary>Monitor event: "watching Grog's coal mine task progress"</summary>
+<event>poll 4: state=running mining coal_ore 0/24 health=20</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bwj9dhnla</task-id>
+<summary>Monitor event: "watching Grog's coal mine task progress"</summary>
+<event>poll 5: state=running mining coal_ore 0/24 health=20</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bwj9dhnla</task-id>
+<summary>Monitor event: "watching Grog's coal mine task progress"</summary>
+<event>poll 6: state=running mining coal_ore 0/24 health=20</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bvt06w1wf</task-id>
+<summary>Monitor event: "watching Grog's coal collect sweep"</summary>
+<event>poll 1: state=running None coal=3</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bvt06w1wf</task-id>
+<summary>Monitor event: "watching Grog's coal collect sweep"</summary>
+<event>poll 2: state=running None coal=3</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bvt06w1wf</task-id>
+<summary>Monitor event: "watching Grog's coal collect sweep"</summary>
+<event>poll 3: state=running None coal=3</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bvt06w1wf</task-id>
+<summary>Monitor event: "watching Grog's coal collect sweep"</summary>
+<event>poll 4: state=running None coal=3</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bvt06w1wf</task-id>
+<summary>Monitor event: "watching Grog's coal collect sweep"</summary>
+<event>poll 5: state=running None coal=3</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bvt06w1wf</task-id>
+<summary>Monitor event: "watching Grog's coal collect sweep"</summary>
+<event>poll 6: state=running None coal=3</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bvt06w1wf</task-id>
+<summary>Monitor event: "watching Grog's coal collect sweep"</summary>
+<event>poll 7: state=running None coal=3</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bxpqhecid</task-id>
+<summary>Monitor event: "watching for Grog unwedge after restart"</summary>
+<event>poll 1: connected=True pos=24.30,89.00,64.30</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bxpqhecid</task-id>
+<summary>Monitor event: "watching for Grog unwedge after restart"</summary>
+<event>poll 2: connected=True pos=24.30,89.00,64.30</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bxpqhecid</task-id>
+<summary>Monitor event: "watching for Grog unwedge after restart"</summary>
+<event>poll 3: connected=True pos=24.67,89.00,64.52
+MOVED: 24.30,89.00,64.30 -&gt; 24.67,89.00,64.52, likely unwedged</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>blsmx5vcr</task-id>
+<summary>Monitor event: "watching goto reach coal vein pit"</summary>
+<event>poll 1: state=running detail=None pos=24.30,89.00,64.70</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>blsmx5vcr</task-id>
+<summary>Monitor event: "watching goto reach coal vein pit"</summary>
+<event>poll 2: state=running detail=None pos=24.30,89.00,64.70</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>blsmx5vcr</task-id>
+<summary>Monitor event: "watching goto reach coal vein pit"</summary>
+<event>poll 3: state=running detail=None pos=24.30,89.00,64.70</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>by69aqd90</task-id>
+<summary>Monitor event: "watching goto distance-to-target trend for coal vein pit"</summary>
+<event>poll 1: state=running pos=24.50,89.00,64.70 dist=3.86</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>by69aqd90</task-id>
+<summary>Monitor event: "watching goto distance-to-target trend for coal vein pit"</summary>
+<event>poll 2: state=running pos=24.50,89.00,64.70 dist=3.86</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bf0rf8ufu</task-id>
+<summary>Monitor event: "watching collect sweep for 2 fresh coal drops"</summary>
+<event>poll 1: state=running detail=None coal=3</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bf0rf8ufu</task-id>
+<summary>Monitor event: "watching collect sweep for 2 fresh coal drops"</summary>
+<event>poll 2: state=running detail=None coal=3</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bf0rf8ufu</task-id>
+<summary>Monitor event: "watching collect sweep for 2 fresh coal drops"</summary>
+<event>poll 3: state=running detail=None coal=3</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b1ho41g18</task-id>
+<summary>Monitor event: "watching goto to Mine House door"</summary>
+<event>poll 3: state=running pos=12.70,89.88,55.50</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
