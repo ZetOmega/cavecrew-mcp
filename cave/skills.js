@@ -2313,48 +2313,6 @@ function isSolidGround(b) {
   return !!b && b.name !== 'air' && b.name !== 'water' && b.name !== 'lava';
 }
 
-// Returns true when a body cell is safe to walk a staircase through: already
-// open (air, or unloaded/unknown — treated as passable, same optimistic
-// assumption the dig loop below already makes) or diggable rock.
-function isDiggableOrAir(b) {
-  return !b || b.name === 'air' || !!b.diggable;
-}
-
-// Checks the next 3 cells stepping outward along `heading` from `startPos`
-// at the CURRENT y-level (no descent yet — this is a horizontal viability
-// check): floor must be solid ground, and both body cells (feet/head) must
-// be diggable or already air.
-function headingIsViable(bot, startPos, heading) {
-  for (let i = 1; i <= 3; i++) {
-    const floor = bot.blockAt(startPos.offset(heading.x * i, -1, heading.z * i));
-    const feet = bot.blockAt(startPos.offset(heading.x * i, 0, heading.z * i));
-    const head = bot.blockAt(startPos.offset(heading.x * i, 1, heading.z * i));
-    if (!isSolidGround(floor)) return false;
-    if (!isDiggableOrAir(feet) || !isDiggableOrAir(head)) return false;
-  }
-  return true;
-}
-
-// (INTERIOR-START GUARD) — starting inside a room (walls, door thresholds,
-// mixed floor) can point the requested/default heading straight into a
-// wall: the main loop below would then just re-dig the same blocked step
-// forever with 0 net descent. Scan the 4 cardinal headings (the requested
-// opts.direction first, if any, so an explicit request is still honored
-// when it's actually usable) and return the first one that's viable per
-// headingIsViable. Throws instead of ever silently grinding in place.
-function findViableHeading(bot, opts) {
-  const startPos = bot.entity.position.floored();
-  const requested = opts.direction ? resolveDirection(opts) : null;
-  const others = Object.keys(CARDINALS)
-    .filter((name) => !requested || name !== requested.name)
-    .map((name) => ({ name, ...CARDINALS[name] }));
-  const order = requested ? [requested, ...others] : others;
-  for (const heading of order) {
-    if (headingIsViable(bot, startPos, heading)) return heading;
-  }
-  throw new Error('staircase: no viable heading from start (interior geometry) — start from open ground');
-}
-
 // (VOID-AHEAD GUARD) — natural cave floors and cliff edges can leave the
 // block under the NEXT tread as air/liquid. Called before the dig loop
 // touches anything, while frontFeet (the tread's usual vertical reference)
@@ -2438,10 +2396,34 @@ function isInStepCell(bot, stepPos) {
 async function advanceIntoStep(bot, stepPos, ctx) {
   const steppingUp = stepPos.y > Math.floor(bot.entity.position.y);
   const deadline = Date.now() + 4000;
+  // (RUNAWAY-FALL GUARD v2 — field death round 1, field near-death round 2)
+  // startY is THIS CALL's own baseline, not stepPos.y. Round 2 field trace:
+  // a prior step timed out (4s elapsed, isInStepCell never true) WITHOUT
+  // ever tripping a stepPos-relative bail, because it never fell more than
+  // 1.5 below ITS OWN target before the deadline — it was sinking slowly,
+  // gaining downward velocity the whole time. The very next step then began
+  // already-falling-fast and blew from -1.5-below-target to -6.6-below in
+  // one detection window. Anchoring the bail to where THIS call started
+  // (one block of legitimate step-down is never more than ~1.5 below
+  // wherever the bot stood when the call began) catches that compounding
+  // case immediately instead of measuring against a target that a fast
+  // fall can leapfrog past between checks.
+  const startY = bot.entity.position.y;
+  const fallFloor = Math.min(stepPos.y, startY) - 1.5;
+  function fellThrough() {
+    return bot.entity.position.y < fallFloor;
+  }
   try {
     while (Date.now() < deadline) {
       if (isInStepCell(bot, stepPos)) return true;
       if (ctx.isCancelled?.()) return isInStepCell(bot, stepPos);
+      if (fellThrough()) {
+        ctx.log?.(
+          'warn',
+          `advanceIntoStep: runaway fall detected below ${posKey(stepPos)} (call started y=${startY.toFixed(2)}, now y=${bot.entity.position.y.toFixed(2)}) — aborting pulse immediately`
+        );
+        return false;
+      }
       const target = new Vec3(stepPos.x + 0.5, bot.entity.position.y + 1.62, stepPos.z + 0.5);
       try {
         await bot.lookAt(target, true);
@@ -2450,9 +2432,24 @@ async function advanceIntoStep(bot, stepPos, ctx) {
       }
       bot.setControlState('forward', true);
       if (steppingUp) bot.setControlState('jump', true);
-      await sleep(250 + Math.floor(Math.random() * 100));
+      // Pulse in short sub-bursts (~90ms) with a fall check between each,
+      // instead of one uninterrupted 250-350ms burst — once actually
+      // falling, terminal velocity climbs fast and a single wide sleep can
+      // cover several blocks before the next check ever runs. Total pulse
+      // length is unchanged (~270-360ms across 3 sub-bursts).
+      for (let sub = 0; sub < 3; sub++) {
+        await sleep(90 + Math.floor(Math.random() * 30));
+        if (fellThrough()) break;
+      }
       bot.setControlState('forward', false);
       if (steppingUp) bot.setControlState('jump', false);
+      if (fellThrough()) {
+        ctx.log?.(
+          'warn',
+          `advanceIntoStep: runaway fall detected below ${posKey(stepPos)} (call started y=${startY.toFixed(2)}, now y=${bot.entity.position.y.toFixed(2)}) — aborting pulse immediately`
+        );
+        return false;
+      }
     }
   } finally {
     try {
@@ -2465,136 +2462,316 @@ async function advanceIntoStep(bot, stepPos, ctx) {
   return isInStepCell(bot, stepPos);
 }
 
-// buildStaircase({toY, direction?}) — sealed 1x2 staircase from current pos
-// down to toY. Never digs straight down: each step digs the 2-high walkway
-// forward (frontHead = front at current feet-y, frontFeet = front at
-// feet-y-1) and only ever CHECKS the block below that (newFloor) for a
-// liquid/air exposure to seal — it is never dug. Aborts + seals on lava
-// sight. Torches every 8 steps if torches are available/craftable. Picks
-// its heading via findViableHeading (interior-start guard) and, per step,
-// fixes a void/liquid tread via ensureTreadFoundation (void-ahead guard)
-// before ever digging onward.
+// buildStaircase({toY, direction?}) — PURE-DIG RELATIVE TUNNEL MACHINE.
+//
+// (REWRITE — eight straight field failures killed the old design) The old
+// buildStaircase re-derived its target cells from the world every step
+// (blockAt() lookups to pick "the viable heading", to decide what counts as
+// a floor) — it terrain-followed and goal-sought (a pathfinder GoalNear
+// backup on every failed advance). Last field trace: it computed a step
+// THREE Y-LEVELS below the bot mid-run. Terrain-following + goal-seeking
+// are exactly the failure mode: the moment blockAt() near an unloaded chunk
+// edge or a weird cave void returns something unexpected, the old logic
+// "corrects" toward that bad read instead of just continuing the tunnel.
+//
+// This version copies the bot's own hand-proven manual descent instead: one
+// heading, chosen ONCE, dug forever. Every cell touched this step is a
+// FIXED relative offset from cur = bot.entity.position.floored() — never a
+// stored/predicted position, never a terrain scan. The machine does not
+// look at the world to decide WHERE to go, only to decide what to dig and
+// whether the floor needs a tread. It digs its own reality forward one cell
+// at a time and trusts nothing else.
+//
+// Per step: dig the 3-cell walk-through column ahead (head/feet/lower, top
+// to bottom so a falling gravel/sand block can't re-bury a cleared cell),
+// foundation the new floor if it's air/liquid (ensureTreadFoundation — void-
+// ahead guard, throws a clear error if out of cobble/dirt), then walk
+// forward with the field-proven pulse-and-verify technique (advanceIntoStep
+// above) — no pathfinder fallback, ever. A step counts (steps++) only once
+// the landing is REAL-POSITION verified. Lava sighted anywhere in the step's
+// cells seals it and aborts loud. 20 loop iterations in a row with no
+// verified landing is the one hard safety abort (watchdog is now trivial:
+// steps IS landings, so any stall shows up directly as stuck iterations).
+// recoverFromCaughtFall — the runaway-fall guards above stop a plunge fast
+// (round 2 field trace: a 5-block dip caught with zero HP lost, vs. the
+// round 1 death before those guards existed), but a hard-abort on every
+// single caught dip means the run never gets past the first natural cave
+// breach in genuinely broken terrain — this test area is full of them. If
+// the bot is actually fine (health checked, standing on real solid ground,
+// not still mid-fall), let the run continue from its new position instead
+// of throwing; only when it's NOT fine (still airborne, or hurt enough that
+// checkHealthRetreat wants to intervene) does the caller still throw loud.
+// Never masks an unsafe state — it only turns a SAFE caught dip into a
+// resume instead of a full-run abort.
+async function recoverFromCaughtFall(bot, ctx, stepStart) {
+  await sleep(400); // let physics settle after the guard cut 'forward'
+  const before = bot.health;
+  try {
+    await checkHealthRetreat(bot, ctx); // throws/retreats on its own thresholds if health is bad
+  } catch (err) {
+    ctx.log?.('warn', `recoverFromCaughtFall: checkHealthRetreat intervened (${err.message}) — not safe to resume`);
+    return false;
+  }
+  const feetBlock = bot.blockAt(bot.entity.position.offset(0, -1, 0));
+  const grounded = isSolidGround(feetBlock);
+  const dropped = stepStart.y - bot.entity.position.y;
+  if (!grounded) {
+    ctx.log?.(
+      'warn',
+      `recoverFromCaughtFall: not standing on solid ground at ${posKey(bot.entity.position.floored())} — not safe to resume`
+    );
+    return false;
+  }
+  ctx.log?.(
+    'warn',
+    `recoverFromCaughtFall: caught a ${dropped.toFixed(1)}y dip near ${posKey(stepStart)}, now standing safely at ${posKey(bot.entity.position.floored())} (health ${before}->${bot.health}) — resuming staircase from here`
+  );
+  return true;
+}
+
 export async function buildStaircase(bot, opts = {}, ctx = {}) {
   const toY = opts.toY;
   if (typeof toY !== 'number') throw new Error('buildStaircase: "toY" is required');
-  const dir = findViableHeading(bot, opts);
+  // FIXED HEADING — chosen ONCE, right here, from opts.direction or an east
+  // default. NEVER recomputed from terrain for the rest of the run.
+  const dir = opts.direction ? resolveDirection(opts) : { name: 'east', ...CARDINALS.east };
   const from = toPlainPos(bot.entity.position);
-  const startY = bot.entity.position.y;
-  if (toY >= startY) {
-    return { from, to: from, steps: 0, torches: 0, reason: 'already at or above toY' };
+  if (bot.entity.position.y <= toY) {
+    return { from, to: from, steps: 0, torches: 0, headings: 1, reason: 'already at or below toY' };
   }
 
-  const maxSteps = Math.ceil(startY - toY) * 2 + 30;
-  let steps = 0;
+  const maxSteps = 120;
+  let steps = 0; // counts ONLY verified landings (point 5 of the design)
   let torchesPlaced = 0;
-
-  // (4) NET-DESCENT WATCHDOG — every 10 step-attempts, check the NET y-drop
-  // over that window. Real stepped excavation (dig the 2-high step, move
-  // onto it, repeat — already what the loop body below does) should easily
-  // clear 2y per 10 steps; less than that means something is dig-and-not-
-  // actually-descending (a blocked step-forward that keeps re-triggering the
-  // same dig, a sealed pocket, etc.) and grinding on is just burning pickaxe
-  // durability in place — field-fatal: 96 in-place steps burned a pickaxe
-  // with zero real progress. Abort loudly instead of continuing to grind.
-  let windowStartY = bot.entity.position.y;
-  let windowStartStep = 0;
+  let staleIterations = 0; // loop passes since the last verified landing
+  let lastFailureDetail = null;
+  // (MACRO DRIFT TRIPWIRE) — advanceIntoStep's own guard bails a single
+  // call fast, but `cur` is re-read fresh every outer-loop pass, so a slow
+  // multi-iteration sink (each single pass only a little worse than the
+  // last, never tripping that pass's own 1.5-block check) would otherwise
+  // never show up: every new `cur` just re-baselines to wherever the bot
+  // already drifted to. lastVerifiedY anchors to the last CONFIRMED landing
+  // instead and is never silently re-based, so any accumulated drop below
+  // it — however it happened — throws instead of quietly continuing.
+  let lastVerifiedY = bot.entity.position.y;
 
   while (bot.entity.position.y > toY && steps < maxSteps) {
     if (ctx.isCancelled?.()) break;
     await checkHealthRetreat(bot, ctx);
-    steps++;
-    ctx.setDetail?.(`buildStaircase: step ${steps}, y=${Math.floor(bot.entity.position.y)} -> ${toY}`);
-
-    if (steps - windowStartStep >= 10) {
-      const netDrop = windowStartY - bot.entity.position.y;
-      if (netDrop < 2) {
-        throw new Error(
-          `buildStaircase: net-descent watchdog — only ${netDrop.toFixed(2)}y net drop over steps ${windowStartStep + 1}-${steps - 1} (aborting before more tool durability is burned in place)`
-        );
-      }
-      windowStartY = bot.entity.position.y;
-      windowStartStep = steps;
+    if (bot.entity.position.y < lastVerifiedY - 3) {
+      throw new Error(
+        `buildStaircase: drifted to ${posKey(bot.entity.position.floored())}, ${(lastVerifiedY - bot.entity.position.y).toFixed(1)}y below the last verified landing (y=${lastVerifiedY.toFixed(1)}) without a counted step in between — likely an uncaught fall in progress, aborting`
+      );
     }
 
-    const pos = bot.entity.position.floored();
-    const frontHead = pos.offset(dir.x, 0, dir.z);
-    const frontFeet = pos.offset(dir.x, -1, dir.z);
-    const newFloor = pos.offset(dir.x, -2, dir.z);
-    ctx.setTargetPos?.(frontFeet);
+    // (SAFETY WATCHDOG) — the only hard abort left. A verified landing
+    // always makes real descent progress, so 20 iterations with none is a
+    // genuine stall, not slow progress.
+    if (staleIterations >= 20) {
+      throw new Error(
+        `buildStaircase: safety abort — 20 loop iterations with no verified landing, stuck near ${posKey(bot.entity.position.floored())} (heading ${dir.name})` +
+          (lastFailureDetail ? `; last failure: ${lastFailureDetail}` : '')
+      );
+    }
 
-    const watchCells = [frontHead, frontFeet, newFloor, frontHead.offset(0, 1, 0)];
-    const lavaNearby = watchCells.some((p) => bot.blockAt(p)?.name === 'lava');
-    if (lavaNearby) {
-      await sealStairCell(bot, newFloor, ctx).catch(() => {});
-      ctx.log?.('warn', `buildStaircase: lava spotted near ${posKey(frontFeet)} — aborting for safety`);
+    // (UNGROUNDED-START GUARD) — field trace round 1: a caught fall left
+    // over from a prior run (stopped before this guard existed) can park
+    // the bot on a corner perch — air directly under its OWN reported feet
+    // cell, held up only by an adjacent block's overlap (confirmed via
+    // /eval block probe: dripstone cave, floor at cur.x-1 solid, cur.x
+    // itself air). Computing this pass's dig/tread cells from that cur is
+    // building on sand — every one of them inherits the same false floor.
+    // Nudge sideways onto a real solid neighbor first; only if none exists
+    // does this abort (loud, not a silent 20-iteration stall-out).
+    {
+      const groundCur = bot.entity.position.floored();
+      if (!isSolidGround(bot.blockAt(groundCur.offset(0, -1, 0)))) {
+        const neighborOffsets = [
+          [-1, 0],
+          [1, 0],
+          [0, -1],
+          [0, 1],
+        ];
+        let recovered = false;
+        for (const [ndx, ndz] of neighborOffsets) {
+          const npos = groundCur.offset(ndx, 0, ndz);
+          if (isSolidGround(bot.blockAt(npos.offset(0, -1, 0)))) {
+            ctx.log?.(
+              'warn',
+              `buildStaircase: not grounded at ${posKey(groundCur)} — nudging onto solid neighbor ${posKey(npos)}`
+            );
+            await advanceIntoStep(bot, npos, ctx).catch(() => {});
+            // Don't trust advanceIntoStep's own return value here — a bot
+            // straddling the boundary between two columns can satisfy its
+            // isInStepCell tolerance for BOTH cells at once and report
+            // "arrived" without ever actually moving (field trace: 20
+            // identical-timestamp log lines in <2ms, a true zero-progress
+            // spin). Verify real footing directly instead.
+            if (isSolidGround(bot.blockAt(bot.entity.position.floored().offset(0, -1, 0)))) {
+              recovered = true;
+              break;
+            }
+          }
+        }
+        if (!recovered) {
+          // Last resort before aborting: let physics settle. Field trace
+          // (round 1, between rounds) showed an idle bot on this exact kind
+          // of corner perch quietly drop the 1 block onto real ground on
+          // its own within seconds once nothing was holding 'forward'.
+          await sleep(600);
+          recovered = isSolidGround(bot.blockAt(bot.entity.position.floored().offset(0, -1, 0)));
+        }
+        if (!recovered) {
+          throw new Error(
+            `buildStaircase: not grounded at ${posKey(groundCur)}, no adjacent solid neighbor, and physics settle didn't fix it — aborting rather than digging from an unstable perch`
+          );
+        }
+        staleIterations++;
+        continue; // re-read a fresh cur next pass now that footing is real
+      }
+    }
+
+    // (1) STEP CELL — every cell below is a fixed offset from the bot's OWN
+    // current floored position, recomputed fresh every pass. Never stored,
+    // never predicted, never pulled from a terrain scan.
+    const cur = bot.entity.position.floored();
+    const targetFeet = cur.offset(dir.x, -1, dir.z); // where the bot lands this step
+    const aheadHead = cur.offset(dir.x, 1, dir.z); // walk-through: head height ahead
+    const aheadFeet = cur.offset(dir.x, 0, dir.z); // walk-through: current feet height ahead
+    const aheadLower = targetFeet; // walk-through: new feet cell itself
+    const newFloor = cur.offset(dir.x, -2, dir.z); // floor UNDER the new feet cell
+    ctx.setTargetPos?.(targetFeet);
+    ctx.setDetail?.(
+      `buildStaircase: step ${steps + 1}/${maxSteps}, y=${Math.floor(bot.entity.position.y)} -> ${toY}, heading ${dir.name}`
+    );
+
+    // (4) LAVA CHECK (existing pattern) — scan every cell this step touches
+    // BEFORE digging any of them. Sight of lava seals the exposed cell and
+    // aborts loud rather than digging into it.
+    const watchCells = [aheadHead, aheadFeet, aheadLower, newFloor];
+    const lavaCell = watchCells.find((p) => bot.blockAt(p)?.name === 'lava');
+    if (lavaCell) {
+      await sealStairCell(bot, lavaCell, ctx).catch(() => {});
+      ctx.log?.('warn', `buildStaircase: lava spotted at ${posKey(lavaCell)} — aborting for safety`);
       break;
     }
 
-    const sideOffsets = [
-      [1, 0, 0],
-      [-1, 0, 0],
-      [0, 0, 1],
-      [0, 0, -1],
-    ];
-
-    // (VOID-AHEAD GUARD) — fix the next tread and any side-gap air at body
-    // height BEFORE digging/stepping. Must run before the dig loop below:
-    // frontFeet is still solid here, giving ensureTreadFoundation a real
-    // vertical reference to build the tread against.
-    const treadOk = await ensureTreadFoundation(bot, newFloor, ctx);
-    if (!treadOk) {
-      ctx.log?.('warn', `buildStaircase: no solid neighbor to place a tread at ${posKey(newFloor)} yet — proceeding, watchdog will catch a real stall`);
+    // (PICKAXE-BREAKAGE GUARD — field trace round 2) buildStaircase never
+    // called ensureTool up front and never checks durability mid-run; a
+    // stone_pickaxe genuinely broke after ~60+ blocks (stone, ores,
+    // deepslate) mined over both rounds. With no pickaxe, safeDig below
+    // just goes bare-handed and silently times out over and over (deepslate
+    // bare-handed is effectively unbreakable in the 10s dig timeout) —
+    // 20 identical 10-40s timeouts before the watchdog even fires, with no
+    // indication WHY. Detect the missing pickaxe once per step instead and
+    // try a local craft (no depot detour — craftToolChain crafts from
+    // whatever's already carried); if that also can't succeed (no wood down
+    // here to bootstrap a wooden tier), fail fast and clearly rather than
+    // grinding out the full stale-iteration budget on a doomed bare-hand dig.
+    // (simplified from an earlier b.material==='rock' check that silently
+    // never matched — this minecraft-data version doesn't tag deepslate
+    // with the material this file expected, so the guard never fired and
+    // the original bare-hand-timeout loop went right on happening. Just
+    // check for ANY diggable block in the walkthrough instead: harmless
+    // when a pickaxe is already held (the craft chain is skipped inside
+    // craftToolChain itself via its own hasAnyPickaxe check).
+    const needsPickaxe = [aheadHead, aheadFeet, aheadLower].some((p) => {
+      const b = bot.blockAt(p);
+      return b && b.diggable && b.name !== 'air';
+    });
+    if (needsPickaxe && !bot.inventory.items().some((it) => /_pickaxe$/.test(it.name))) {
+      ctx.log?.('warn', 'buildStaircase: no pickaxe in inventory (broke?) — attempting a local craft before digging further');
+      try {
+        await craftToolChain(bot, 'pickaxe', ctx);
+      } catch (err) {
+        throw new Error(`buildStaircase: pickaxe is gone and a local craft failed (${err.message}) — aborting rather than grinding bare-handed`);
+      }
+      if (!bot.inventory.items().some((it) => /_pickaxe$/.test(it.name))) {
+        throw new Error('buildStaircase: pickaxe is gone and the craft chain finished without producing one — aborting rather than grinding bare-handed');
+      }
     }
-    for (const [dx, dy, dz] of sideOffsets) {
-      const side = frontFeet.offset(dx, dy, dz);
-      if (side.x === frontHead.x && side.z === frontHead.z) continue;
-      await sealStairCell(bot, side, ctx);
-    }
 
-    for (const digPos of [frontHead, frontFeet]) {
+    // (2) DIG — the 3-cell walk-through column, top to bottom.
+    for (const digPos of [aheadHead, aheadFeet, aheadLower]) {
       const b = bot.blockAt(digPos);
       if (b && b.diggable && b.name !== 'air') {
         try {
           await bot.tool.equipForBlock(b, { requireHarvest: false });
         } catch {
-          // ignore
+          // ignore — dig bare-handed rather than fail the step over a tool swap
         }
+        // reach-guard is safeDig's own ensureWithinReach; these cells are
+        // always <=2 blocks from the bot so it's a no-op check, not a walk.
         await safeDig(bot, b, ctx).catch((err) => {
           ctx.log?.('warn', `buildStaircase: dig failed at ${posKey(digPos)}: ${err.message}`);
         });
       }
     }
 
-    // Seal any liquid/air exposure revealed BY digging — below (newFloor)
-    // and the 4 side cells at foot height (skip the cell that IS the path
-    // forward). Idempotent no-op when the pre-dig pass above already fixed
-    // these; kept as a safety net for exposure that digging itself opens up.
-    await sealStairCell(bot, newFloor, ctx);
-    for (const [dx, dy, dz] of sideOffsets) {
-      const side = frontFeet.offset(dx, dy, dz);
-      if (side.x === frontHead.x && side.z === frontHead.z) continue;
-      await sealStairCell(bot, side, ctx);
+    // Tread: floor under the new feet cell must be solid before walking
+    // onto it. air/liquid -> place cobble/dirt; genuinely out of material is
+    // a clear, immediate error (ensureTreadFoundation already throws for
+    // that — nothing to soften here).
+    await ensureTreadFoundation(bot, newFloor, ctx);
+
+    // (3) ADVANCE — the bot's own hand-proven pulse-and-verify walk
+    // (advanceIntoStep, above). One retry round after re-clearing any block
+    // a fresh blockAt() shows still solid; still failing after that is a
+    // loud, detailed log — the 20-iteration watchdog is what actually aborts
+    // the run, not this single step.
+    let arrived = await advanceIntoStep(bot, targetFeet, ctx);
+    // (FALL-SAFETY) advanceIntoStep's own runaway-fall guard already stopped
+    // the pulse, but "didn't land" also covers a real overshoot into open
+    // space beyond the intended tread — a natural cave breach ahead
+    // (aheadHead/aheadFeet/aheadLower already air pre-dig) has no far wall
+    // this machine ever checks. Re-clearing and retrying the ORIGINAL
+    // (now-stale) cells is only safe if the bot is still roughly where this
+    // step started; if it has actually dropped away, that retry would dig
+    // cells far above the bot's real position and teach it nothing. Treat a
+    // real drop as fatal-to-this-step and stop the whole run loud instead.
+    if (!arrived && bot.entity.position.y < cur.y - 2) {
+      if (await recoverFromCaughtFall(bot, ctx, cur)) {
+        lastVerifiedY = bot.entity.position.y; // re-anchor the drift tripwire to this checked-safe spot
+        staleIterations++;
+        continue; // don't dig/retry from the now-stale cur-relative cells — reread fresh next pass
+      }
+      throw new Error(
+        `buildStaircase: uncontrolled fall past intended step ${posKey(targetFeet)} — now at ${posKey(bot.entity.position.floored())} (started step at ${posKey(cur)}); aborting rather than digging/retrying from stale cells`
+      );
+    }
+    if (!arrived) {
+      ctx.log?.('warn', `buildStaircase: advance to ${posKey(targetFeet)} didn't land — re-clearing and retrying once`);
+      for (const digPos of [aheadHead, aheadFeet, aheadLower]) {
+        const b = bot.blockAt(digPos);
+        if (b && b.diggable && b.name !== 'air') {
+          await safeDig(bot, b, ctx).catch(() => {});
+        }
+      }
+      arrived = await advanceIntoStep(bot, targetFeet, ctx);
+      if (!arrived && bot.entity.position.y < cur.y - 2) {
+        if (await recoverFromCaughtFall(bot, ctx, cur)) {
+          lastVerifiedY = bot.entity.position.y;
+          staleIterations++;
+          continue;
+        }
+        throw new Error(
+          `buildStaircase: uncontrolled fall past intended step ${posKey(targetFeet)} on retry — now at ${posKey(bot.entity.position.floored())} (started step at ${posKey(cur)}); aborting rather than continuing from stale cells`
+        );
+      }
+    }
+    if (!arrived) {
+      const dump = [aheadHead, aheadFeet, aheadLower, newFloor]
+        .map((p) => `${posKey(p)}=${bot.blockAt(p)?.name ?? 'unknown'}`)
+        .join(', ');
+      lastFailureDetail = `advance to ${posKey(targetFeet)} failed twice — cells: ${dump}`;
+      ctx.log?.('warn', `buildStaircase: ${lastFailureDetail}`);
+      staleIterations++;
+      continue; // no landing verified — retry from a freshly-read position, no steps++
     }
 
-    // (STEP-ADVANCE FIX) — position-verified raw-control walk replaces the
-    // old plain gotoLoop call, which was field-proven to resolve without
-    // any real movement (see advanceIntoStep above). Pathfinder gets exactly
-    // one backup attempt if the raw walk doesn't land within 4s; if NEITHER
-    // gets the bot's feet into the step, fail loudly instead of digging the
-    // next step against a bot that never actually arrived at this one.
-    let arrived = await advanceIntoStep(bot, frontFeet, ctx);
-    if (!arrived) {
-      ctx.log?.('warn', `buildStaircase: raw-control advance to ${posKey(frontFeet)} didn't land within 4s — trying pathfinder once as backup`);
-      try {
-        await gotoLoop(bot, new goals.GoalNear(frontFeet.x, frontFeet.y, frontFeet.z, 0), { timeoutMs: 8000, maxAttempts: 1 }, ctx);
-      } catch (err) {
-        ctx.log?.('warn', `buildStaircase: backup pathfinder step-forward to ${posKey(frontFeet)} failed: ${err.message}`);
-      }
-      arrived = isInStepCell(bot, frontFeet);
-    }
-    if (!arrived) {
-      throw new Error(`staircase: cannot advance into step at (${posKey(frontFeet)})`);
-    }
+    staleIterations = 0;
+    steps++; // (5) counted ONLY after a verified landing
+    lastVerifiedY = bot.entity.position.y; // re-anchor the drift tripwire to this confirmed landing
 
     if (steps % 8 === 0) {
       const placed = await placeTorchHere(bot, ctx).catch((err) => {
@@ -2605,7 +2782,7 @@ export async function buildStaircase(bot, opts = {}, ctx = {}) {
     }
   }
 
-  return { from, to: toPlainPos(bot.entity.position), steps, torches: torchesPlaced };
+  return { from, to: toPlainPos(bot.entity.position), steps, torches: torchesPlaced, headings: 1 };
 }
 
 async function scanForOres(bot, ctx, oreCounts, collectedAll) {
