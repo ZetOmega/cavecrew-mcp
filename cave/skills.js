@@ -122,6 +122,15 @@ const SEAL_MATERIALS = /cobblestone|_stone$|^stone$|dirt|netherrack|blackstone|d
 // can never eat our own infrastructure.
 const NUISANCE_BLOCKS = /^(torch|leaf_litter|short_grass|snow|pointed_dripstone)$/;
 
+// CROP_BLOCKS — same 4 names as runner.js's Movements.blocksToAvoid (FEEDBACK
+// "goto ROUTES STRAIGHT ACROSS live farmland", Zug). Kept as a separate,
+// deliberately duplicated constant here rather than imported: skills.js
+// can't import from runner.js (circular — see the identical comment on
+// ensurePlanksAndSticks/mcData elsewhere in this file), and this list is
+// consulted somewhere blocksToAvoid structurally cannot help — see
+// collectDrops below.
+const CROP_BLOCKS = /^(wheat|carrots|potatoes|beetroots)$/;
+
 // (17) PROTECTED-BLOCK DIG GUARD (adapted from felcrew-mcp survey findings —
 // their own digguard.js hardcodes plaza-pillar coordinates as an anti-grief
 // scar after Friedrich chopped Peter's house pillars thinking they were
@@ -1706,11 +1715,39 @@ export async function collectDrops(bot, opts = {}, ctx = {}) {
     // short. If that exact voxel isn't reachable without digging
     // (honeycombed mining pockets — see field bug note above), fall back to
     // whichever neighbor voxel IS reachable before giving up on the drop.
+    //
+    // (FIELD BUG, Zug 2026-09-01 — FEEDBACK "A/B TEST RESULT: new
+    // crop-blocksToAvoid PASSES for /goto+pf, but /collect still tramples
+    // farmland") ROOT CAUSE traced to movement.js's gotoLoopPf, not a
+    // separate Movements instance (there isn't one — collectDrops shares
+    // the same gotoLoop -> bot.pathfinder.goto() as everything else, and
+    // pf's own move-generation DOES correctly refuse a GoalBlock landing on
+    // a blocksToAvoid-flagged crop cell, confirmed against the real
+    // mineflayer-pathfinder source). The trample happens one layer up:
+    // every pf attempt legitimately fails (by design — that refusal is the
+    // fix working), gotoLoopPf exhausts its retries, and falls back to
+    // rawWalkTo — a raw setControlState forward+jump bulldoze that exists
+    // to rescue GENUINE false pf failures and has zero block-type
+    // awareness at all, undoing the protection for exactly the case it's
+    // supposed to hold (a drop that landed ON a live crop is drop-position
+    // == crop-cell, the single most common way this fires). Fixed here,
+    // not in movement.js: never even ATTEMPT a GoalBlock whose target cell
+    // is crop-occupied — skip straight past it to a neighbor, so pf never
+    // gets a chance to legitimately-refuse-then-bypass it. A movement.js
+    // hardening of rawWalkTo itself would close this for every caller, not
+    // just collectDrops — flagged to team-lead as a separate, bigger
+    // finding, not attempted here.
+    const isCropProtected = (p) => CROP_BLOCKS.test(bot.blockAt(p)?.name ?? '');
     let arrived = false;
     let lastErr = null;
+    let skippedCropCells = 0;
     const attempts = [dest, ...DROP_NEIGHBOR_OFFSETS.map((o) => dest.offset(o.x, o.y, o.z))];
     for (let i = 0; i < attempts.length && !arrived; i++) {
       const c = attempts[i];
+      if (isCropProtected(c)) {
+        skippedCropCells++;
+        continue;
+      }
       const goOpts = i === 0 ? { timeoutMs: 8000, maxAttempts: 2 } : { timeoutMs: 4000, maxAttempts: 1 };
       try {
         await gotoLoop(bot, new goals.GoalBlock(c.x, c.y, c.z), goOpts, ctx);
@@ -1728,9 +1765,10 @@ export async function collectDrops(bot, opts = {}, ctx = {}) {
 
     if (!arrived) {
       reachFailures++;
+      const cropNote = skippedCropCells > 0 ? `, ${skippedCropCells} candidate(s) skipped as crop-protected` : '';
       ctx.log?.(
         'warn',
-        `collectDrops: could not reach drop ${dropId} at ${posKey(dropPos)} (exact voxel + ${DROP_NEIGHBOR_OFFSETS.length} neighbors all failed): ${lastErr?.message ?? 'unknown'}`
+        `collectDrops: could not reach drop ${dropId} at ${posKey(dropPos)} (exact voxel + ${DROP_NEIGHBOR_OFFSETS.length} neighbors all failed${cropNote}): ${lastErr?.message ?? 'unknown'}`
       );
       stuckIds.add(dropId);
       continue;
