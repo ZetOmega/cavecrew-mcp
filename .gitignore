@@ -18,6 +18,11 @@ pids/
 # Per-bot death ledgers (cave/deaths/<name>.json)
 deaths/
 
+# Audit tool's last-run chest snapshot (cave/audit.mjs) — machine/session
+# local runtime state, not a durable record; the diff it prints/logs each
+# run is the thing worth keeping, not the raw snapshot itself.
+audit-snapshot.json
+
 # NPM cache
 .npm/
 
