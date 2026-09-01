@@ -37,6 +37,7 @@ stopped) — pick the next free port in the range instead.
 | 3290 | Fleet panel (dev instance — `PANEL_PORT=3290`, PanelDev's own smoke-test port) |
 | 3291 | Fleet panel — mock runner for button-click testing (never point at 3201-3208) |
 | 3298 | (reserved: short-lived test bots, e.g. PebbleZoom) |
+| 3301 | BariBrute (baritone heavy-lifter — range 3301-3309, see BARITONE.md) |
 
 ## Roster
 
@@ -47,13 +48,14 @@ Roles get reassigned fresh by the orchestrator as each bot boots.
 
 | Name      | Port | Role                        | Driver          | Status | Workstation                     |
 |-----------|------|-----------------------------|-----------------|--------|----------------------------------|
-| UngaBunga | 3201 | ramp scout (re-learn)       | UngaBungaDriver | active | camp yard (12, 90, 52)           |
-| Grog      | 3202 | unassigned (relaunch)       | —               | stopped | —                                |
-| Zug       | 3203 | unassigned (relaunch)       | —               | stopped | —                                |
-| Bonk      | 3204 | unassigned (relaunch)       | —               | stopped | —                                |
-| Thak      | 3205 | unassigned (relaunch)       | —               | stopped | —                                |
-| Ook       | 3206 | unassigned (relaunch)       | —               | stopped | —                                |
+| UngaBunga | 3201 | lumber, trade voice         | UngaBungaDriver | active (reserve) | camp yard (12, 90, 52)  |
+| Grog      | 3202 | builder, grand staircase    | GrogDriver      | active | staircase corridor (mine_stair)  |
+| Zug       | 3203 | farmer, hunter              | ZugDriver       | active | farm_1 (x7-12, z58-59)           |
+| Bonk      | 3204 | path/infra builder          | BonkDriver      | active | trade path z29-22 stretch        |
+| Thak      | 3205 | surface-ore miner           | ThakDriver      | active | mine field (24, 90, 64)          |
+| Ook       | 3206 | far-range hunter/scout      | OokDriver       | active | camp yard (12, 90, 52)           |
 | Durk      | 3207 | unassigned (relaunch)       | —               | stopped | —                                |
+| BariBrute | 3301 | baritone heavy-lift miner   | BariBruteDriver | active | free-range southeast (baritone)  |
 | Mog       | 3208 | unassigned (relaunch)       | —               | stopped | —                                |
 
 Per-bot workstations exist so bots spread out rather than clump on one
@@ -136,10 +138,10 @@ Depot chest A (wood) at (11, 89, 55) [placed by UngaBunga], depot chest B
 (tools) at (12, 90, 54) [placed by UngaBunga 2026-08-31]. South of world
 spawn, away from the other tribe's build near (-3, 111, 4).
 
-**State refresh 2026-09-01**: the shelter (perimeter wall + roof) was
-**removed by the user** — camp is currently open-air again, wall/roof
-goal below no longer reflects reality until it's rebuilt. The furnace at
-(11, 89, 57) was **destroyed** — rebuild pending, nobody assigned yet.
+**REBUILT 2026-09-01 by Grog**: the shelter is back — see Goal ladder #5
+below and BASE.md `camp_shelter` row for the full build record (footprint,
+door, window, roof). Furnace_1 was found already-rebuilt earlier the same
+session (ground-truth, not Grog's build — see BASE.md furnace_1 row).
 Camp signs have been placed (labeling depot chests/crafting table area,
 see Signs law below). There is a **mystery chest at (-1, 91, 56)** of
 unknown origin — **do not open, deposit to, or withdraw from it** until
@@ -202,17 +204,66 @@ Progress the tribe as a whole, in order:
 4. **Farm** — a sustainable food source (crops and/or animal pen). In
    progress (Zug hunting; farm later).
 5. **Base** — a claimed, defensible build at the base location above.
-   Table + depot chest placed. Shelter (perimeter wall + roof, previously
-   DONE 2026-08-31) was **removed by the user 2026-09-01** — camp is
-   open-air again, rebuild not yet scheduled. Furnace **destroyed**
-   2026-09-01 — rebuild pending, nobody assigned. Camp signs placed
-   2026-09-01 (see Signs law in `DRIVER_GUIDE.md`). See State refresh
-   note above for current condition.
+   DONE 2026-09-01 (Grog): table + depot chest + furnace + shelter (log
+   corner pillars, plank walls, window, 2-wide farm-facing door, rimmed
+   cobblestone roof) all standing — see BASE.md `camp_shelter` row for
+   the full record. Camp signs placed 2026-09-01 (see Signs law in
+   `DRIVER_GUIDE.md`).
 6. **Depot** — cavecrew's own chest storage with a ledger. DONE: chest
    at (11, 89, 55), first deposit logged in chat 2026-08-31 (+14
    oak_log, +24 oak_planks, +6 birch_log). See `DRIVER_GUIDE.md` for
    the `DEPOT +N item (chest X)` / `DEPOT -N item (chest X)` chat-line
    ledger format.
+
+## Scouting (far-range)
+
+**West corridor, 2026-09-01 (Ook/OokDriver, far meat run + scout, chief's
+far-range decree)**: swept x-90..-60 / z20-70 west of camp (camp is x~12),
+10 ground-truthed scan points (entity scan radius 48-80, no mobs missed at
+range). **Verdict: animal-empty.** Zero pig/cow/sheep/chicken anywhere in
+the whole corridor, day time, full render-radius checks. Terrain is
+entirely `forest` / `old_growth_birch_forest` hillside (elevation swings
+90-103, rugged), not the plains the "pig zone" report implied — that report
+doesn't hold up for this stretch. Small water pools noted near (-15,90,56)
+and (-56,90,67), nothing bigger. No village, no sand, no sugar cane, no
+lava. **Next far-hunt driver: try a different bearing (south or north of
+this corridor) rather than re-running x-90..-60 west — this strip is
+checked and dry.**
+
+**HAZARD — dripstone cave belt, x~-78 to -90, y47-55, z45-70**: a large
+dripstone cavern sits under the west-corridor hillside, skyLight 0, entered
+unintentionally via both `pf` and `ash` `/goto` while the target was an
+above-ground waypoint (see `FEEDBACK.md` 2026-09-01 Ook entry for the full
+pathing/wedge writeup). Got a bot genuinely wedged on pointed_dripstone
+blocks for several minutes; self-rescue (manual dig-out) partially worked,
+final fix was `/trigger home`. No HP/item loss, but route AROUND this zone
+—goto targets in this box should expect to path underground, not across
+the hillside surface. Not marked in `BASE.md`'s hazard table since it's
+outside the camp/base radius that table tracks, but flagging here for any
+bot ranging this direction again.
+
+**South corridor, 2026-09-01 (Ook/OokDriver, standing scout loop leg 1 of 3: south/east/far-SW)**:
+swept camp (z~55) south to z~120 (fell short of the z+120=175 target — see hazard note below for
+why). Terrain: `forest` climbing into a `grove` (snowy mountain) biome around z=140, elevation
+rising steadily from y~104 near camp to y~150 at the grove — this is a mountain range, not open
+land. **Verdict: animal-empty again**, zero mobs at every scan point (up to 64 block radius). No
+water/sand/cane/village found this leg (one small pool near (9,105,85)). **Not a second-settlement
+candidate** — too steep/rocky for a build site as scouted; grove biome at z~140 might be worth a
+snow-build novelty later but isn't the animal zone the tribe needs.
+
+**HAZARD — dripstone_caves recurs east of camp too, not just west**: hit the same pf/ash wedge (see
+`FEEDBACK.md`) at x~39-43,y106,z95-98, in full daylight — this world's dripstone_caves biome
+surfaces at mountain elevation, not just underground. Second confirmed occurrence same session,
+different location — treat `dripstone_caves` as a recurring hazard class along the south/southeast
+bearing, not a single spot to avoid. Also hit `dripstone_caves` again at (12,150,175)-ish scouted
+by height/biome probe (not entered) — the direct south line along x=12 crosses it repeatedly past
+z~130, so future south legs should drift x=0 to 20 rather than following x=12 exactly.
+
+**Chest A (11,89,55) is FULL — 27/27 slots**, confirmed by ground-truth `containerItems()` read.
+New item-type deposits will silently fail (or path-fail approaching it — the furniture cluster
+around it is tight, approach from the north side (~11,89,54) if going). Needs a driver pass to
+prune low-value stacks (leaf_litter, gravel, diorite, andesite look prunable) or an overflow chest.
+Full item list in the FEEDBACK.md entry.
 
 ## Trading post
 
