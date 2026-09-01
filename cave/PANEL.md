@@ -8,6 +8,35 @@ speaks (`cave/DRIVER_GUIDE.md`) and knows nothing about runner internals. It
 does not import `runner.js`, `skills.js`, or `overseer.mjs`, and it is not part
 of the supervision loop — killing it affects nothing.
 
+## Files
+
+Three plain files, still zero-dependency, still no build step (PANEL V3 SPEC,
+architecture note — split from one 1840-line file, phase 1, 2026-09-01):
+
+- **`cave/panel.mjs`** — the entry point. HTTP server, route table, the Host
+  allow-list/CSRF guards, and the HTML shell (`renderPage()`: the static
+  `<head>`/`<style>`/skeleton markup — small and rarely-changed enough to stay
+  inline rather than earning a fourth file). This is what `node cave/panel.mjs`
+  boots and what the chief's restart routine knows about; that doesn't change.
+- **`cave/panel-data.mjs`** — every server-side data-layer function: fleet
+  polling/aggregation, the alerts tail, the TODO board parser, the Vault
+  reader, the two write actions (wake/stop), and the roster/chest tables they
+  all share. Zero dependency on `req`/`res` — each function is independently
+  testable without booting the HTTP server, e.g.
+  `node -e "import('./cave/panel-data.mjs').then(m => console.log(m.getVault()))"`.
+  Also carries the newer v3 primitives (`BASE_ANCHOR`, ledger/deaths/missions
+  readers, the FEL relation reader) — unwired to any route or client render
+  yet; see `cave/PANEL_V3_SPEC.md` for what will consume them.
+- **`cave/panel-client.js`** — the entire client-side script, served as a real
+  static file via `GET /panel.js` and loaded with
+  `<script src="/panel.js"></script>`. This is what used to be an inline
+  template-literal `<script>` block inside `panel.mjs` — moving it out kills a
+  bug class at the root: a literal backslash in a client-side regex had to be
+  doubled to survive the outer template literal's own escape processing
+  before the browser ever saw it (bit the file twice, rounds 5 and 7). As a
+  real `.js` file there's no outer literal to fight, and `node --check` can
+  verify it as JavaScript entirely on its own.
+
 ## Start it
 
 ```powershell
@@ -338,8 +367,8 @@ hit or not, so "2h 15m ago" always means what it says.
 
 ## Keeping it in sync
 
-`panel.mjs` carries its own copy of three tables, because none of their
-sources can be imported (`overseer.mjs` starts its supervision loop on
+`cave/panel-data.mjs` carries its own copy of three tables, because none of
+their sources can be imported (`overseer.mjs` starts its supervision loop on
 import; `runner.js` is a per-bot process; `audit.mjs` is a one-shot CLI
 script that calls `main()` directly with no module exports):
 
@@ -350,7 +379,7 @@ script that calls `main()` directly with no module exports):
 - the chest coords + labels, from `audit.mjs`'s `CHESTS` (~line 36), as
   `CHEST_META`
 
-If any of these change upstream, update `panel.mjs` by hand.
+If any of these change upstream, update `panel-data.mjs` by hand.
 
 ## Phase 2 ideas
 
