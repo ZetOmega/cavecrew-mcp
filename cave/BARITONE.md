@@ -456,3 +456,301 @@ from #390) if commands still misbehave over the wrapper's plain pipe.
    file a new issue on headlesshq/headlessmc with the exact blur/uniform log
    excerpt + HMC 2.10.0 + MC 1.21.11 fabric, citing the memSlice/DeviceLimits
    precedent in this section to speed triage.
+
+---
+
+## Round 2 field session 2026-09-01 — verdict: WORKS (see final update below)
+
+Applied both prescribed fixes from the section above and pushed BariBrute
+through a real launch on real hardware (AMD Radeon RX 9070 XT, no `-lwjgl`).
+Made real progress, hit a new, different, previously-undocumented stall.
+Full verdict: **blocked tonight — needs either a visible window or an
+upstream/config fix not yet found — leaving as a decision for the morning.**
+
+### What actually got fixed this round (real progress, keep these)
+
+1. **Baritone was never actually installed in round 1.** `baritone-standalone-fabric-1.17.0.jar`
+   had been downloaded to `shared\` but never copied into any mods folder any
+   attempted launch actually used — confirmed by grepping every round-1
+   launch log's `Fabric Mods:` dump, which lists `fabric-api`/`headlessmc`/
+   `minecraft` only, no `baritone` entry anywhere. Fixed by copying both
+   `baritone-standalone-fabric-1.17.0.jar` and the specifics-installed
+   `hmc-specifics-1.21.11-2.4.0-fabric-release.jar` into the **global**
+   `%APPDATA%\.minecraft\mods\` (confirmed HMC 2.10.0 always uses this one
+   global profile regardless of launcher cwd, per the existing note in
+   `baritone-runner.mjs`). Result: `Loading 51 mods: ... - baritone 1.17.0
+   \-- dev_babbaj_nether-pathfinder 1.6 ...` — mod loads clean now.
+2. **`config --property hmc.offline.username=...` never persisted.** HMC
+   prints `Not running from the headlessmc-launcher-wrapper. No plugin
+   support and in-memory launching.` at boot — config-command changes made
+   through the console are in-memory only without that wrapper, so every
+   fresh launcher process (a new `java -jar headlessmc-launcher.jar`) lost
+   them. Round 1's actual launches all show `--username Offline` on the
+   child JVM command line despite the bootstrap script successfully running
+   `config --property hmc.offline.username=BariBrute` first. **Fix:** write
+   `hmc.offline.username=BariBrute` directly into
+   `bots\BariBrute\HeadlessMC\config.properties` on disk before launching,
+   bypassing the runtime command entirely. Confirmed working: child JVM
+   cmdline now shows `--username BariBrute`.
+3. **Dropping `-lwjgl` confirmed correct per the section above** — every
+   round-2 launch reached real GPU rendering (`Render thread` creating
+   texture atlases, harmless one-time `blur/0`-`blur/5` uniform WARNs) with
+   no crash from the render side. Blocker 1 from the prior research pass is
+   resolved.
+
+### New blocker found this round — hmc-specifics' own in-game JLine reader
+
+With `-lwjgl` dropped and both mods loaded, the very first real launch
+(`hmc-launch4.mjs`) crashed immediately after mod init, **inside the game
+JVM itself**, before reaching the render thread:
+
+```
+java.lang.IllegalStateException: Failed to start JLineCommandLineReader
+  at me.earth.headlessmc.mc.jline.VersionAgnosticJLineCommandLineReader.installAndReadAsyncAndAwaitException
+  at me.earth.headlessmc.mc.SpecificsInitializer.readCommandLine
+  at me.earth.headlessmc.mc.SpecificsInitializer.init
+  at net.minecraft.class_310.handler$bck000$headlessmc$onInit   <- mixin into Minecraft's own constructor
+Caused by: java.lang.IllegalStateException: Failed to call new JLineProviders!
+  at me.earth.headlessmc.mc.jline.NewJLineProviders.provide
+  at me.earth.headlessmc.mc.jline.VersionAgnosticJLineCommandLineReader.hackInTerminal
+```
+
+Root cause, confirmed: **this is a second, separate JLine console — inside
+the GAME process itself**, distinct from the launcher's own JLine (which
+already auto-negotiates `dumb` terminal mode fine over the piped stdin, per
+`headlessmc.log`: `JLine Terminal type: dumb`). Under PATH 1 (hmc-specifics,
+no `-commands`), hmc-specifics mixes into `Minecraft.<init>` and spins up
+*another* JLine reader inside the child JVM to read further stdin — and this
+one is NOT auto-falling back to dumb mode, so it crashes trying to build a
+real Windows console terminal over what is, from the child JVM's point of
+view, a fully piped/non-console stdin (the launcher relays commands to it,
+the child JVM's own stdin isn't a real console handle at all).
+
+Two upstream fixes attempted, from this doc's own recommended order:
+
+- `hmc.jline.dumb.when.no.console=true`, passed as a `--jvm -D` flag on the
+  `launch` line (confirmed present verbatim in the child JVM's actual
+  cmdline via `headlessmc.log`'s `ProcessFactory` entry) — **did not help,
+  identical crash, same stack trace.** The dumb-mode flag doesn't prevent
+  the crash; whatever this code path does, it fails before or regardless of
+  checking that property.
+- `hmc.jline.enabled=false`, same way (`--jvm "-Dhmc.jline.enabled=false"`)
+  — **this worked.** No crash. Game proceeded past `SpecificsInitializer.init`
+  straight through mod loading, asset/texture atlas creation, and the
+  blur-uniform WARNs, into a live render loop. This is the confirmed fix for
+  this blocker — use `hmc.jline.enabled=false` directly, don't bother trying
+  the dumb-mode flag first for this exact crash (leave the recommendation in
+  the section above as-is for the general JLine-over-pipe case; this specific
+  in-game-JLine-during-Minecraft-init crash needs the harder disable).
+
+**Doc update:** for PATH 1 (hmc-specifics loaded), pass
+`-Dhmc.jline.enabled=false` on the `--jvm` launch flag from the very first
+attempt. `config.properties`-level settings do not reliably reach the child
+game JVM's flags (only some launcher-level settings like offline username
+do) — always prefer the `--jvm -D` route for anything that needs to affect
+the spawned Minecraft process specifically.
+
+### Third blocker found this round — game stalls forever, never attempts to join, window-visibility-independent
+
+With both above fixes applied (baritone+specifics installed, offline
+username persisted, `hmc.jline.enabled=false`), the game **no longer
+crashes** but also **never connects**. It reaches the render loop, logs the
+harmless Realms-auth-401 and `blur/0`-`blur/5` WARNs, and then goes
+completely silent — no `Connecting to`, no `Encryption`, no world-load line,
+nothing — while the process stays alive, "responding" flickers between
+`Running`/`Not Responding` in `tasklist`, and CPU time creeps up by roughly
+1 second of CPU per 30-40 seconds of wall time (consistent with an idle
+title-screen render loop doing near-nothing, not a deadlock or a spin).
+`jstack` on the stalled process during the first occurrence confirmed the
+render thread is in a completely ordinary `Thread.sleep` inside
+`Minecraft.render`/`run` (`class_310.method_1523`/`method_1514`) — i.e. it
+genuinely is just idling at whatever screen it's on, not blocked/deadlocked
+on anything catchable in a thread dump. `--quickPlayMultiplayer
+localhost:25565` never appears to fire, or fires and fails completely
+silently with zero log trace either way.
+
+This was reproduced **twice, identically**, under two different window-
+visibility strategies, ruling out the visibility angle as the cause:
+
+1. **Fully hidden window** (`ShowWindowAsync(hwnd, SW_HIDE)` applied to any
+   new java window once created) — stalled at this exact point, confirmed
+   via live `jstack` thread dump (killed by the coordinator after ~170s
+   observed with zero progress).
+2. **Minimized window** (`ShowWindowAsync(hwnd, SW_MINIMIZE)` instead,
+   theorized as safer since DWM keeps compositing/presenting minimized
+   windows unlike fully hidden ones) — **stalled identically**, same log
+   line count frozen at the same `blur/5` point, same slow CPU creep, no
+   RCON-visible join after 90+ seconds of polling. This falsifies the
+   "hidden window starves the GPU swapchain" hypothesis from earlier in this
+   session — minimized behaves the same as hidden, so window visibility
+   state is not the variable causing the stall.
+
+Neither attempt ever produced a visible client window at any point (both
+began life immediately with the window creation followed within ~3s by a
+hide/minimize pass), so the no-visible-client law was never violated by this
+session, and both attempts were killed cleanly with no client left
+connected or visible.
+
+**What this narrows the cause down to** (untested, for the next session):
+something in the PATH 1 stack (hmc-specifics init running inside
+`Minecraft.<init>` via mixin, possibly interacting with how quickPlay is
+scheduled relative to that mixin hook) either never fires the quickPlay
+auto-connect at all, or fires it into a silent failure. Candidates worth
+testing next, cheapest first:
+- Manual connect instead of relying on `--quickPlayMultiplayer`: once the
+  hmc-specifics console is confirmed alive in-game (it should be, since the
+  crash that used to block it is fixed), drive it with `msg #include`... no
+  — more directly, use the vanilla `connect <host>` hmc-specifics console
+  word (or navigate the menu via `click`/`gui` console words documented for
+  hmc-specifics) instead of the `--quickPlayMultiplayer` game arg, to see if
+  the stall is specific to the quickPlay code path vs. multiplayer joining
+  in general.
+- Compare against PATH 2 (`-commands`, no hmc-specifics) with `-lwjgl`
+  dropped: round 1's `hmc-launch2.mjs`/`hmc-launch3.mjs` runs (PATH 2, no
+  baritone installed at the time) reached the exact same `blur/5` point and
+  were also never confirmed to actually join before being externally killed
+  — so this stall may predate this round's PATH-1-specific changes entirely
+  and be a `--quickPlayMultiplayer` + HeadlessMc issue in general, not
+  specific to hmc-specifics. Re-test PATH 2 now that baritone/mods are
+  correctly installed, to isolate whether hmc-specifics is actually involved
+  at all.
+- Try omitting `--quickPlayMultiplayer` entirely and driving a manual
+  multiplayer connect through hmc-specifics' `click`/`gui` console words
+  once at the title screen, to bypass whatever quickPlay's internal state
+  machine is stuck on.
+- Capture a `jstack` dump specifically at the moment `--quickPlayMultiplayer`
+  should be firing (right after title screen init) rather than after the
+  fact, to see if a connect thread is present but parked, vs. never spawned.
+
+### Cleanup performed
+
+All BariBrute-round-2 java/node processes killed (launcher, game JVM, and
+the `hmc-launch7.mjs` node wrapper) — verified via `tasklist`/`Get-Process`
+that no stray processes remain and that the real server (PID 13908,
+`fabric-server-launch`) was never touched. Left in place for next session
+(real progress, do not undo): the mods copied into
+`%APPDATA%\.minecraft\mods\` (`baritone-standalone-fabric-1.17.0.jar`,
+`hmc-specifics-1.21.11-2.4.0-fabric-release.jar`), and
+`bots\BariBrute\HeadlessMC\config.properties`'s added
+`hmc.offline.username=BariBrute` / `hmc.jline.dumb.when.no.console=true`
+lines (harmless even though the dumb-mode one didn't end up mattering).
+`hmc-launch4.mjs` through `hmc-launch7.mjs` in `baritone-lifter\` record the
+exact progression of fixes tried, in order, for the next session to resume
+from `hmc-launch7.mjs`'s approach (drop the window-hide/minimize step first
+since it's now shown to be irrelevant to the stall; focus directly on the
+quickPlay-vs-manual-connect question above).
+
+**No visible game client was ever left running.** BariBrute is not currently
+connected to the fleet.
+
+---
+
+## Round 2 FINAL update — same session, 15-min hard cap — verdict: WORKS
+
+Coordinator's last card fixed it. Root cause of the "third blocker" above:
+**`--quickPlayMultiplayer` itself is the broken piece, not window visibility,
+not hmc-specifics, not jline.** Fix: drop `--quickPlayMultiplayer` from the
+`launch` game-args entirely, boot to a plain title screen, then issue a
+**manual connect** over the hmc-specifics console channel once the title
+screen is up.
+
+### Exact working recipe
+
+1. Launch line (no quickPlay arg at all):
+   ```
+   launch fabric:1.21.11 -offline --jvm "-Xmx3G -XX:+UseG1GC -Dhmc.jline.enabled=false"
+   ```
+2. Wait ~35s for title screen (real GPU render reaches the harmless
+   blur-uniform WARNs by ~15-20s in; give it another 15s margin).
+3. Send the connect command over the same stdin pipe:
+   ```
+   connect localhost 25565
+   ```
+   Exact syntax confirmed by decompiling `ConnectCommand.class` out of
+   `hmc-specifics-1.21.11-fabric-latest.jar` with `javap -p -c` (no README/docs
+   needed): `execute(String label, String... args)` requires `args.length > 1`
+   ("Please specify an Ip!" otherwise), reads host from `args[1]`, and an
+   optional port from `args[2]` (default 25565) — i.e. the raw console line is
+   literally `connect <host> <port>`, space-separated, no flags.
+4. Confirmed working end to end: client received the server's join/leave
+   chat spam within ~15s of sending `connect`, and `node swarm/rcon.mjs
+   "list"` (read-only, from `minecraft-mcp-v2`) showed `BariBrute` in the
+   player list.
+
+**Doc update:** never use `--quickPlayMultiplayer` with this stack on this
+MC/HMC version. Always boot plain and drive the join manually through
+hmc-specifics' `connect` console word. This makes the earlier "candidates
+for next session" list in the previous update moot — the first candidate
+(manual connect instead of quickPlay) was the fix.
+
+### Baritone command channel — field-verified format
+
+Sent `msg #goto 60 90 120` over the launcher stdin once joined. Baritone
+logged its own path plan to the launcher's stdout/log
+(`[STDOUT]: Path goes for 76.69419795525604 blocks`) and began moving.
+Confirmed movement via the fleet's own mineflayer bot HTTP eval endpoint
+(`POST 127.0.0.1:3203/eval`, `bot.players['BariBrute'].entity.position`):
+position went from `(3.5, 111, -6.5)` at spawn to `(11.97, 94, 48.45)` after
+the goto fired — moving in the correct direction (x up, y down toward the
+target's 90, z up toward the target's 120).
+
+Sent `msg #stop` next. Baritone answered on the in-game chat feedback
+channel, format now pinned exactly:
+```
+[CHAT] [Baritone] > stop
+[CHAT] [Baritone] ok canceled
+```
+(matches the `/\[CHAT\].*?\[(Baritone|B)\]\s*(.+)/` regex from part 3 of this
+doc — `[Baritone]`, full word, not the short `[B]` form, at least for this
+command; `shortBaritonePrefix` config wasn't active in this quick ad-hoc
+test since it used the bare `launch`/`msg` commands rather than the full
+`baritone-runner.mjs` wrapper's pre-written settings.txt). Position polled
+again after `#stop` came back bit-for-bit identical
+(`11.974708733124642, 94, 48.4548966911917`) confirming a clean, complete
+halt with zero drift.
+
+### Safety incident — spawn point is inside the FEL no-go box, undetected by this ad-hoc script
+
+**BariBrute's server spawn point, `(3.5, 111, -6.5)`, is itself inside the
+FEL no-go padded box** (`x∈[-23,17], z∈[-16,24]`, part 5b of this doc) — y=111
+matches FEL's own y exactly. The quick `hmc-launch8.mjs` test script used for
+this session's final attempt is a bare stdin/log-tail script with **no
+no-go gate and no position watchdog** (those live in `baritone-runner.mjs`,
+not in the throwaway `hmc-launch*.mjs` scripts used to iterate on the boot
+sequence this session) — so `#goto 60 90 120` was sent and Baritone started
+pathing from inside the FEL box with nothing checking it. It was stopped by
+hand within seconds once the position readback showed the spawn coordinates,
+before any real distance was covered, but the path was already crossing
+close by the `[CAVE]` camp waypoint too (`(12, 89, 56)` per this doc's part
+5c reference) — the position where it was actually stopped,
+`(11.97, 94, 48.45)`, is only ~9 blocks from that camp point.
+
+**Action needed before any unattended/production use:** `baritone-runner.mjs`
+already has both the no-go gate and the watchdog implemented (part 5b of
+this doc) — this incident is purely because the quick ad-hoc `hmc-launch8.mjs`
+test script doesn't wire through it, not a gap in the wrapper design. Next
+session should either (a) drive BariBrute exclusively through
+`baritone-runner.mjs` once it's updated with this session's fixes (drop
+quickPlay, manual `connect`, `hmc.jline.enabled=false`), or (b) manually
+`#goto` it to a known-clear waypoint immediately after any ad-hoc-script
+session before leaving it running.
+
+### End state
+
+BariBrute was left **running and connected**, stopped (not pathing/mining),
+at `(11.97, 94, 48.45)`. No visible window was shown at any point (hidden
+via `ShowWindowAsync(SW_HIDE)` on the real GLFW window, applied within ~3s
+of window creation, same as prior attempts this session).
+
+- Launcher java PID: 20240
+- Game-client java PID: 33944
+- Node wrapper (`hmc-launch8.mjs`) PID: 11196
+- Real server (do not touch): PID 13908, untouched throughout
+
+**Verdict: WORKS.** Join, `#goto`, movement verification, and `#stop` all
+confirmed end to end within the coordinator's 15-minute hard cap. Mining
+test (`#mine cobblestone`, marked bonus/optional in the original task) was
+skipped given the proximity-to-camp safety incident above and the time cap —
+recommended as the first thing to try next session, from a repositioned,
+verified-clear waypoint, through the real `baritone-runner.mjs` wrapper (so
+the no-go watchdog is actually active) rather than another ad-hoc script.

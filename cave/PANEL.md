@@ -92,6 +92,7 @@ blinks green on each successful poll.
 **Cards**, one per port, name tinted its Minecraft team colour:
 
 - online/offline dot, rounded `xyz`, task age (best-effort)
+- movement deltas, `Δ30s 12.3 | Δ60s 25.1` (see below)
 - health and food as 0-20 bars; health goes amber under 12, red under 6
 - current task kind, state, and detail
 - `deathCount` and movement engine
@@ -107,12 +108,54 @@ bot's live `lastError`, newest first.
 Auto-refresh is every 3s and updates the DOM in place — no page reload, no
 flicker. Task ages tick locally each second between polls.
 
+## Movement deltas
+
+Each card shows how far the bot actually got in the last 30 and 60 seconds:
+
+```
+Δ30s 12.3 | Δ60s 25.1
+```
+
+A delta is the straight-line 3D distance between the bot's current position and
+its recorded position nearest N seconds ago — endpoint to endpoint, not path
+length. That is deliberate: the question being answered is "did it get
+anywhere", which is the wedge question, and it costs one square root.
+
+Colours, one decimal place:
+
+| Value | Colour | Means |
+| --- | --- | --- |
+| `> 5` | green | moving normally |
+| `0.5` - `5` | amber | crawling, or working in place |
+| `< 0.5` | red | **wedge flag** — pairs with the runner's own wedge watchdog |
+| `—` | grey | no reading (see below) |
+
+A delta reads `—` when the bot is offline, has no position, or the ring has no
+sample old enough to measure that window (within a 7.5s tolerance). Expect
+dashes for the first 30-60 seconds after a panel restart — that is the honest
+answer, not a bug.
+
+### Self-polling
+
+The panel polls the whole fleet **every 5 seconds on its own timer, whether or
+not a browser is attached**, and appends each bot's position to an in-memory
+ring about 65 seconds deep.
+
+This matters: if sampling were driven by the page, opening the tab would show
+dashes for the first minute every time. Because the server samples on its own,
+deltas are already warm when the page is opened, and they survive browser
+refreshes. Request serving still goes through the normal 2s cache — the
+self-poll only keeps that cache warm.
+
+The ring is in-memory only. It resets when the panel process restarts, and
+there is no persistence by design.
+
 ## API
 
 | Method | Path | Does |
 | --- | --- | --- |
 | `GET` | `/` | the dashboard, one self-contained HTML document |
-| `GET` | `/api/fleet` | every runner's `/status` polled in parallel (3s timeout each), with the last ~10 `/events` merged per bot; whole aggregate cached 2s |
+| `GET` | `/api/fleet` | every runner's `/status` polled in parallel (3s timeout each), with the last ~10 `/events` merged per bot and `delta30`/`delta60` movement figures; whole aggregate cached 2s |
 | `GET` | `/api/alerts` | last ~50 lines of the alerts log |
 | `POST` | `/api/wake` | `{bot}` — push the role-default task, `force: false` |
 | `POST` | `/api/stop` | `{bot}` — forward `POST /stop` |

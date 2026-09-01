@@ -1,0 +1,83 @@
+From 85b2dbe1617fcdeba062796da6efe48f101911c9 Mon Sep 17 00:00:00 2001
+From: ZetOmega <zetomega0624@gmail.com>
+Date: Tue, 1 Sep 2026 07:46:41 +0200
+Subject: [PATCH 1/4] Fix exact-1.80-block reach gap: GoalGetToBlock
+ ground-truthed as range 0
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+goalGroundTruth (movement.js) read range from goal.rangeSq, but
+GoalGetToBlock extends Goal directly and has no rangeSq — every margin
+check downstream (false-reach at range+1.0, rawWalkTo stop/final check)
+demanded <=1.0h from the block CENTER. A bot pressed flush against a
+wall one cell short of the target bottoms out at 1.0 + 0.5 + 0.3 (cell
++ center offset + body radius) = the exact 1.80h shortfall in every
+field log (FEEDBACK: dozens of /mine unreachable-candidates, all
+'still 1.80h'). Treat GoalGetToBlock's stand-adjacent semantics as an
+effective range of 1.5; the dig itself stays gated by ensureWithinReach's
+4.2 eye-distance law, so nothing unsafe loosens.
+
+Same disease in skills.js goalTargetInfo: it read goal.range, a field no
+pathfinder goal carries (GoalNear stores rangeSq) — the (11)
+spurious-throw recheck therefore compared against range 0 and almost
+never accepted a genuinely-arrived bot. Now derives from rangeSq, with
+the same 1.5 for GoalGetToBlock.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016Thm6LNpUpv4YxRUkCUP1X
+---
+ cave/movement.js | 14 +++++++++++++-
+ cave/skills.js   | 11 ++++++++++-
+ 2 files changed, 23 insertions(+), 2 deletions(-)
+
+diff --git a/cave/movement.js b/cave/movement.js
+index 9af6020..b741327 100644
+--- a/cave/movement.js
++++ b/cave/movement.js
+@@ -113,7 +113,19 @@ function sleep(ms) {
+ function goalGroundTruth(bot, goal) {
+   if (typeof goal?.x !== 'number' && typeof goal?.z !== 'number') return null;
+   const pos = bot.entity.position;
+-  const range = typeof goal.rangeSq === 'number' ? Math.sqrt(goal.rangeSq) : 0;
++  // (REACH-GAP FIX) GoalGetToBlock extends Goal directly — it has NO rangeSq,
++  // so this used to ground-truth it as range 0, making every downstream
++  // margin check (false-reach at range+1.0, rawWalkTo's stop condition)
++  // demand <=1.0h from the block CENTER. Physically impossible whenever the
++  // target's adjacent cell isn't standable: a bot pressed flush against the
++  // next wall bottoms out at 1.0 (cell) + 0.5 (center) + 0.3 (body radius)
++  // = exactly the fixed 1.80h shortfall in every field log. "Stand adjacent"
++  // semantics = an effective range of 1.5, which puts the margin checks at
++  // 2.5h — and the dig itself is still gated separately by skills.js's
++  // ensureWithinReach 4.2 eye-distance law, so this loosens nothing unsafe.
++  let range = 0;
++  if (typeof goal.rangeSq === 'number') range = Math.sqrt(goal.rangeSq);
++  else if (pfGoals?.GoalGetToBlock && goal instanceof pfGoals.GoalGetToBlock) range = 1.5;
+   let horizDistSq = 0;
+   if (typeof goal.x === 'number') {
+     const dx = pos.x - (goal.x + 0.5);
+diff --git a/cave/skills.js b/cave/skills.js
+index edb5408..a24bfdd 100644
+--- a/cave/skills.js
++++ b/cave/skills.js
+@@ -357,7 +357,16 @@ function goalTargetInfo(goal) {
+     return { pos: goal.entity.position, range: typeof goal.range === 'number' ? goal.range : 1 };
+   }
+   if (typeof goal.x === 'number' && typeof goal.y === 'number' && typeof goal.z === 'number') {
+-    const range = typeof goal.range === 'number' ? goal.range : 0;
++    // (REACH-GAP FIX, same class as movement.js's goalGroundTruth) pathfinder
++    // goals never carry a plain `range` field — GoalNear stores rangeSq, and
++    // GoalGetToBlock stores neither — so this always read 0 and the (11)
++    // spurious-throw recheck (dist <= range + 0.8) almost never accepted a
++    // genuinely-arrived bot. Derive from rangeSq when present; treat
++    // GoalGetToBlock's "stand adjacent" semantics as an effective 1.5.
++    let range = 0;
++    if (typeof goal.range === 'number') range = goal.range;
++    else if (typeof goal.rangeSq === 'number') range = Math.sqrt(goal.rangeSq);
++    else if (goals?.GoalGetToBlock && goal instanceof goals.GoalGetToBlock) range = 1.5;
+     return { pos: new Vec3(goal.x, goal.y, goal.z), range };
+   }
+   return null;
+-- 
+2.55.0.windows.3
+

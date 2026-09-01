@@ -24,6 +24,12 @@ const PANEL_PORT = 3200;
 const PANEL_HOST = '127.0.0.1';
 const RUNNER_TIMEOUT_MS = 3000;
 const FLEET_CACHE_MS = 2000;
+// The panel polls the fleet on its own timer, whether or not a browser is
+// attached. Movement deltas are only meaningful if the position ring has been
+// filling all along, so the page must not be the thing that drives sampling —
+// otherwise opening the tab shows dashes for the first minute. Request serving
+// still goes through the FLEET_CACHE_MS cache; this just keeps it warm.
+const SELF_POLL_MS = 5000;
 const EVENTS_PER_BOT = 10;
 const ALERT_LINES = 50;
 const IRON_QUOTA = 360;
@@ -271,6 +277,61 @@ function invalidateFleet() {
   fleetCache = { at: 0, payload: fleetCache.payload };
 }
 
+// ---------------------------------------------------------------------------
+// Movement deltas — "is this bot actually moving, or is it wedged?"
+//
+// Per-bot in-memory ring of timestamped positions, ~65s deep, appended on every
+// fleet build (client-driven or self-poll alike). A delta is the straight-line
+// 3D distance from the current position to the sample nearest N seconds ago —
+// deliberately endpoint-to-endpoint, not path length: it answers "did it get
+// anywhere", which is the wedge question, and costs one sqrt.
+//
+// The ring lives only in this process: it resets when the panel restarts, and
+// survives browser refreshes (which is the point — the chief's tab being closed
+// must not blank the history). See SELF_POLL_MS for how it stays warm.
+// ---------------------------------------------------------------------------
+const POS_RING_MS = 65_000;
+// How far off the requested age a sample may be and still count. At the 5s
+// self-poll cadence the nearest sample is normally within ~2.5s; anything
+// beyond this means the ring is too young or has a hole, and the honest answer
+// is null rather than a delta measured over the wrong window.
+const DELTA_TOLERANCE_MS = 7_500;
+const posRing = new Map(); // port -> [{ t, x, y, z }] oldest first
+
+function samplePosition(port, pos, now) {
+  let ring = posRing.get(port);
+  if (!ring) {
+    ring = [];
+    posRing.set(port, ring);
+  }
+  if (pos && typeof pos.x === 'number') ring.push({ t: now, x: pos.x, y: pos.y, z: pos.z });
+  const cutoff = now - POS_RING_MS;
+  while (ring.length && ring[0].t < cutoff) ring.shift();
+  return ring;
+}
+
+function deltaOver(ring, pos, now, windowMs) {
+  if (!pos || typeof pos.x !== 'number') return null;
+  const target = now - windowMs;
+  let best = null;
+  let bestGap = Infinity;
+  for (const s of ring) {
+    const gap = Math.abs(s.t - target);
+    if (gap < bestGap) {
+      bestGap = gap;
+      best = s;
+    }
+  }
+  // Covers the just-started case too: with only fresh samples in the ring the
+  // nearest one is ~windowMs away from the target, so this returns null until
+  // the ring is actually old enough to answer.
+  if (!best || bestGap > DELTA_TOLERANCE_MS) return null;
+  const dx = pos.x - best.x;
+  const dy = pos.y - best.y;
+  const dz = pos.z - best.z;
+  return Math.round(Math.sqrt(dx * dx + dy * dy + dz * dz) * 10) / 10;
+}
+
 async function buildFleet() {
   const bots = await Promise.all(PORTS.map((p) => pollBot(p).catch((err) => ({
     port: p,
@@ -284,6 +345,18 @@ async function buildFleet() {
     currentTask: null, lastError: null, deathCount: null, engine: null,
     idle: false, taskStartedAt: null, events: [],
   }))));
+
+  // Feed the position ring and stamp each bot's deltas. Offline bots still get
+  // a samplePosition() call (with a null pos) so their ring keeps getting
+  // pruned rather than freezing stale samples that would produce a bogus delta
+  // the moment the runner comes back.
+  const now = Date.now();
+  for (const b of bots) {
+    const pos = b.offline ? null : b.pos;
+    const ring = samplePosition(b.port, pos, now);
+    b.delta30 = deltaOver(ring, pos, now, 30_000);
+    b.delta60 = deltaOver(ring, pos, now, 60_000);
+  }
 
   const online = bots.filter((b) => !b.offline);
   const iron = bots.reduce((sum, b) => {
@@ -650,6 +723,11 @@ function renderPage() {
 
   .pos { margin-top: 5px; font-size: 11.5px; color: var(--muted); letter-spacing: .02em; }
 
+  .delta { margin-top: 5px; display: flex; align-items: baseline; gap: 6px; font-size: 11px; }
+  .dl { color: var(--dim); letter-spacing: .03em; }
+  .dv { font-weight: 650; font-variant-numeric: tabular-nums; }
+  .dsep { color: #333a45; }
+
   .vitals { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; margin-top: 10px; }
   .vital { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--muted); }
   .vital .lbl { width: 12px; flex: none; text-align: center; }
@@ -793,6 +871,20 @@ function renderPage() {
     if (v <= 12) return '#f2b035';
     return '#5fe36b';
   }
+  // Movement delta colouring. Red is the wedge flag — under half a block of
+  // travel in the window means the bot is very likely stuck, which pairs with
+  // the runner's own wedge watchdog.
+  function deltaColor(v) {
+    if (v == null) return '#5d6675';
+    if (v > 5) return '#5fe36b';
+    if (v >= 0.5) return '#f2b035';
+    return '#ff6b63';
+  }
+  function setDelta(node, v) {
+    setText(node, v == null ? '—' : v.toFixed(1));
+    var col = deltaColor(v);
+    if (node.dataset.col !== col) { node.style.color = col; node.dataset.col = col; }
+  }
 
   function build(bot) {
     var c = el('div', 'card');
@@ -804,6 +896,15 @@ function renderPage() {
     r1.appendChild(dot); r1.appendChild(name); r1.appendChild(port); r1.appendChild(age);
 
     var pos = el('div', 'pos');
+
+    var delta = el('div', 'delta');
+    var d30v = el('span', 'dv');
+    var d60v = el('span', 'dv');
+    delta.appendChild(el('span', 'dl', 'Δ30s'));
+    delta.appendChild(d30v);
+    delta.appendChild(el('span', 'dsep', '|'));
+    delta.appendChild(el('span', 'dl', 'Δ60s'));
+    delta.appendChild(d60v);
 
     var vitals = el('div', 'vitals');
     function vital(label, color) {
@@ -852,12 +953,13 @@ function renderPage() {
     wake.addEventListener('click', function () { act('/api/wake', key, wake, flash); });
     stop.addEventListener('click', function () { act('/api/stop', key, stop, flash); });
 
-    c.appendChild(r1); c.appendChild(pos); c.appendChild(vitals);
+    c.appendChild(r1); c.appendChild(pos); c.appendChild(delta); c.appendChild(vitals);
     c.appendChild(task); c.appendChild(errBox); c.appendChild(meta);
     c.appendChild(inv); c.appendChild(acts);
     grid.appendChild(c);
 
     return { root: c, dot: dot, name: name, port: port, age: age, pos: pos,
+      d30v: d30v, d60v: d60v,
       hp: hp, fd: fd, task: task, tkind: tkind, tstate: tstate, tdetail: tdetail,
       errBox: errBox, deaths: deaths, engine: engine, inv: inv, invSig: null,
       wake: wake, stop: stop, flash: flash };
@@ -901,6 +1003,9 @@ function renderPage() {
     setText(c.age, bot.offline ? (bot.offlineReason || 'offline') : taskAge(bot));
 
     setText(c.pos, bot.offline ? 'runner not answering' : (bot.connected ? fmtPos(bot.pos) : 'runner up, bot disconnected'));
+
+    setDelta(c.d30v, bot.delta30);
+    setDelta(c.d60v, bot.delta60);
 
     function vit(v, val) {
       var pct = val == null ? 0 : Math.max(0, Math.min(100, (val / 20) * 100));
@@ -1052,7 +1157,18 @@ function renderPage() {
 server.listen(PANEL_PORT, PANEL_HOST, () => {
   console.log(`[panel] fleet panel on http://${PANEL_HOST}:${PANEL_PORT}`);
   console.log(`[panel] watching runner ports: ${PORTS.join(', ')}`);
+  console.log(`[panel] self-polling every ${SELF_POLL_MS}ms to keep movement deltas warm`);
   console.log('[panel] write actions: /api/wake (force:false), /api/stop — nothing else mutates');
+
+  // Fires regardless of connected clients. unref'd so it can never be the
+  // reason the process refuses to exit — the server handle owns the lifetime.
+  const selfPoll = setInterval(() => {
+    getFleet().catch(() => {
+      // A failed sweep is already tolerated per-bot inside buildFleet; nothing
+      // to do here but wait for the next tick.
+    });
+  }, SELF_POLL_MS);
+  selfPoll.unref();
 });
 
 for (const sig of ['SIGINT', 'SIGTERM']) {
