@@ -105,3 +105,13 @@ If this event is something the user would act on now, send a PushNotification. R
 TERMINAL state=done detail=branchMine: trunk 22/22 x=24.5 y=53</event>
 If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
 </task-notification>
+
+---
+
+<task-notification>
+<task-id>b69pwuthm</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-phili-tools-cavecrew-mcp/7992c114-e9b3-4ed9-984d-93f64f08e2fd/tasks/b69pwuthm.output</output-file>
+<status>completed</status>
+<summary>Background command "until curl -s http://127.0.0.1:3205/status | grep -q '"state":"done"\|"state":"failed"'; do sleep 15; done; curl -s http://127.0.0.1:3205/status" completed (exit code 0)</summary>
+</task-notification>
