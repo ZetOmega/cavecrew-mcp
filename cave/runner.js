@@ -1284,6 +1284,20 @@ movement
 
 const IDLE_GUARD_THRESHOLD_MS = 90000; // EMERGENCY REVERT: 15s machine-gunned the task mutex and locked out ALL driver tasks fleet-wide. Visible-idle answer = smarter filler, not faster trigger.
 const IDLE_GUARD_TICK_MS = 5000;
+
+// DRIVER-AWARE TOGGLE (issue #6) — an LLM driver's own think-gaps regularly
+// exceed IDLE_GUARD_THRESHOLD_MS and are normal, not abandonment; without a
+// way to say "I'm still driving, just thinking" the guard self-issues a
+// filler task underneath an active driver (two-commanders problem). POST
+// /idleguard {"on":false} lets a driver quiet the guard for its own session.
+// SAFETY TTL below is the backstop for a driver that goes off flag AND then
+// vanishes for real — a bot must never end up permanently unguarded just
+// because the driver that disabled it crashed or forgot.
+let idleGuardEnabled = true;
+let idleGuardOffLoggedAt = 0;
+const IDLE_GUARD_OFF_LOG_INTERVAL_MS = 180000; // log the "skipping" line at most once per 3min while off, not every 5s tick
+let lastHttpRequestAt = Date.now(); // stamped once per request in handleRequest; safety TTL below measures driver silence from this
+const IDLE_GUARD_SAFETY_TTL_MS = 15 * 60 * 1000; // 15min with zero incoming HTTP requests while off -> auto re-arm
 // Depot chest A — must stay in sync with skills.js's own DEPOT_POS constant
 // (kept separate rather than exported/imported to avoid coupling this
 // runner-only scheduling concern to skills.js's module surface).
@@ -1365,6 +1379,14 @@ async function idleGuardCycle(task, ctx) {
 }
 
 function maybeStartIdleGuard() {
+  if (!idleGuardEnabled) {
+    const now = Date.now();
+    if (now - idleGuardOffLoggedAt > IDLE_GUARD_OFF_LOG_INTERVAL_MS) {
+      idleGuardOffLoggedAt = now;
+      logLine('info', 'idle-guard: disabled by driver, skipping fire');
+    }
+    return;
+  }
   if (!state.connected || !bot?.entity) return;
   const isIdle = !state.currentTask || state.currentTask.state !== 'running';
   if (!isIdle) return;
@@ -1374,8 +1396,22 @@ function maybeStartIdleGuard() {
   });
 }
 
+// SAFETY TTL — if a driver disabled the guard and then goes silent (crashed,
+// lost connection, forgot) for IDLE_GUARD_SAFETY_TTL_MS with zero incoming
+// HTTP requests of ANY kind, the guard re-arms itself unconditionally. An
+// abandoned bot must never sit unguarded forever just because the last thing
+// a driver did was turn the guard off.
+function checkIdleGuardSafetyTTL() {
+  if (idleGuardEnabled) return;
+  if (Date.now() - lastHttpRequestAt < IDLE_GUARD_SAFETY_TTL_MS) return;
+  idleGuardEnabled = true;
+  logLine('warn', 'idle-guard: re-armed after 15min driver silence (safety TTL)');
+  pushEvent('idle-guard', 're-armed after 15min driver silence');
+}
+
 setInterval(() => {
   try {
+    checkIdleGuardSafetyTTL();
     maybeStartIdleGuard();
   } catch (err) {
     logLine('error', `idle-guard tick error: ${err?.stack ?? err}`);
@@ -1561,6 +1597,7 @@ function buildStatus() {
     // markTaskFinished) means this still holds the last task's error after
     // it's done, same as currentTask itself, until the next task replaces it.
     lastError: state.currentTask?.result?.error ?? null,
+    idleGuard: idleGuardEnabled,
     engine: defaultEngine,
     deathCount: state.deathCount,
     lastDeath: state.lastDeath,
@@ -1815,6 +1852,26 @@ async function handleAutoEat(req, res) {
   }
 }
 
+async function handleIdleGuard(req, res) {
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch (err) {
+    return sendJson(res, 400, { error: err.message });
+  }
+  if (typeof body.on !== 'boolean') return sendJson(res, 400, { error: '/idleguard requires "on" (boolean)' });
+  idleGuardEnabled = body.on;
+  pushEvent('idle-guard', idleGuardEnabled ? 'enabled by driver' : 'disabled by driver');
+  logLine('info', `idle-guard: ${idleGuardEnabled ? 'enabled' : 'disabled'} via /idleguard`);
+  sendJson(res, 200, {
+    ok: true,
+    idleGuard: idleGuardEnabled,
+    note: idleGuardEnabled
+      ? 'idle-guard armed'
+      : 'idle-guard disabled; auto re-arms after 15min with zero incoming HTTP requests (safety TTL)',
+  });
+}
+
 async function handleStop(res) {
   const task = await cancelCurrentTask('stopped via /stop');
   sendJson(res, 200, { ok: true, task: taskToJSON(task) });
@@ -1905,6 +1962,11 @@ const server = http.createServer((req, res) => {
 });
 
 async function handleRequest(req, res) {
+  // SAFETY TTL clock — cheap one assignment per request, any endpoint counts
+  // as evidence the driver (or whoever) is still alive; see
+  // checkIdleGuardSafetyTTL above.
+  lastHttpRequestAt = Date.now();
+
   const u = new URL(req.url, `http://127.0.0.1:${port}`);
   const pathname = u.pathname;
   const method = req.method;
@@ -1913,6 +1975,7 @@ async function handleRequest(req, res) {
   if (method === 'GET' && pathname === '/events') return handleEvents(u, res);
   if (method === 'POST' && pathname === '/chat') return handleChat(req, res);
   if (method === 'POST' && pathname === '/autoeat') return handleAutoEat(req, res);
+  if (method === 'POST' && pathname === '/idleguard') return handleIdleGuard(req, res);
   if (method === 'POST' && pathname === '/stop') return handleStop(res);
   if (method === 'POST' && pathname === '/relog') return handleRelog(res);
   if (method === 'POST' && pathname === '/eval') return handleEval(req, res);
