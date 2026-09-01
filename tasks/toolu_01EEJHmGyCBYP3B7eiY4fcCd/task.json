@@ -1,0 +1,11 @@
+{
+  "tool_use_id": "toolu_01EEJHmGyCBYP3B7eiY4fcCd",
+  "subagent_type": "cavecrew-investigator",
+  "task_description": "Audit runner chat leak paths",
+  "files": [
+    "cave/CIV.md"
+  ],
+  "started_at": "2026-09-01T10:55:29.391384366+02:00",
+  "completed_at": "2026-09-01T10:55:29.392797801+02:00",
+  "transcript_unavailable_reason": "transcript path unresolvable"
+}
