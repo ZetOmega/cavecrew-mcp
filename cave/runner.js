@@ -134,13 +134,19 @@ async function announce(style, text) {
   // not routine narration. No webhook configured (current default state) ->
   // falls straight through to the existing tellraw-grey path.
   if (style === 'status') {
+    // CHAT-SILENCE HARDENING (chief decree v2, 2026-09-01): routine status
+    // NEVER touches the game — not as white chat, not as tellraw grey. It
+    // goes to the Discord status feed when configured, otherwise only to the
+    // runner log. The old tellraw-grey fallback still put narration in every
+    // player's chat window, which is exactly the spam the decree bans.
     const cfg = getLocalConfig();
     if (discordConfigured(cfg)) {
       const ok = await postStatus({ botName: name, color: teamColor, text, webhookUrl: cfg.discord.webhookUrl });
       if (ok) return;
-      logLine('warn', 'discord postStatus failed, falling back to tellraw grey');
-      // fall through to rcon/bot.chat below
+      logLine('warn', 'discord postStatus failed; status stays in runner log only');
     }
+    logLine('info', `(status) ${text}`);
+    return;
   }
   const rc = getRconChat();
   if (rc) {
