@@ -21,7 +21,11 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 const PANEL_PORT = 3200;
-const PANEL_HOST = '127.0.0.1';
+// Bind all interfaces: loopback + Tailscale (chief order 2026-09-01). Network
+// exposure is fenced by the Windows firewall (inbound 3200 scoped to the
+// tailnet CGNAT range 100.64.0.0/10) — the Host allow-list below stays as
+// CSRF protection, not as network auth.
+const PANEL_HOST = process.env.PANEL_HOST || '0.0.0.0';
 const RUNNER_TIMEOUT_MS = 3000;
 const FLEET_CACHE_MS = 2000;
 // The panel polls the fleet on its own timer, whether or not a browser is
@@ -574,14 +578,23 @@ const server = http.createServer((req, res) => {
 //     and since this server sends no CORS headers the preflight fails and the
 //     request never arrives.
 const ALLOWED_HOSTS = new Set([
-  `${PANEL_HOST}:${PANEL_PORT}`,
+  `127.0.0.1:${PANEL_PORT}`,
   `localhost:${PANEL_PORT}`,
   `[::1]:${PANEL_PORT}`,
+  `zetpc:${PANEL_PORT}`,
+  `zetpc.tail5d7e78.ts.net:${PANEL_PORT}`,
 ]);
+// Tailscale CGNAT IPs (100.64.0.0/10) are legitimate Host values when a
+// tailnet device opens the panel by IP.
+const TAILNET_HOST_RE = new RegExp(
+  '^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.\d{1,3}\.\d{1,3}:' + PANEL_PORT + '$'
+);
 
 function hostAllowed(req) {
   const host = req.headers.host;
-  return typeof host === 'string' && ALLOWED_HOSTS.has(host.toLowerCase());
+  if (typeof host !== 'string') return false;
+  const h = host.toLowerCase();
+  return ALLOWED_HOSTS.has(h) || TAILNET_HOST_RE.test(h);
 }
 
 function isJsonRequest(req) {
