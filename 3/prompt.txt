@@ -213,3 +213,13 @@ Check background task bk6gugz1v output for the chest-A-to-grove goto test result
 <status>completed</status>
 <summary>Background command "Wait for step-off-furniture goto" completed (exit code 0)</summary>
 </task-notification>
+
+---
+
+<task-notification>
+<task-id>b2pgoxvws</task-id>
+<tool-use-id>toolu_01BkhC3VfVVofgG7Kbg6jgGf</tool-use-id>
+<output-file>/tmp/claude-1000/-home-phili-tools-cavecrew-mcp/daee3274-e9de-4548-9a08-50bb6f293ac7/tasks/b2pgoxvws.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for chop-territory goto" completed (exit code 0)</summary>
+</task-notification>
