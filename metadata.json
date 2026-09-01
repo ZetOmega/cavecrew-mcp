@@ -3,7 +3,7 @@
   "checkpoint_id": "01M1EMBXJEXPT2FNXH5XAS60Q8",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 7,
+  "checkpoints_count": 19,
   "files_touched": [
     "cave/schematics/github_rustic-cabin-9383.schematic",
     "cave/schematics/test_pad_3x3.schem"
@@ -22,13 +22,20 @@
       "compact_transcript": "/1/transcript.jsonl",
       "content_hash": "/1/content_hash.txt",
       "prompt": "/1/prompt.txt"
+    },
+    {
+      "metadata": "/2/metadata.json",
+      "transcript": "/2/full.jsonl",
+      "compact_transcript": "/2/transcript.jsonl",
+      "content_hash": "/2/content_hash.txt",
+      "prompt": "/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 1264,
-    "cache_creation_tokens": 791292,
-    "cache_read_tokens": 137225437,
-    "output_tokens": 234756,
-    "api_call_count": 632
+    "input_tokens": 1294,
+    "cache_creation_tokens": 805088,
+    "cache_read_tokens": 143194284,
+    "output_tokens": 238387,
+    "api_call_count": 647
   }
 }
