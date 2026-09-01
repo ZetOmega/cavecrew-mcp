@@ -1,0 +1,19 @@
+für die reports auf discord wünsche ich mir bisschen mehr Farbe emojis schönere Texte, farbiger Text und ganz wichtig, dass du das öfter machst. so wirklich, wenn so kleinere TAS abgeschlossen jetzt vielleicht nicht, aber so alle 15 Minuten so kleinen Zettel report. was geht gerade oder? wenn wenn irgendwas cooles passiert, ist so ein bisschen mehr up to date für mich, wenn gerade großes Release gekommen. es wird irgendwas gefixt hast oder so
+
+---
+
+DISCORD HEARTBEAT (chief standing order): post a small colorful status "Zettel" to the CaveLead Discord webhook (orchestratorWebhookUrl in cave/local.json). Gather cheap ground truth first (bot /status polls on 3201/3202+ for pos/task/hp, note what each teammate lane is doing from your context). Format: Discord embed, color-coded (green 0x2ecc71 win / amber 0xf39c12 progress / red 0xe74c3c problem), emojis per lane (⛏️ mining, 🌲 wood/grove, 🔧 engineering, 📊 panel, 🤝 FEL/trade, 🤖 bots), bold highlights, short lines, casual tone. Content: what runs RIGHT NOW, anything cool since last heartbeat, next up. Keep it a small Zettel, not a wall. If a milestone landed since last post (release/big fix/rescue), lead with it. Do not restate stale news twice.
+
+---
+
+DISCORD HEARTBEAT (chief standing order): post a small colorful status "Zettel" to the CaveLead Discord webhook (orchestratorWebhookUrl in cave/local.json). Gather cheap ground truth first (bot /status polls on 3201/3202+ for pos/task/hp, note what each teammate lane is doing from your context). Format: Discord embed, color-coded (green 0x2ecc71 win / amber 0xf39c12 progress / red 0xe74c3c problem), emojis per lane (⛏️ mining, 🌲 wood/grove, 🔧 engineering, 📊 panel, 🤝 FEL/trade, 🤖 bots), bold highlights, short lines, casual tone. Content: what runs RIGHT NOW, anything cool since last heartbeat, next up. Keep it a small Zettel, not a wall. If a milestone landed since last post (release/big fix/rescue), lead with it. Do not restate stale news twice.
+
+---
+
+DISCORD HEARTBEAT (chief standing order): post a small colorful status "Zettel" to the CaveLead Discord webhook (orchestratorWebhookUrl in cave/local.json). Gather cheap ground truth first (bot /status polls on 3201/3202+ for pos/task/hp, note what each teammate lane is doing from your context). Format: Discord embed, color-coded (green 0x2ecc71 win / amber 0xf39c12 progress / red 0xe74c3c problem), emojis per lane (⛏️ mining, 🌲 wood/grove, 🔧 engineering, 📊 panel, 🤝 FEL/trade, 🤖 bots), bold highlights, short lines, casual tone. Content: what runs RIGHT NOW, anything cool since last heartbeat, next up. Keep it a small Zettel, not a wall. If a milestone landed since last post (release/big fix/rescue), lead with it. Do not restate stale news twice.
+
+---
+
+<task-notification>
+<summary>Goal check-in: background work still running</summary>
+</task-notification>
