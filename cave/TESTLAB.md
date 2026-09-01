@@ -70,6 +70,15 @@ real server or blinking production runners:
 3. HTTP API binds immediately even while the MC connection retries —
    `curl.exe -s http://127.0.0.1:3210/status` exercises boot, state
    load, and the endpoint surface. Kill via the pid file when done.
+4. MANDATORY (lesson from the 2026-09-01 chat-mirror fleet outage): a
+   smoke-boot only counts as green if the log is ALSO clean —
+   `grep -iE "error|failed synchronously" cave/logs/SmokeTest.log`
+   must return nothing. The API answering `/status` proves almost
+   nothing: `connect()` catches synchronous wireBot crashes and quietly
+   schedules a reconnect, so a runner whose bot layer is fatally broken
+   still looks alive over HTTP. Grep case-INSENSITIVE — logLine writes
+   uppercase `ERROR`, and a case-sensitive grep for `error` is exactly
+   how the mirror-wrap crash slipped through the first time.
 
 Port map: 3201-3208 production, **3209 TestRock**, **3210 smoke-boot**
 (never connects to the real server).
