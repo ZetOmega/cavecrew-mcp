@@ -1087,3 +1087,12 @@ If this event is something the user would act on now, send a PushNotification. R
 <event>poll1: {"name":"BariOok","position":{"x":151,"y":127,"z":215},"positionSource":"goal-poll","task":{"kind":"goto","x":170,"y":127,"z":215,"at":1788271393607},"lastBaritoneLine":"[16:03:18] [Render thread/INFO]: [CHAT] \u001b[m\u001b[35m[\u001b[95mBaritone\u001b[35m]\u001b[0m \u001b[37mStarting to search for path from BetterBlockPos{x=161,y=124,z=213} to GoalBlock{x=170,y=127,z=215}\u001b[0m","connected":true,"phase":"in-world","uptime":2639653,"joinedAt":1788268798248,"aborted":null,"gameDir":"C:...(truncated)</event>
 If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
 </task-notification>
+
+---
+
+<task-notification>
+<task-id>b0gzpvvkc</task-id>
+<summary>Monitor event: "BariOok corner2 (170,127,215) probe"</summary>
+<event>NO_PATH: {"name":"BariOok","position":{"x":151,"y":127,"z":215},"positionSource":"goal-poll","task":{"kind":"goto","x":170,"y":127,"z":215,"at":1788271393607},"lastBaritoneLine":"No path found =(","connected":true,"phase":"in-world","uptime":2684051,"joinedAt":1788268798248,"aborted":null,"gameDir":"C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariOok\\gamedir","launcherPid":24544}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
