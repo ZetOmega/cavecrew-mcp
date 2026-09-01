@@ -154,7 +154,14 @@ async function announce(style, text) {
     }
   }
   try {
-    bot?.chat?.(String(text));
+    // NARRATION-LEAK FIX (user decree: game chat = real talk only): a
+    // 'status' line whose discord AND rconchat routes both failed must
+    // degrade to the runner log, never to plain WHITE real chat — white
+    // narration is the exact leak the routing exists to prevent. Deliberate
+    // in-game moments (fancy/rainbow) keep the bot.chat fallback so a
+    // proclamation is never silently swallowed.
+    if (style === 'status') logLine('info', `(status, unrouted) ${text}`);
+    else bot?.chat?.(String(text));
   } catch {
     // ignore — no bot to talk through either, nothing more to do
   }
@@ -289,6 +296,47 @@ const state = {
   deathCount: 0,
   lastDeath: null, // { pos: {x,y,z}|null, ts }
 };
+
+// ---------------------------------------------------------------------------
+// DEATH LEDGER PERSISTENCE — a runner restart used to zero deathCount and
+// drop lastDeath, erasing death evidence entirely (FEEDBACK: "runner restart
+// erases death evidence" — violates the death-coordinates-always-logged law
+// and breaks evolution scoring). Every death event now also appends to a
+// gitignored per-bot cave/deaths-<name>.json, reloaded here on boot.
+// Best-effort on both sides: a missing/corrupt file just means starting from
+// zero, and a failed write never takes the death handler down with it.
+// ---------------------------------------------------------------------------
+
+const deathsFilePath = path.join(CAVE_DIR, `deaths-${name}.json`);
+const deathLedger = []; // [{ pos, ts, taskKind }] — capped at the last 100
+
+function persistDeaths() {
+  try {
+    fs.writeFileSync(
+      deathsFilePath,
+      JSON.stringify(
+        { name, deathCount: state.deathCount, lastDeath: state.lastDeath, deaths: deathLedger.slice(-100) },
+        null,
+        2
+      )
+    );
+  } catch (err) {
+    logLine('warn', `death ledger persist failed: ${err?.message ?? err}`);
+  }
+}
+
+function loadDeaths() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(deathsFilePath, 'utf8'));
+    if (typeof raw?.deathCount === 'number') state.deathCount = raw.deathCount;
+    if (raw?.lastDeath) state.lastDeath = raw.lastDeath;
+    if (Array.isArray(raw?.deaths)) deathLedger.push(...raw.deaths.slice(-100));
+    logLine('info', `death ledger loaded: deathCount=${state.deathCount}, entries=${deathLedger.length}`);
+  } catch {
+    // no ledger yet (or unreadable) — fresh start is the correct fallback
+  }
+}
+loadDeaths();
 
 // Timestamp of the last moment the runner had no running task. Read by the
 // idle-guard ticker (below) to decide when 60s of idleness has elapsed;
@@ -787,6 +835,10 @@ function wireBot(b) {
     pushEvent('death', `${name} died at ${posStr}`);
     state.deathCount++;
     state.lastDeath = { pos, ts: new Date().toISOString() };
+    // Persist the ledger BEFORE anything async below — evidence must survive
+    // even if the process dies mid-handler (see DEATH LEDGER PERSISTENCE).
+    deathLedger.push({ pos, ts: state.lastDeath.ts, taskKind: state.currentTask?.kind ?? null });
+    persistDeaths();
     // IMPORTANT WHITE announcement — the '!' path (see smartChat above)
     // strips the '!' and sends this as real, unmissed chat: every death is
     // worth every bot/player noticing, unlike routine status narration.
@@ -962,8 +1014,19 @@ async function idleGuardCycle(task, ctx) {
       try {
         const result = await skills.depositToChest(bot, { pos: IDLE_GUARD_DEPOT_POS, items: names }, ctx);
         const deposited = result.deposited || [];
-        const summary = deposited.length ? deposited.map((d) => `+${d.count} ${d.name}`).join(', ') : 'nothing (chest full?)';
-        await announce('status', `(idle-guard) DEPOT ${summary} (chest A)`);
+        if (deposited.length) {
+          // PROTOCOL LEDGER, not narration: other bots parse DEPOT lines from
+          // REAL white chat (tellraw system msgs never fire chat events — see
+          // FEEDBACK "ledger lines must stay REAL white chat"), so these go
+          // through smartChat's protocol branch verbatim, one line per item
+          // per the DRIVER_GUIDE DEPOT format. The old "(idle-guard) DEPOT
+          // ..." status line was invisible to every ledger parser.
+          for (const d of deposited) {
+            await smartChat(`DEPOT +${d.count} ${d.name} (chest A)`);
+          }
+        } else {
+          await announce('status', '(idle-guard) deposited nothing (chest full?)');
+        }
       } catch (err) {
         ctx.log('warn', `idle-guard: deposit failed: ${err.message}`);
         await announce('status', `(idle-guard) deposit attempt failed: ${err.message}`);
