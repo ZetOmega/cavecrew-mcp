@@ -29,8 +29,8 @@ stopped) — pick the next free port in the range instead.
 | 3202 | Grog        |
 | 3203 | Zug         |
 | 3204 | Bonk        |
-| 3205 | Thak        |
-| 3206 | Ook         |
+| 3205 | Thak (RETIRED 2026-09-01 — cutover zu BariThak 3302) |
+| 3206 | Ook (RETIRED 2026-09-01 — cutover zu BariOok 3303)   |
 | 3207 | Durk        |
 | 3208 | Mog         |
 | 3200 | Fleet panel (production — `cave/panel.mjs`, chief restarts on deploy) |
@@ -38,6 +38,8 @@ stopped) — pick the next free port in the range instead.
 | 3291 | Fleet panel — mock runner for button-click testing (never point at 3201-3208) |
 | 3298 | (reserved: short-lived test bots, e.g. PebbleZoom) |
 | 3301 | BariBrute (baritone heavy-lifter — range 3301-3309, see BARITONE.md) |
+| 3302 | BariThak (baritone, ex-Thak — fleet conversion 2026-09-01) |
+| 3303 | BariOok (baritone, ex-Ook — fleet conversion 2026-09-01) |
 
 ## Roster
 
@@ -52,10 +54,12 @@ Roles get reassigned fresh by the orchestrator as each bot boots.
 | Grog      | 3202 | builder, grand staircase    | GrogDriver      | active | staircase corridor (mine_stair)  |
 | Zug       | 3203 | farmer, hunter              | ZugDriver       | active | farm_1 (x7-12, z58-59)           |
 | Bonk      | 3204 | path/infra builder          | BonkDriver      | active | trade path z29-22 stretch        |
-| Thak      | 3205 | surface-ore miner           | ThakDriver      | active | mine field (24, 90, 64)          |
-| Ook       | 3206 | far-range hunter/scout      | OokDriver       | active | camp yard (12, 90, 52)           |
+| Thak      | 3205 | RETIRED (→ BariThak)        | —               | retired | — |
+| Ook       | 3206 | RETIRED (→ BariOok)         | —               | retired | — |
 | Durk      | 3207 | unassigned (relaunch)       | —               | stopped | —                                |
 | BariBrute | 3301 | baritone heavy-lift miner   | BariBruteDriver | active | free-range southeast (baritone)  |
+| BariThak  | 3302 | baritone miner (team cave_BariThak joined) | ThakDriver | active | staging → camp (20,90,60) |
+| BariOok   | 3303 | baritone long-range scout/hauler (team cave_BariOok joined) | OokDriver | active | staging → camp (20,90,60) |
 | Mog       | 3208 | unassigned (relaunch)       | —               | stopped | —                                |
 
 Per-bot workstations exist so bots spread out rather than clump on one
@@ -264,6 +268,33 @@ New item-type deposits will silently fail (or path-fail approaching it — the f
 around it is tight, approach from the north side (~11,89,54) if going). Needs a driver pass to
 prune low-value stacks (leaf_litter, gravel, diorite, andesite look prunable) or an overflow chest.
 Full item list in the FEEDBACK.md entry.
+
+**EAST — JACKPOT, 2026-09-01 (Ook/OokDriver, plains + fox lead, post-fall-guard)**: the near-death
+incident from earlier (see FEEDBACK.md) happened crossing x~100-132/z~50 chasing this exact lead —
+returned once the goto vertical-drop guard shipped, careful shorter hops the whole way, zero
+incidents this pass. **Found a massive plains biome starting around x~100 and confirmed continuous
+out to x~257+ (didn't hit the far edge), roughly z30-180.** This is BOTH the settlement candidate
+and the animal zone the tribe needed:
+- **Animal density**: at one scan point (205,92,120) counted **9 chickens + 3 pigs** simultaneously
+  within a 64-block radius — easily the densest wildlife found anywhere this session (west and
+  south legs were both animal-empty). Good breeding-pen candidate clusters: chicken pair at
+  ~(183,94,76)/(181,98,58), pig+chicken cluster around x196-236,z33-114, another chicken/pig knot
+  further out around x250-257,z100-150 (not fully mapped, extent keeps going).
+  - **Hunted 4** (2 chicken, 2 pig) around (180-211,~93,~69-120) — banked chest C: chicken×2,
+    porkchop×3 (one extra drop), egg×1, feather×3. `/collect radius24` swept clean both times.
+- **Lava found** (Nether prep, board target): a real pool at roughly (96-101, y83-84, z18-23) —
+  but it's ~46-56 blocks UNDERGROUND below a mountain (grove/meadow biome surface at y130-140
+  there), not surface-accessible. Confirmed via `findBlocks` scan from the surface, not
+  eyes-on-entered — reaching it is a staircase/branchmine job, not a scout-goto one. Good target
+  once mining infra reaches that direction.
+  - Water source further south around (88-95, y65-75, z60-61) — looks like a deep shaft/waterfall,
+    also not surface-level, noted but not explored.
+- Terrain is flat, walkable, day-lit — genuinely the best-looking second-settlement ground found
+  across all three scouted bearings (west = dry hillside, south = dripstone mountains, east =
+  plains). Worth a dedicated follow-up: stake a claim, plan a breeding pen at one of the
+  chicken/pig clusters above, and a proper mining approach to the lava pool for Nether prep.
+- Fox sighted repeatedly at (91,138,19) throughout the day — same individual, north of the plains
+  in mountain terrain, note-only per doctrine (not food).
 
 ## Trading post
 
