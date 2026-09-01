@@ -584,3 +584,13 @@ If this event is something the user would act on now, send a PushNotification. R
 <event>RELAUNCH_DETECTED new_pid=32592 "phase":"launching" "connected":false</event>
 If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
 </task-notification>
+
+---
+
+<task-notification>
+<task-id>by0gffl8u</task-id>
+<summary>Monitor event: "Watch BariBrute for Engineer relaunch (coarser 30s poll to cut noise)"</summary>
+<event>RELAUNCH_SETTLED_IN_WORLD {"name":"BariBrute","position":null,"positionSource":null,"task":null,"lastBaritoneLine":"- baritone 1.17.0","connected":true,"phase":"in-world","uptime":39501,"joinedAt":1788268272392,"aborted":null,"gameDir":"C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariBrute\\gamedir","launcherPid":32592}
+RELAUNCH_WATCH_END</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
