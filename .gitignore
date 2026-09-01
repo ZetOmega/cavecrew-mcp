@@ -22,6 +22,9 @@ deaths/
 # runtime-generated, per-machine, same as logs/pids/deaths above.
 ledger/
 
+# Per-bot mission history (cave/missions/<name>.jsonl) — same reasoning.
+missions/
+
 # Audit tool's last-run chest snapshot (cave/audit.mjs) — machine/session
 # local runtime state, not a durable record; the diff it prints/logs each
 # run is the thing worth keeping, not the raw snapshot itself.

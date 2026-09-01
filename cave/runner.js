@@ -324,14 +324,17 @@ const LOG_DIR = path.join(CAVE_DIR, 'logs');
 const PID_DIR = path.join(CAVE_DIR, 'pids');
 const DEATHS_DIR = path.join(CAVE_DIR, 'deaths');
 const LEDGER_DIR = path.join(CAVE_DIR, 'ledger');
+const MISSIONS_DIR = path.join(CAVE_DIR, 'missions');
 fs.mkdirSync(LOG_DIR, { recursive: true });
 fs.mkdirSync(PID_DIR, { recursive: true });
 fs.mkdirSync(DEATHS_DIR, { recursive: true });
 fs.mkdirSync(LEDGER_DIR, { recursive: true });
+fs.mkdirSync(MISSIONS_DIR, { recursive: true });
 
 const logFilePath = path.join(LOG_DIR, `${name}.log`);
 const pidFilePath = path.join(PID_DIR, `${name}.json`);
 const ledgerFilePath = path.join(LEDGER_DIR, `${name}.jsonl`);
+const missionsFilePath = path.join(MISSIONS_DIR, `${name}.jsonl`);
 
 function logLine(level, msg) {
   const line = `[${new Date().toISOString()}] ${String(level).toUpperCase()} ${msg}`;
@@ -631,7 +634,20 @@ function sanitizeSource(raw, fallback = 'http') {
 
 let taskCounter = 0;
 function newTask(kind, source = 'http') {
-  return { id: `task-${++taskCounter}`, kind, source, state: 'running', detail: null, result: null, finishedAt: null };
+  // startedAt (G2, PANEL_V3_SPEC.md) — stamped once here, at the single
+  // place every task object gets constructed, so markTaskFinished can
+  // compute durationMs for the mission-history line without any extra
+  // module-level state to track alongside it.
+  return {
+    id: `task-${++taskCounter}`,
+    kind,
+    source,
+    state: 'running',
+    detail: null,
+    result: null,
+    finishedAt: null,
+    startedAt: new Date().toISOString(),
+  };
 }
 function taskToJSON(t) {
   if (!t) return null;
@@ -646,6 +662,43 @@ function taskToJSON(t) {
   };
 }
 
+// G2 (PANEL_V3_SPEC.md) — durable mission history, deliberately mirroring
+// the ledger's own pattern (commit 66a9ca8) exactly: same directory-per-
+// concern convention, same append-only JSONL, same single-choke-point
+// hook (every task, however it started, however it ends, passes through
+// markTaskFinished exactly once — see its own comment above). Same
+// tolerance rule too: append failure is one logLine('warn'), never
+// throws, never blocks the task-finish path it's hooked into.
+//
+// counts:false marks idle-guard/panic-response — self-issued filler/
+// reflex tasks, not real driver-requested work — mirrors how the panel
+// already treats idle-guard as "idle," not "working," everywhere else.
+// "Missions today" (a future panel query) = count of lines with
+// counts !== false and ts within the current UTC day, across all bot
+// files; these still get logged here for completeness, just flagged.
+const MISSION_EXCLUDED_KINDS = new Set(['idle-guard', 'panic-response']);
+function appendMissionLine(task) {
+  const startedMs = task.startedAt ? Date.parse(task.startedAt) : NaN;
+  const finishedMs = task.finishedAt ? Date.parse(task.finishedAt) : NaN;
+  const durationMs = Number.isFinite(startedMs) && Number.isFinite(finishedMs) ? finishedMs - startedMs : null;
+  const entry = {
+    ts: task.finishedAt,
+    bot: name,
+    kind: task.kind,
+    source: task.source ?? null,
+    state: task.state,
+    durationMs,
+    detail: task.detail,
+    error: task.result?.error ?? null,
+    counts: !MISSION_EXCLUDED_KINDS.has(task.kind),
+  };
+  try {
+    fs.appendFileSync(missionsFilePath, JSON.stringify(entry) + '\n');
+  } catch (err) {
+    logLine('warn', `mission history append failed: ${err?.message ?? err}`);
+  }
+}
+
 // Marks a task done/failed/cancelled: stamps finishedAt (STATUS-HOLD: the
 // task object itself — including this timestamp — stays in state.currentTask
 // as-is, never cleared to null, until the NEXT task replaces it; a driver
@@ -656,6 +709,7 @@ function taskToJSON(t) {
 function markTaskFinished(task) {
   task.finishedAt = new Date().toISOString();
   idleSince = Date.now();
+  appendMissionLine(task);
 }
 
 function makeCtx(task) {
