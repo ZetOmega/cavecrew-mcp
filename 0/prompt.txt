@@ -103,3 +103,12 @@ If this event is something the user would act on now, send a PushNotification. R
 <event>poll3: {"name":"BariOok","position":{"x":21,"y":90,"z":60},"positionSource":"goal-poll","task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788268061252},"lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=21,y=90,z=60} to GoalBlock{x=20,y=90,z=60}. 2 nodes considered","connected":true,"phase":"in-world","uptime":1461113,"joinedAt":1788266652997,"aborted":null,"gameDir":"C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariOok\\gamedir","launcherPid":10684}</event>
 If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
 </task-notification>
+
+---
+
+<task-notification>
+<task-id>b6z1l7fnh</task-id>
+<summary>Monitor event: "poll BariOok status, retry-goto (20,90,60) leg 2"</summary>
+<event>poll4: {"name":"BariOok","position":{"x":21,"y":90,"z":60},"positionSource":"goal-poll","task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788268061252},"lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=21,y=90,z=60} to GoalBlock{x=20,y=90,z=60}. 2 nodes considered","connected":true,"phase":"in-world","uptime":1466151,"joinedAt":1788266652997,"aborted":null,"gameDir":"C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariOok\\gamedir","launcherPid":10684}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
