@@ -193,3 +193,13 @@ Check background task bk6gugz1v output for the chest-A-to-grove goto test result
 <status>completed</status>
 <summary>Background command "Wait for exterior route test" completed (exit code 0)</summary>
 </task-notification>
+
+---
+
+<task-notification>
+<task-id>b9502ba4o</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-phili-tools-cavecrew-mcp/daee3274-e9de-4548-9a08-50bb6f293ac7/tasks/b9502ba4o.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for arrival at chop territory" completed (exit code 0)</summary>
+</task-notification>
