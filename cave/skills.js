@@ -235,16 +235,23 @@ function loadNoGoZones() {
 // was built to guarantee. (Never PATHING THROUGH one is aspirational: every
 // caller here uses this to filter target *selection*, not to steer
 // pathfinder's/ashfinder's route away from one mid-transit.)
-function isInNoGoZone(pos, ctx) {
+// (5) silent: bulk pre-filter callers (128 candidates per pickNextVein()
+// call, for example) pass true here to skip the warn — the real, single
+// "this exact target is inside a no-go zone" warn belongs at the one place
+// a target actually gets popped and acted on, not fired once per candidate
+// every filter pass.
+function isInNoGoZone(pos, ctx, silent = false) {
   const zones = loadNoGoZones();
   for (const z of zones) {
     const dx = pos.x - z.x;
     const dz = pos.z - z.z;
     if (Math.hypot(dx, dz) <= z.radius) {
-      ctx?.log?.(
-        'warn',
-        `no-go zone: ${posKey(pos)} is within ${z.radius} of ${z.label ?? 'zone'} (${z.x},${z.z}) — refusing to target`
-      );
+      if (!silent) {
+        ctx?.log?.(
+          'warn',
+          `no-go zone: ${posKey(pos)} is within ${z.radius} of ${z.label ?? 'zone'} (${z.x},${z.z}) — refusing to target`
+        );
+      }
       return true;
     }
   }
@@ -467,7 +474,9 @@ function assertNotProtected(block) {
 // instead of needing a per-site edit.
 async function ensureWithinReach(bot, block, ctx) {
   if (!block || !block.position || !bot?.entity) return;
-  const dist = bot.entity.position.distanceTo(block.position);
+  const dist = bot.entity.position
+    .offset(0, 1.62, 0)
+    .distanceTo(block.position.offset(0.5, 0.5, 0.5));
   if (dist <= 4.2) return;
   ctx?.log?.(
     'warn',
@@ -492,7 +501,9 @@ async function ensureWithinReach(bot, block, ctx) {
   // "No path to the goal!" and this function silently swallowed that). Recheck
   // real distance regardless of which branch above ran, and refuse the
   // dig/place outright if still out of reach.
-  const distAfter = bot.entity.position.distanceTo(block.position);
+  const distAfter = bot.entity.position
+    .offset(0, 1.62, 0)
+    .distanceTo(block.position.offset(0.5, 0.5, 0.5));
   if (distAfter > 4.2) {
     throw new Error(
       `ensureWithinReach: still ${distAfter.toFixed(2)} blocks from ${posKey(block.position)} after approach attempt — refusing to dig/place out of reach`
@@ -698,11 +709,18 @@ function hasLeavesAboveTop(bot, basePos) {
       break;
     }
   }
-  for (let dy = 1; dy <= 4; dy++) {
-    for (let dx = -2; dx <= 2; dx++) {
-      for (let dz = -2; dz <= 2; dz++) {
+  // (4) widened to dx/dz +-4, dy 1-6 — acacia's diagonal-leaning trunk puts
+  // its canopy well outside a +-2 column and was false-flagging as a built
+  // structure and getting skipped/chopped-as-pillar.
+  for (let dy = 1; dy <= 6; dy++) {
+    for (let dx = -4; dx <= 4; dx++) {
+      for (let dz = -4; dz <= 4; dz++) {
         const b = bot.blockAt(top.offset(dx, dy, dz));
-        if (b && LEAVES_RE.test(b.name)) return true;
+        // (4) null means an unloaded chunk edge, not "no leaves here" — a
+        // real canopy could be sitting there un-rendered. Assume tree
+        // rather than false-skip it as a built structure.
+        if (!b) return true;
+        if (LEAVES_RE.test(b.name)) return true;
       }
     }
   }
@@ -788,6 +806,13 @@ export async function chopTrees(bot, opts = {}, ctx = {}) {
         'warn',
         `chopTrees: skipping ${key} — inside camp quarantine (<${CAMP_PROTECT_RADIUS} of (${CAMP_PROTECT_CENTER.x},${CAMP_PROTECT_CENTER.z}))`
       );
+      continue;
+    }
+
+    // (3) NO-GO ZONES — never select a chop target inside one, same rule
+    // mineBlocks already enforces on its own targets.
+    if (isInNoGoZone(basePos, ctx)) {
+      skippedKeys.add(key);
       continue;
     }
 
@@ -895,7 +920,10 @@ function pickNextVein(bot, block, maxDistance, isUsable) {
       maxDistance,
       count: 128,
     })
-    .filter(isUsable);
+    // (5) silent: this runs once per candidate (up to 128) every time a
+    // vein drains — the real no-go-zone warn fires later, once, at the
+    // target-pop recheck in mineBlocks instead.
+    .filter((p) => isUsable(p, true));
   if (candidates.length === 0) return [];
 
   const clusters = [];
@@ -963,7 +991,8 @@ export async function mineBlocks(bot, opts = {}, ctx = {}) {
   // worked, nearest-first; refilled by pickNextVein() whenever it drains.
   let currentVein = [];
 
-  const isUsable = (p) => !skippedKeys.has(posKey(p)) && !isPoisoned(ctx, p) && !isInNoGoZone(p, ctx);
+  const isUsable = (p, silent = false) =>
+    !skippedKeys.has(posKey(p)) && !isPoisoned(ctx, p) && !isInNoGoZone(p, ctx, silent);
 
   while (mined.length < count && iterations < maxIterations) {
     iterations++;
@@ -1045,6 +1074,14 @@ export async function mineBlocks(bot, opts = {}, ctx = {}) {
     } catch (err) {
       skippedKeys.add(key);
       skipped.push({ pos: toPlainPos(targetPos), reason: err.message });
+      // (2d) a "too deep, needs staircase" target means the rest of this
+      // vein is on the same unreachable ledge — skip it whole instead of
+      // burning one watchdog timeout per block re-discovering the same
+      // depth wall.
+      if (err.message === 'too deep, needs staircase') {
+        for (const p of currentVein) skippedKeys.add(posKey(p));
+        currentVein = [];
+      }
       continue;
     }
 
@@ -1972,8 +2009,16 @@ export async function recoverKit(bot, opts = {}, ctx = {}) {
   // through unrelated terrain/bases on the way down.
   try {
     const remaining = deadline - Date.now();
+    // (6) cap the surface leg at half of whatever's left — burning the
+    // whole remaining budget just walking to the death x/z left nothing for
+    // the descend+collect legs that still have to run after this.
     await withDeadline(
-      gotoLoop(bot, new goals.GoalXZ(deathPos.x, deathPos.z), { timeoutMs: Math.min(remaining, 60000), maxAttempts: 3 }, ctx),
+      gotoLoop(
+        bot,
+        new goals.GoalXZ(deathPos.x, deathPos.z),
+        { timeoutMs: Math.min(remaining * 0.5, 60000), maxAttempts: 3 },
+        ctx
+      ),
       remaining
     );
   } catch (err) {
