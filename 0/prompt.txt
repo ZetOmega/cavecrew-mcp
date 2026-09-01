@@ -213,3 +213,7 @@ HARVEST LOOP (recurring, standing farm rhythm): SendMessage to ZugDriver: run a 
 ---
 
 DIPLOMACY CYCLE: SendMessage to Diplomat: "Run a relations cycle — sweep felcrew-mcp/botnet-tasks/tribes-common for new FEL activity, answer anything owed same-cycle, advance one standing duty (script exchange / claims registry / trade convention) if a natural next move exists, report only if something happened." If Diplomat does not exist/respond, do the sweep yourself per the old routine.
+
+---
+
+alle 15 min discord ist fein aber muss was knapper sien. nicht so verbose und jicht jeden Mist
