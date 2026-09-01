@@ -525,6 +525,73 @@ async function cancelCurrentTask(reason) {
   return task;
 }
 
+// ---------------------------------------------------------------------------
+// WEDGE WATCHDOG — generic gathering-task progress guard (FEEDBACK: "chop
+// task claims progress while full-wedged — no task-level watchdog": a chop
+// sat 'running' 8+ minutes, position byte-stable, zero logs gained, while a
+// full-wedge froze the bot's client physics). Staircase has its own
+// net-descent watchdog; chop/mine/collect/hunt had nothing. This samples
+// position + total inventory every WEDGE_TICK_MS while one of those kinds is
+// running: ANY progress signal (>=1 block net move from the window baseline,
+// or any inventory-count change) resets the window; a full WEDGE_WINDOW_MS
+// with neither fails the task loudly so overseer/driver escalates (the 3/3
+// confirmed cure for a real full-wedge is tp + hard runner restart) instead
+// of trusting 'running' forever. goto is deliberately excluded (its own
+// per-attempt timeouts + ground-truth checks already bound it); so are
+// staircase/branchmine (net-descent watchdog) and station tasks (smelt/
+// craft/deposit legitimately stand still — their inventories change anyway).
+// Offline gaps never count toward the window (baseline resets while
+// disconnected, so a relog doesn't insta-trip it).
+// ---------------------------------------------------------------------------
+
+const WEDGE_WATCHDOG_KINDS = new Set(['chop', 'mine', 'collect', 'hunt']);
+const WEDGE_WINDOW_MS = 90000;
+const WEDGE_TICK_MS = 15000;
+const WEDGE_MOVE_EPSILON = 1.0; // blocks of net movement that count as progress
+
+function inventoryTotalCount(b) {
+  try {
+    return b.inventory.items().reduce((sum, it) => sum + it.count, 0);
+  } catch {
+    return -1;
+  }
+}
+
+function startWedgeWatchdog(task) {
+  if (!WEDGE_WATCHDOG_KINDS.has(task.kind)) return null;
+  let baselinePos = null;
+  let baselineInv = -1;
+  let baselineAt = Date.now();
+  return setInterval(() => {
+    if (task.state !== 'running') return; // finally-clause clears us shortly
+    const b = bot;
+    if (!state.connected || !b?.entity) {
+      baselinePos = null; // offline/respawning time never counts as wedged
+      baselineAt = Date.now();
+      return;
+    }
+    const pos = b.entity.position;
+    const inv = inventoryTotalCount(b);
+    if (!baselinePos || pos.distanceTo(baselinePos) >= WEDGE_MOVE_EPSILON || inv !== baselineInv) {
+      baselinePos = pos.clone();
+      baselineInv = inv;
+      baselineAt = Date.now();
+      return;
+    }
+    if (Date.now() - baselineAt < WEDGE_WINDOW_MS) return;
+    // No movement, no inventory change, full window elapsed — wedge. Guard on
+    // identity too: a force-preempt may have replaced state.currentTask while
+    // this tick was queued, and failActiveTask only ever fails the CURRENT one.
+    if (state.currentTask !== task) return;
+    const posStr = `${pos.x.toFixed(1)},${pos.y.toFixed(1)},${pos.z.toFixed(1)}`;
+    logLine('warn', `wedge watchdog: task ${task.id} (${task.kind}) zero progress for ${WEDGE_WINDOW_MS / 1000}s at ${posStr}`);
+    pushEvent('quirk', `wedge watchdog fired: ${task.kind} zero progress ${WEDGE_WINDOW_MS / 1000}s at ${posStr}`);
+    failActiveTask(
+      `wedge: zero progress over ${WEDGE_WINDOW_MS / 1000}s (no items gained, <${WEDGE_MOVE_EPSILON} block net move) at ${posStr} — likely wedged; escalate per stuck-taxonomy (raw-control test, then tp+restart)`
+    );
+  }, WEDGE_TICK_MS);
+}
+
 async function startTask(kind, fn, { force = false } = {}) {
   if (state.currentTask && state.currentTask.state === 'running') {
     // IDLE-GUARD auto-preemption: idle-guard is a runner-self-issued filler
@@ -556,6 +623,7 @@ async function startTask(kind, fn, { force = false } = {}) {
 
   // Run in the background — the caller gets an immediate ack and polls /status.
   (async () => {
+    const wedgeTimer = startWedgeWatchdog(task);
     try {
       const result = await fn(task, ctx);
       if (task.state === 'running') {
@@ -575,6 +643,8 @@ async function startTask(kind, fn, { force = false } = {}) {
         logLine('error', `task ${task.id} (${kind}) failed: ${msg}`);
         pushEvent('task', `task ${task.id} (${kind}) failed: ${msg}`);
       }
+    } finally {
+      if (wedgeTimer) clearInterval(wedgeTimer);
     }
   })();
 
