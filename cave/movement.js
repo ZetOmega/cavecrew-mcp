@@ -610,6 +610,82 @@ async function runAsh(bot, { x, y, z, range, timeoutMs }, ctx) {
 }
 
 // ---------------------------------------------------------------------------
+// HARD VERTICAL-DROP GUARD (chief 2026-09-01 — three fall incidents in one
+// session: Grog's west-corridor 17-block drop, Ook's dripstone x2 including
+// the HP20->2 near-death) — false-reach retries were riding the SAME fall
+// out instead of catching it: Ook's own trace showed the reported gap
+// GROWING between two consecutive false-reach checks ("30.83h/21.67v" then
+// "32.64h/30.77v") — proof the bot kept falling between polls, not just
+// landing off-target once. Every incident traced back to a plain goTo()
+// call (pf and ash both) with no vertical-drop awareness at all.
+//
+// Runs for the lifetime of one goTo() call, sampling bot.entity every
+// physicsTick — independent of which engine is driving, so it works
+// uniformly for both black-box engine awaits (neither gotoLoopPf's
+// bot.pathfinder.goto() nor gotoAsh's gotoWithPath() exposes per-tick
+// control back to us). Trips on either signal:
+//   - a single-tick y-drop > FALL_GUARD_TICK_JUMP: a position snap/
+//     correction, the same shape as Ook's growing-gap trace, catchable
+//     before velocity has even had time to build up;
+//   - a cumulative drop since the last known-solid (onGround) tick >
+//     FALL_GUARD_MAX_DROP while velocity.y still reads as actively
+//     falling (never trips on a bot that's already resting — landing
+//     zeroes velocity.y before onGround necessarily flips in some edge
+//     cases, so velocity is the corroborating signal, not the trigger).
+// A normal 1-block step-down or jump arc never gets close to either
+// threshold (peak jump height ~1.25 blocks; a stepped 1-block drop lands
+// within 1-2 ticks, long before velocity.y or cumulative drop builds up).
+//
+// No opt-out param exists on purpose: goTo() is the shared "plain travel"
+// primitive — buildStaircase's advanceIntoStep and branchMine's
+// digCorridorStep both hand-pulse their own controlled descent and never
+// call goTo() at all (confirmed by grep — zero staircase/branchmine call
+// sites route through here), so there is no legitimate caller that WANTS
+// an unplanned multi-block drop tolerated here.
+// ---------------------------------------------------------------------------
+const FALL_GUARD_MAX_DROP = 4;
+const FALL_GUARD_VELOCITY_Y = -1.0;
+const FALL_GUARD_TICK_JUMP = 3;
+
+function attachFallGuard(bot, onTrip) {
+  let tripped = false;
+  let lastY = bot?.entity?.position?.y ?? null;
+  let lastOnGroundY = lastY;
+  const onTick = () => {
+    if (tripped) return;
+    const pos = bot.entity?.position;
+    if (!pos) return;
+    if (lastY === null) {
+      lastY = pos.y;
+      lastOnGroundY = pos.y;
+      return;
+    }
+    if (bot.entity.onGround) {
+      lastOnGroundY = pos.y;
+      lastY = pos.y;
+      return;
+    }
+    const tickDrop = lastY - pos.y;
+    lastY = pos.y;
+    if (tickDrop > FALL_GUARD_TICK_JUMP) {
+      tripped = true;
+      onTrip(`single-tick position drop of ${tickDrop.toFixed(2)} blocks`);
+      return;
+    }
+    const cumDrop = lastOnGroundY - pos.y;
+    const vy = bot.entity.velocity?.y ?? 0;
+    if (cumDrop > FALL_GUARD_MAX_DROP && vy < FALL_GUARD_VELOCITY_Y) {
+      tripped = true;
+      onTrip(`unplanned ${cumDrop.toFixed(2)}-block drop (velocity.y ${vy.toFixed(2)})`);
+    }
+  };
+  bot.on('physicsTick', onTick);
+  return () => {
+    bot.removeListener('physicsTick', onTick);
+  };
+}
+
+// ---------------------------------------------------------------------------
 // public entry points
 // ---------------------------------------------------------------------------
 
@@ -640,21 +716,61 @@ export async function goTo(bot, opts = {}, ctx = {}) {
     throw new Error('goTo: stale generation');
   }
 
-  if (engine === 'pf') return runPf(bot, { x, y, z, range, timeoutMs }, ctx);
+  // Fall guard spans the WHOLE call below (every engine branch, every pf
+  // retry, the auto ash-then-pf fallback) — see the block above for why.
+  // guardedCtx's isCancelled() folds the trip into the SAME signal
+  // gotoLoopPf/raceWithCancelAndTimeout already poll for real /stop
+  // cancellation, so a trip gets the identical fast reaction a cancel gets
+  // today, with no changes needed inside either engine's own code. The
+  // auto branch's existing `if (ctx.isCancelled?.()) throw err` (below)
+  // also means a trip during an ash attempt correctly skips the pf
+  // fallback — never trades a caught fall for a second blind attempt.
+  let fallGuardReason = null;
+  const detachFallGuard = attachFallGuard(bot, (reason) => {
+    if (fallGuardReason) return; // first trip wins
+    fallGuardReason = reason;
+    ctx.log?.('warn', `goTo: FALL GUARD TRIPPED — ${reason}, stopping`);
+    cancelMovement(bot);
+  });
+  const guardedCtx = {
+    ...ctx,
+    isCancelled: () => fallGuardReason !== null || (ctx.isCancelled ? ctx.isCancelled() : false),
+  };
 
-  if (engine === 'ash') return runAsh(bot, { x, y, z, range, timeoutMs }, ctx);
-
-  // auto
-  if (!ashAvailable(bot)) {
-    ctx.log?.('warn', 'goTo(auto): ashfinder not available on this bot, using pathfinder');
-    return runPf(bot, { x, y, z, range, timeoutMs }, ctx);
-  }
   try {
-    return await runAsh(bot, { x, y, z, range, timeoutMs }, ctx);
-  } catch (err) {
-    if (ctx.isCancelled?.()) throw err; // cancellation, not a failure — don't also start pf
-    ctx.log?.('warn', `goTo(auto): ashfinder failed (${err?.message ?? err}), falling back to pathfinder`);
-    return runPf(bot, { x, y, z, range, timeoutMs }, ctx);
+    let result;
+    try {
+      if (engine === 'pf') {
+        result = await runPf(bot, { x, y, z, range, timeoutMs }, guardedCtx);
+      } else if (engine === 'ash') {
+        result = await runAsh(bot, { x, y, z, range, timeoutMs }, guardedCtx);
+      } else if (!ashAvailable(bot)) {
+        ctx.log?.('warn', 'goTo(auto): ashfinder not available on this bot, using pathfinder');
+        result = await runPf(bot, { x, y, z, range, timeoutMs }, guardedCtx);
+      } else {
+        try {
+          result = await runAsh(bot, { x, y, z, range, timeoutMs }, guardedCtx);
+        } catch (err) {
+          if (guardedCtx.isCancelled()) throw err; // cancellation (incl. fall guard) — don't also start pf
+          ctx.log?.('warn', `goTo(auto): ashfinder failed (${err?.message ?? err}), falling back to pathfinder`);
+          result = await runPf(bot, { x, y, z, range, timeoutMs }, guardedCtx);
+        }
+      }
+    } catch (err) {
+      // Whatever string the engine itself threw (often just "cancelled" or
+      // a generic timeout once guardedCtx.isCancelled() trips mid-flight)
+      // gets replaced with the real reason here — the caller should always
+      // see WHY, never a bare "cancelled" that looks like an ordinary
+      // /stop.
+      if (fallGuardReason) throw new Error(`goTo: aborted by fall guard — ${fallGuardReason}`);
+      throw err;
+    }
+    if (fallGuardReason) {
+      throw new Error(`goTo: aborted by fall guard — ${fallGuardReason}`);
+    }
+    return result;
+  } finally {
+    detachFallGuard();
   }
 }
 
