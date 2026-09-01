@@ -2232,16 +2232,106 @@ export async function emergencySeal(bot, ctx = {}) {
   return { pos: toPlainPos(pos), sealed, ate };
 }
 
+// Returns true when a block is solid ground — not air, not a liquid.
+function isSolidGround(b) {
+  return !!b && b.name !== 'air' && b.name !== 'water' && b.name !== 'lava';
+}
+
+// Returns true when a body cell is safe to walk a staircase through: already
+// open (air, or unloaded/unknown — treated as passable, same optimistic
+// assumption the dig loop below already makes) or diggable rock.
+function isDiggableOrAir(b) {
+  return !b || b.name === 'air' || !!b.diggable;
+}
+
+// Checks the next 3 cells stepping outward along `heading` from `startPos`
+// at the CURRENT y-level (no descent yet — this is a horizontal viability
+// check): floor must be solid ground, and both body cells (feet/head) must
+// be diggable or already air.
+function headingIsViable(bot, startPos, heading) {
+  for (let i = 1; i <= 3; i++) {
+    const floor = bot.blockAt(startPos.offset(heading.x * i, -1, heading.z * i));
+    const feet = bot.blockAt(startPos.offset(heading.x * i, 0, heading.z * i));
+    const head = bot.blockAt(startPos.offset(heading.x * i, 1, heading.z * i));
+    if (!isSolidGround(floor)) return false;
+    if (!isDiggableOrAir(feet) || !isDiggableOrAir(head)) return false;
+  }
+  return true;
+}
+
+// (INTERIOR-START GUARD) — starting inside a room (walls, door thresholds,
+// mixed floor) can point the requested/default heading straight into a
+// wall: the main loop below would then just re-dig the same blocked step
+// forever with 0 net descent. Scan the 4 cardinal headings (the requested
+// opts.direction first, if any, so an explicit request is still honored
+// when it's actually usable) and return the first one that's viable per
+// headingIsViable. Throws instead of ever silently grinding in place.
+function findViableHeading(bot, opts) {
+  const startPos = bot.entity.position.floored();
+  const requested = opts.direction ? resolveDirection(opts) : null;
+  const others = Object.keys(CARDINALS)
+    .filter((name) => !requested || name !== requested.name)
+    .map((name) => ({ name, ...CARDINALS[name] }));
+  const order = requested ? [requested, ...others] : others;
+  for (const heading of order) {
+    if (headingIsViable(bot, startPos, heading)) return heading;
+  }
+  throw new Error('staircase: no viable heading from start (interior geometry) — start from open ground');
+}
+
+// (VOID-AHEAD GUARD) — natural cave floors and cliff edges can leave the
+// block under the NEXT tread as air/liquid. Called before the dig loop
+// touches anything, while frontFeet (the tread's usual vertical reference)
+// is still solid, so placement has the best chance of a valid neighbor.
+// Prefers cobblestone, then dirt, matching what the bot actually carries.
+// Throws the caller-specified error when out of both.
+async function ensureTreadFoundation(bot, treadPos, ctx) {
+  const b = bot.blockAt(treadPos);
+  if (isSolidGround(b)) return true;
+  const material =
+    bot.inventory.items().find((it) => it.name === 'cobblestone') ||
+    bot.inventory.items().find((it) => it.name === 'dirt');
+  if (!material) {
+    throw new Error('staircase: out of tread material (need cobble/dirt)');
+  }
+  const neighborOffsets = [
+    [0, 1, 0],
+    [1, 0, 0],
+    [-1, 0, 0],
+    [0, 0, 1],
+    [0, 0, -1],
+    [0, -1, 0],
+  ];
+  for (const [dx, dy, dz] of neighborOffsets) {
+    const refPos = treadPos.offset(dx, dy, dz);
+    const ref = bot.blockAt(refPos);
+    if (isSolidGround(ref)) {
+      const faceVec = treadPos.minus(refPos);
+      try {
+        await bot.equip(material, 'hand');
+        await safePlaceBlock(bot, ref, faceVec, ctx, treadPos);
+        return true;
+      } catch (err) {
+        ctx.log?.('warn', `ensureTreadFoundation: place attempt against ${posKey(refPos)} failed: ${err.message}`);
+      }
+    }
+  }
+  return false;
+}
+
 // buildStaircase({toY, direction?}) — sealed 1x2 staircase from current pos
 // down to toY. Never digs straight down: each step digs the 2-high walkway
 // forward (frontHead = front at current feet-y, frontFeet = front at
 // feet-y-1) and only ever CHECKS the block below that (newFloor) for a
 // liquid/air exposure to seal — it is never dug. Aborts + seals on lava
-// sight. Torches every 8 steps if torches are available/craftable.
+// sight. Torches every 8 steps if torches are available/craftable. Picks
+// its heading via findViableHeading (interior-start guard) and, per step,
+// fixes a void/liquid tread via ensureTreadFoundation (void-ahead guard)
+// before ever digging onward.
 export async function buildStaircase(bot, opts = {}, ctx = {}) {
   const toY = opts.toY;
   if (typeof toY !== 'number') throw new Error('buildStaircase: "toY" is required');
-  const dir = resolveDirection(opts);
+  const dir = findViableHeading(bot, opts);
   const from = toPlainPos(bot.entity.position);
   const startY = bot.entity.position.y;
   if (toY >= startY) {
@@ -2294,6 +2384,27 @@ export async function buildStaircase(bot, opts = {}, ctx = {}) {
       break;
     }
 
+    const sideOffsets = [
+      [1, 0, 0],
+      [-1, 0, 0],
+      [0, 0, 1],
+      [0, 0, -1],
+    ];
+
+    // (VOID-AHEAD GUARD) — fix the next tread and any side-gap air at body
+    // height BEFORE digging/stepping. Must run before the dig loop below:
+    // frontFeet is still solid here, giving ensureTreadFoundation a real
+    // vertical reference to build the tread against.
+    const treadOk = await ensureTreadFoundation(bot, newFloor, ctx);
+    if (!treadOk) {
+      ctx.log?.('warn', `buildStaircase: no solid neighbor to place a tread at ${posKey(newFloor)} yet — proceeding, watchdog will catch a real stall`);
+    }
+    for (const [dx, dy, dz] of sideOffsets) {
+      const side = frontFeet.offset(dx, dy, dz);
+      if (side.x === frontHead.x && side.z === frontHead.z) continue;
+      await sealStairCell(bot, side, ctx);
+    }
+
     for (const digPos of [frontHead, frontFeet]) {
       const b = bot.blockAt(digPos);
       if (b && b.diggable && b.name !== 'air') {
@@ -2308,15 +2419,11 @@ export async function buildStaircase(bot, opts = {}, ctx = {}) {
       }
     }
 
-    // Seal any liquid/air exposure — below (newFloor) and the 4 side cells
-    // at foot height (skip the cell that IS the path forward).
+    // Seal any liquid/air exposure revealed BY digging — below (newFloor)
+    // and the 4 side cells at foot height (skip the cell that IS the path
+    // forward). Idempotent no-op when the pre-dig pass above already fixed
+    // these; kept as a safety net for exposure that digging itself opens up.
     await sealStairCell(bot, newFloor, ctx);
-    const sideOffsets = [
-      [1, 0, 0],
-      [-1, 0, 0],
-      [0, 0, 1],
-      [0, 0, -1],
-    ];
     for (const [dx, dy, dz] of sideOffsets) {
       const side = frontFeet.offset(dx, dy, dz);
       if (side.x === frontHead.x && side.z === frontHead.z) continue;
