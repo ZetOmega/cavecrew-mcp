@@ -1,1 +1,7 @@
 okay so when you are solcing bus or issues you are spawning a teammate for it. that doesnt make too much sense. when fixing stuff there are 2 options. we have an engineer teammate that does the smaller stuff, from feedback that comes off the playing bots, that enginner tests and does smaller things. big changes, especially code only live best in a worklfow arrangement directly below the engineer or below you as orchestrator
+
+---
+
+<task-notification>
+<summary>Goal check-in: background work still running</summary>
+</task-notification>
