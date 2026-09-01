@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>bkwzggvvp</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-phili-tools-cavecrew-mcp/7992c114-e9b3-4ed9-984d-93f64f08e2fd/tasks/bkwzggvvp.output</output-file>
+<status>completed</status>
+<summary>Background command "until curl -s http://127.0.0.1:3205/status | grep -q '"state":"done"\|"state":"failed"'; do sleep 15; done; curl -s http://127.0.0.1:3205/status" completed (exit code 0)</summary>
+</task-notification>
