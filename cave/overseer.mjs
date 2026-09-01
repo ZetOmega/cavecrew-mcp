@@ -283,6 +283,15 @@ function mutateGoalsFile(mutate) {
 }
 
 function claimGoal(goalId, botName) {
+  // Deficit-generated (dynamic) ids never exist in goals.json — nothing to
+  // read-modify-write there. Their claim state lives in dynamicClaims
+  // instead (module-scope Map, see the DEFICIT ENGINE block below) so a
+  // second idle bot can't also pick up the same synthesized goal this tick.
+  if (!isStaticGoalId(goalId)) {
+    if (dynamicClaims.has(goalId)) return false
+    dynamicClaims.set(goalId, botName)
+    return true
+  }
   let ok = false
   mutateGoalsFile((fresh) => {
     const g = fresh.goals.find((x) => x.id === goalId)
@@ -296,6 +305,10 @@ function claimGoal(goalId, botName) {
 }
 
 function unclaimGoal(goalId, expectBotName) {
+  if (!isStaticGoalId(goalId)) {
+    if (dynamicClaims.get(goalId) === expectBotName) dynamicClaims.delete(goalId)
+    return
+  }
   mutateGoalsFile((fresh) => {
     const g = fresh.goals.find((x) => x.id === goalId)
     if (!g || g.claimedBy !== expectBotName) return false
@@ -306,6 +319,15 @@ function unclaimGoal(goalId, expectBotName) {
 }
 
 function removeGoal(goalId, expectBotName) {
+  // Dynamic ids have nothing to splice out of a file — every entry
+  // dynamicGoals() produces is repeat:true, so this branch isn't expected to
+  // be reached for one in practice, but it stays a safe release-only no-op
+  // rather than a file-mutate that silently finds nothing, should that ever
+  // change.
+  if (!isStaticGoalId(goalId)) {
+    if (dynamicClaims.get(goalId) === expectBotName) dynamicClaims.delete(goalId)
+    return
+  }
   mutateGoalsFile((fresh) => {
     const idx = fresh.goals.findIndex((x) => x.id === goalId)
     if (idx === -1 || fresh.goals[idx].claimedBy !== expectBotName) return false
@@ -313,6 +335,149 @@ function removeGoal(goalId, expectBotName) {
     return true
   })
 }
+
+// ---------------------------------------------------------------------------
+// DEFICIT ENGINE (2026-09-01, stage 2) — reads the SAME cave/ledger/*.jsonl
+// files ledger.mjs prints from (per-bot DEPOT lines, {ts,bot,delta,item,
+// chest}) and sums every parsed delta per item to get a banked-stock number.
+// Pure read + arithmetic over files already on disk, no bot dispatch, no
+// network call — genuinely "milliseconds" per the design brief, even summed
+// fresh every call. Cached SHORT (DEFICIT_CACHE_MS) purely to avoid
+// re-reading the same six-ish small files once per bot per 30s poll tick
+// (8x redundant reads); this is a plain TTL, not an mtime-cache like
+// loadGoals() — ledger files are appended by several bot processes, and
+// "close enough to live" is all the deficit math needs.
+//
+// STOCK_TABLE — hard floor (min) below which an item counts as deficient at
+// all, and a target used only to SCALE priority once it is:
+//   severity = (target - current) / target
+// current can go negative in practice (a bot withdrew more than the ledger
+// ever saw deposited, e.g. before the ledger existed — see cobblestone/
+// oak_planks/stick in the live sample) — that's fine, it just makes
+// severity > 1, i.e. even more urgent. Never clamped.
+const STOCK_TABLE = {
+  iron_ingot: { min: 64, target: 280 }, // iron chain needs a deep buffer, not just the floor
+  coal: { min: 64, target: 64 },
+  torch: { min: 64, target: 64 },
+  oak_planks: { min: 64, target: 64 },
+  oak_log: { min: 64, target: 64 },
+  stick: { min: 32, target: 32 },
+  bread: { min: 40, target: 40 },
+  cobblestone: { min: 128, target: 128 },
+  oak_sapling: { min: 16, target: 16 },
+}
+
+const LEDGER_DIR = path.join(HERE, 'ledger')
+const DEFICIT_CACHE_MS = 10_000
+let bankedStockCache = { computedAt: 0, data: new Map() }
+
+function computeBankedStock() {
+  const now = Date.now()
+  if (now - bankedStockCache.computedAt < DEFICIT_CACHE_MS) return bankedStockCache.data
+  const stock = new Map()
+  let files = []
+  try {
+    files = fs.readdirSync(LEDGER_DIR).filter((f) => f.endsWith('.jsonl'))
+  } catch {
+    files = [] // no ledger dir yet — every item defaults to 0 banked below,
+    // which correctly reads as "deficient" for every STOCK_TABLE entry: fail
+    // toward wanting work done, never toward silently assuming plenty banked.
+  }
+  for (const f of files) {
+    let text
+    try {
+      text = fs.readFileSync(path.join(LEDGER_DIR, f), 'utf8')
+    } catch {
+      continue // one unreadable bot ledger shouldn't blank out every other bot's numbers
+    }
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue
+      let e
+      try {
+        e = JSON.parse(line)
+      } catch {
+        continue // corrupt/partial line — same tolerance ledger.mjs itself uses
+      }
+      if (typeof e.delta !== 'number' || !e.item) continue // unparsed DEPOT lines carry no delta/item — skip, not zero
+      stock.set(e.item, (stock.get(e.item) ?? 0) + e.delta)
+    }
+  }
+  bankedStockCache = { computedAt: now, data: stock }
+  return stock
+}
+
+// Only the items currently BELOW their hard floor, each carrying the
+// severity score used both to scale the one dynamic goal below and (loosely,
+// by hand) to pick the static SEED goals' own priority numbers in
+// goals.json — see the "note" field on each entry there.
+function computeDeficits(stock) {
+  const out = []
+  for (const [item, { min, target }] of Object.entries(STOCK_TABLE)) {
+    const current = stock.get(item) ?? 0
+    if (current < min) out.push({ item, current, min, target, severity: (target - current) / target })
+  }
+  return out
+}
+
+// Dynamic (in-memory-only) goal generation. goals.json's static SEED already
+// hand-authors the iron chain, torch crafting and cobble mining (their
+// priorities are curator-set using the severity formula as a guide, not
+// live-recomputed) — see each entry's own "note" field for why those three
+// stayed static. Wood is the ONE stock item this stage generates a goal for
+// automatically, because it's the one seed item explicitly called out as
+// deficit-gated rather than requires-gated ("wood buffer chop, only while
+// logs deficit"), and its production action (/chop) has no on-hand-
+// ingredient prerequisite to check — it can be regenerated fresh from live
+// severity every tick with zero curator upkeep. Other STOCK_TABLE entries
+// with no template here (coal is an ingredient of the static goals above;
+// saplings/bread have no single-endpoint production action yet) still get
+// counted by computeDeficits() for visibility, they just don't synthesize a
+// goal — future work, not a gap this stage silently hides.
+//
+// Claim tracking for these lives ENTIRELY in-memory (dynamicClaims below)
+// rather than round-tripping through goals.json like the static claim path:
+// there's nothing to persist — these entries don't exist in the file at
+// all, they're resynthesized fresh every tick straight from ledger
+// arithmetic, and a process restart already wipes dynamicClaims along with
+// every other in-memory goal-tracking field (state Map, s.activeGoalId, ...)
+// in one consistent sweep. See reconcileGoalClaims' dynamic-goal branch for
+// the completion side of this.
+const dynamicClaims = new Map() // goalId -> botName, this process's lifetime only
+const WOOD_DEFICIT_GOAL_ID = 'deficit-oak_log-chop'
+
+function dynamicGoals() {
+  const goals = []
+  const woodDeficit = computeDeficits(computeBankedStock()).find((d) => d.item === 'oak_log')
+  if (woodDeficit) {
+    const priority = Math.min(9, Math.max(1, Math.round(woodDeficit.severity * 8)))
+    const claimedBy = dynamicClaims.get(WOOD_DEFICIT_GOAL_ID)
+    goals.push({
+      id: WOOD_DEFICIT_GOAL_ID,
+      priority,
+      kind: 'chop',
+      params: { count: 8, maxDistance: 48 },
+      requires: {},
+      repeat: true,
+      ...(claimedBy ? { claimedBy } : {}),
+    })
+  }
+  return goals
+}
+
+function isStaticGoalId(id) {
+  return loadGoals().goals.some((g) => g.id === id)
+}
+
+// static-file-wins on id collision (design contract): a curator can define a
+// goals.json entry with THIS exact id to override/replace a generated one
+// outright (custom params, an added requires clause, whatever) — the static
+// entry always shadows the dynamic one, never the reverse.
+function mergedGoalsPool() {
+  const staticGoals = loadGoals().goals
+  const staticIds = new Set(staticGoals.map((g) => g.id))
+  return [...staticGoals, ...dynamicGoals().filter((g) => !staticIds.has(g.id))]
+}
+// ---------------------------------------------------------------------------
 
 let cachedGoalZones = null
 function loadGoalZones() {
@@ -381,6 +546,34 @@ function pickGoal(goals, st, s) {
 // threshold below, so a goal's completion/abandonment is picked up the very
 // next tick after it happens, not delayed until the bot sits idle again.
 function reconcileGoalClaims(bot, st, s, now) {
+  // Dynamic-goal completion/abandonment: handled here FIRST and separately
+  // from the static-file loop below, because a deficit-generated goal can
+  // legitimately vanish from dynamicGoals()'s own output mid-flight (the
+  // stock it was tracking crosses back above its floor while the bot is
+  // still out chopping) — a loop keyed off "goals currently in the pool"
+  // would then never see it again and its claim would leak forever. Keying
+  // off this bot's own s.activeGoalId instead is correct regardless of
+  // whether the goal is still being generated this tick.
+  if (s.activeGoalId && !isStaticGoalId(s.activeGoalId)) {
+    const gid = s.activeGoalId
+    const ct = st.currentTask
+    if (ct && ct.id === s.activeGoalTaskId) {
+      if (ct.state === 'running') return // still working — nothing else to reconcile this tick
+      const cancelled = !!ct.result?.cancelled
+      const success = ct.state === 'done' && !cancelled
+      log(`${bot.name} goal ${gid} ${success ? 'completed' : cancelled ? 'cancelled' : `failed (${ct.state})`} (deficit-generated)`)
+      s.activeGoalId = null
+      s.activeGoalTaskId = null
+      unclaimGoal(gid, bot.name) // dynamic: release only — nothing to remove from a file
+      return
+    }
+    log(`${bot.name} goal ${gid} claim abandoned (current task no longer matches, deficit-generated)`)
+    s.activeGoalId = null
+    s.activeGoalTaskId = null
+    unclaimGoal(gid, bot.name)
+    return
+  }
+
   const goals = loadGoals().goals
   for (const g of goals) {
     if (g.claimedBy !== bot.name) continue
@@ -429,7 +622,7 @@ function reconcileGoalClaims(bot, st, s, now) {
 // this tick) — never `force`, one commander, unchanged. Returns true iff a
 // goal was actually fired (caller falls through to BOTS[].defaults on false).
 async function tryFireGoal(bot, st, s) {
-  const g = pickGoal(loadGoals().goals, st, s)
+  const g = pickGoal(mergedGoalsPool(), st, s)
   if (!g) return false
   if (!claimGoal(g.id, bot.name)) {
     log(`${bot.name} goal ${g.id} claim lost (race/concurrent edit) — skipping this cycle`)

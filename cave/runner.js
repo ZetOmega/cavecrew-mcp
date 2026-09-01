@@ -2181,6 +2181,21 @@ const taskRoutes = {
       ctx
     );
   }),
+  // POST /ensureTool {kind: "pickaxe"|"axe"} — thin task wrapper around
+  // skills.ensureTool (inventory -> depot chest -> craft chain, see its own
+  // header in skills.js), same mutex/force/source/taskToJSON wiring every
+  // other row here gets from taskEndpoint. Added 2026-09-01 so the goal
+  // engine (cave/overseer.mjs, GOAL ENGINE block) has an endpoint to fire
+  // for its "re-kit" pseudo-goal — goals.json's `kind` field doubles as the
+  // endpoint name there (ep = '/' + kind), so a goal needs kind:"ensureTool"
+  // to reach this row; see goals.json's "pickaxe-rekit" seed entry.
+  '/ensureTool': taskEndpoint('ensureTool', async (b, body, ctx) => {
+    if (body.kind !== 'pickaxe' && body.kind !== 'axe') {
+      throw new Error('/ensureTool requires "kind" to be "pickaxe" or "axe"');
+    }
+    const engine = validateEngineBody(body, '/ensureTool');
+    return skills.ensureTool(b, { kind: body.kind, engine }, ctx);
+  }),
 };
 
 async function handleChat(req, res) {

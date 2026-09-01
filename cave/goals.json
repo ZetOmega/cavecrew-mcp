@@ -1,3 +1,65 @@
 {
-  "goals": []
+  "goals": [
+    {
+      "id": "deep-iron-branchmine",
+      "priority": 9,
+      "kind": "branchmine",
+      "params": { "y": 49 },
+      "requires": {
+        "items": [
+          { "name": "torch", "minCount": 8 },
+          { "name": "bread", "minCount": 2 }
+        ],
+        "minDurability": 30
+      },
+      "repeat": true,
+      "note": "y49 sits inside the mine_grid zone (zones.json, y45-62) so skills.branchMine's own DIG LAW zone check passes as long as the bot's x/z is also inside that box. minDurability 30 is a FLOOR (overseer.mjs goalEligible: only eligible while the pickaxe still has >=30% life left) so a long corridor never breaks the pick mid-dig. 'food' from the design brief is read as bread on hand (items schema has no live-hunger-stat requires clause). Priority hand-set from the iron_ingot severity formula at seed time (current 0 / min 64 / target 280 -> severity 1.0) -- not live-recomputed like the deficit engine's dynamic wood-chop entry."
+    },
+    {
+      "id": "iron-smelt",
+      "priority": 8,
+      "kind": "smelt",
+      "params": { "input": "raw_iron", "fuel": "coal", "count": 1 },
+      "requires": {
+        "items": [
+          { "name": "raw_iron", "minCount": 1 },
+          { "name": "coal", "minCount": 1 }
+        ]
+      },
+      "repeat": true,
+      "note": "CURATOR-TOGGLED: furnace availability is a chat-convention lease between drivers (see DRIVER_GUIDE.md), never parsed or enforced by the engine -- this goal only ever checks bot-readiness (raw_iron+coal on hand). Comment out or delete by hand if the camp furnace is leased elsewhere. count:1 deliberately, not a batch -- single-craft law (see FEEDBACK.md 'batch craft silently drops items' + skills.js craftItem's single-craft-loop fix); repeat:true fires it again next tick per remaining raw_iron instead of ever requesting a bigger batch."
+    },
+    {
+      "id": "torch-craft",
+      "priority": 7,
+      "kind": "craft",
+      "params": { "item": "torch", "amount": 1 },
+      "requires": {
+        "items": [
+          { "name": "coal", "minCount": 1 },
+          { "name": "stick", "minCount": 1 }
+        ]
+      },
+      "repeat": true,
+      "note": "CURATOR-TOGGLED like iron-smelt above -- crafting-table availability is chat convention, not engine-enforced. Feeds the deep-iron-branchmine torch>=8 requirement directly. amount:1, not a batch -- single-craft law (see FEEDBACK.md torch-batch item-loss bug); repeat:true covers the rest one craft at a time."
+    },
+    {
+      "id": "cobble-mine",
+      "priority": 9,
+      "kind": "mine",
+      "params": { "block": "stone", "count": 16, "maxDistance": 32, "zone": "mine_field" },
+      "requires": { "nearZone": "mine_field" },
+      "repeat": true,
+      "note": "block:'stone' because mining stone is what drops cobblestone. Sited in mine_field (zones.json) where Thak's own DIG-LAW-safe workstation (24,90,64) already sits, so his idle-default parking there naturally makes him eligible -- no special-casing needed, any bot standing in-zone qualifies. zone:'mine_field' in params ALSO restricts skills.mineBlocks' own candidate search (see runner.js /mine's zone-filter comment) so a wide maxDistance can't wander into mine_grid/mine_stair instead."
+    },
+    {
+      "id": "pickaxe-rekit",
+      "priority": 2,
+      "kind": "ensureTool",
+      "params": { "kind": "pickaxe" },
+      "requires": {},
+      "repeat": true,
+      "note": "Background readiness filler -- deliberately the LOWEST priority of every seed goal so it only fires once nothing more valuable is eligible. skills.ensureTool() no-ops (just re-equips) if a pickaxe of ANY durability is already held, so this only actually re-kits once the equipped pick fully breaks (0 durability -> removed from inventory in vanilla) and none is left in the depot/craft chain fallback. Uses the new POST /ensureTool endpoint (runner.js, 2026-09-01)."
+    }
+  ]
 }
