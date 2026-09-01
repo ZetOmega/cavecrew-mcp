@@ -405,97 +405,141 @@ export async function gotoLoopPf(bot, goal, opts = {}, ctx = {}) {
   const maxAttempts = opts.maxAttempts ?? 5;
   let lastErr = null;
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    if (ctx.isCancelled?.()) {
-      throw new Error('gotoLoopPf: cancelled');
-    }
-    // Bot reconnected/relogged out from under this run (generation bumped in
-    // runner.js) — the bot.pathfinder.goto() promise below is bounded by
-    // timeoutMs already so this isn't a hang risk like ash, but there's no
-    // reason to burn further retries against a stale bot instance.
-    if (ctx.isStaleGeneration?.()) {
-      throw new Error('gotoLoopPf: stale generation');
-    }
+  // HARD VERTICAL-DROP GUARD (chief 2026-09-01) — see attachFallGuard's own
+  // doc block below for the full incident writeup. Wired IN HERE, not just
+  // at goTo()'s top level, because gotoLoopPf is the SHARED pf primitive:
+  // skills.js's own local gotoLoop() wrapper calls this directly too (~20
+  // call sites — chopTrees, mineBlocks, collectDrops, branchMine's
+  // digCorridorStep, etc.), completely bypassing goTo(). digCorridorStep is
+  // in fact the ORIGINAL 17-block corridor-fall incident (Grog) this guard
+  // exists for — a goTo()-only guard would have missed it entirely. Every
+  // gotoLoop() caller here is a short single/near-range step (grepped and
+  // read all ~20 call sites — none intentionally covers >4 blocks of pure
+  // airborne descent in one call; legitimate multi-block descents happen
+  // across many small per-step calls, each touching ground between them,
+  // which resets the guard's cumulative-drop baseline and never trips it),
+  // so this is safe to apply unconditionally, same as at goTo()'s level.
+  let fallGuardReason = null;
+  const detachFallGuard = attachFallGuard(bot, (reason) => {
+    if (fallGuardReason) return; // first trip wins
+    fallGuardReason = reason;
+    ctx.log?.('warn', `gotoLoopPf: FALL GUARD TRIPPED — ${reason}, stopping`);
     try {
-      await withTimeout(bot.pathfinder.goto(goal), timeoutMs);
-      // (FIELD BUG, Grog 2026-09-01 — FEEDBACK "goto false-reach reports
-      // IDENTICAL stale distance from different positions") The false-reach
-      // check reported the EXACT same "9.30 blocks horiz / 3.00 vert" from
-      // two genuinely different bot positions, which no live measurement can
-      // do. The position source itself is live (goalGroundTruth reads
-      // bot.entity.position at call time) — what is not live is `bot` after a
-      // mid-task reconnect: the old bot object stops receiving position
-      // updates the moment the runner builds a new one, so every later read
-      // returns the same frozen coordinates. Re-check the generation the
-      // instant goto() settles, BEFORE ground-truthing, so a stale bot's
-      // frozen position can never produce a false-reach verdict (or a retry
-      // burnt against a zombie).
-      if (ctx.isStaleGeneration?.()) throw new Error('gotoLoopPf: stale generation');
-      // DRAGON GUARD: goto() resolving is not proof the bot moved (see the
-      // goalGroundTruth comment above) — ground-truth it before trusting it.
-      // (CALIBRATION) horizontal-only margin vs range+1.0, vertical checked
-      // separately within 1.5 — the old combined-3D check vs range+0.75 was
-      // flagging real near-goal successes as false (Grog/Bonk field logs:
-      // "resolved success but bot is X blocks from goal" firing when the
-      // bot was actually <1 block away, and a vertical-offset GoalNear got
-      // its y term double-counted into the same margin as range).
-      const check = goalGroundTruth(bot, goal);
-      if (check && (check.horizDist > check.range + 1.0 || check.vertDist > 1.5)) {
-        lastErr = new Error(
-          `false-reached caught: goto resolved success but bot is ${check.horizDist.toFixed(2)} blocks horiz / ${check.vertDist.toFixed(2)} vert from goal (range ${check.range})`
-        );
-        ctx.log?.('warn', `gotoLoopPf: ${lastErr.message}`);
+      bot.pathfinder.setGoal(null);
+    } catch {
+      // ignore
+    }
+  });
+  const guardedCtx = {
+    ...ctx,
+    isCancelled: () => fallGuardReason !== null || (ctx.isCancelled ? ctx.isCancelled() : false),
+  };
+
+  try {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (guardedCtx.isCancelled()) {
+        throw new Error(fallGuardReason ? `gotoLoopPf: aborted by fall guard — ${fallGuardReason}` : 'gotoLoopPf: cancelled');
+      }
+      // Bot reconnected/relogged out from under this run (generation bumped in
+      // runner.js) — the bot.pathfinder.goto() promise below is bounded by
+      // timeoutMs already so this isn't a hang risk like ash, but there's no
+      // reason to burn further retries against a stale bot instance.
+      if (ctx.isStaleGeneration?.()) {
+        throw new Error('gotoLoopPf: stale generation');
+      }
+      try {
+        await withTimeout(bot.pathfinder.goto(goal), timeoutMs);
+        // (FIELD BUG, Grog 2026-09-01 — FEEDBACK "goto false-reach reports
+        // IDENTICAL stale distance from different positions") The false-reach
+        // check reported the EXACT same "9.30 blocks horiz / 3.00 vert" from
+        // two genuinely different bot positions, which no live measurement can
+        // do. The position source itself is live (goalGroundTruth reads
+        // bot.entity.position at call time) — what is not live is `bot` after a
+        // mid-task reconnect: the old bot object stops receiving position
+        // updates the moment the runner builds a new one, so every later read
+        // returns the same frozen coordinates. Re-check the generation the
+        // instant goto() settles, BEFORE ground-truthing, so a stale bot's
+        // frozen position can never produce a false-reach verdict (or a retry
+        // burnt against a zombie).
+        if (ctx.isStaleGeneration?.()) throw new Error('gotoLoopPf: stale generation');
+        if (fallGuardReason) throw new Error(`gotoLoopPf: aborted by fall guard — ${fallGuardReason}`);
+        // DRAGON GUARD: goto() resolving is not proof the bot moved (see the
+        // goalGroundTruth comment above) — ground-truth it before trusting it.
+        // (CALIBRATION) horizontal-only margin vs range+1.0, vertical checked
+        // separately within 1.5 — the old combined-3D check vs range+0.75 was
+        // flagging real near-goal successes as false (Grog/Bonk field logs:
+        // "resolved success but bot is X blocks from goal" firing when the
+        // bot was actually <1 block away, and a vertical-offset GoalNear got
+        // its y term double-counted into the same margin as range).
+        const check = goalGroundTruth(bot, goal);
+        if (check && (check.horizDist > check.range + 1.0 || check.vertDist > 1.5)) {
+          lastErr = new Error(
+            `false-reached caught: goto resolved success but bot is ${check.horizDist.toFixed(2)} blocks horiz / ${check.vertDist.toFixed(2)} vert from goal (range ${check.range})`
+          );
+          ctx.log?.('warn', `gotoLoopPf: ${lastErr.message}`);
+          try {
+            bot.pathfinder.setGoal(null);
+          } catch {
+            // ignore
+          }
+          if (attempt < maxAttempts) await sleep(300);
+          continue;
+        }
+        return;
+      } catch (err) {
+        lastErr = err;
+        ctx.log?.('warn', `gotoLoopPf: attempt ${attempt}/${maxAttempts} failed (${err?.message}); re-issuing`);
+        // Cancel via setGoal(null) ONLY. bot.pathfinder.stop() sets an internal
+        // stopPathing flag that silently nulls out the *next* setGoal() call —
+        // never call it here.
         try {
           bot.pathfinder.setGoal(null);
         } catch {
           // ignore
         }
+        if (fallGuardReason) break; // don't burn remaining retries riding the same fall out
         if (attempt < maxAttempts) await sleep(300);
-        continue;
       }
-      return;
-    } catch (err) {
-      lastErr = err;
-      ctx.log?.('warn', `gotoLoopPf: attempt ${attempt}/${maxAttempts} failed (${err?.message}); re-issuing`);
-      // Cancel via setGoal(null) ONLY. bot.pathfinder.stop() sets an internal
-      // stopPathing flag that silently nulls out the *next* setGoal() call —
-      // never call it here.
-      try {
-        bot.pathfinder.setGoal(null);
-      } catch {
-        // ignore
-      }
-      if (attempt < maxAttempts) await sleep(300);
     }
-  }
-  try {
-    bot.pathfinder.setGoal(null);
-  } catch {
-    // ignore
-  }
-
-  // Same stale guard as inside the loop, and for the same reason: the
-  // rawWalkTo fallback below both READS position (to decide whether the goal
-  // is close enough to be worth hand-walking to) and DRIVES the bot. Neither
-  // is meaningful on a superseded bot instance — its position is frozen, and
-  // its controls belong to a connection the runner has already replaced.
-  if (ctx.isStaleGeneration?.()) throw new Error('gotoLoopPf: stale generation');
-
-  // Every retry either false-reached or genuinely failed. If the bot is
-  // still ground-truthed as actually close, pathfinder itself is the thing
-  // lying (or stuck on a no-dig-unreachable short hop) — bypass it by hand
-  // rather than give up on a goal that's right there.
-  const finalCheck = goalGroundTruth(bot, goal);
-  if (finalCheck && finalCheck.dist < 6) {
     try {
-      await rawWalkTo(bot, goal, finalCheck.range, ctx);
-      return;
-    } catch (rawErr) {
-      lastErr = rawErr;
+      bot.pathfinder.setGoal(null);
+    } catch {
+      // ignore
     }
-  }
 
-  throw new Error(`gotoLoopPf: failed after ${maxAttempts} attempts: ${lastErr?.message ?? 'unknown error'}`);
+    if (fallGuardReason) {
+      throw new Error(`gotoLoopPf: aborted by fall guard — ${fallGuardReason}`);
+    }
+
+    // Same stale guard as inside the loop, and for the same reason: the
+    // rawWalkTo fallback below both READS position (to decide whether the goal
+    // is close enough to be worth hand-walking to) and DRIVES the bot. Neither
+    // is meaningful on a superseded bot instance — its position is frozen, and
+    // its controls belong to a connection the runner has already replaced.
+    if (ctx.isStaleGeneration?.()) throw new Error('gotoLoopPf: stale generation');
+
+    // Every retry either false-reached or genuinely failed. If the bot is
+    // still ground-truthed as actually close, pathfinder itself is the thing
+    // lying (or stuck on a no-dig-unreachable short hop) — bypass it by hand
+    // rather than give up on a goal that's right there.
+    const finalCheck = goalGroundTruth(bot, goal);
+    if (finalCheck && finalCheck.dist < 6) {
+      try {
+        await rawWalkTo(bot, goal, finalCheck.range, guardedCtx);
+        if (fallGuardReason) throw new Error(`gotoLoopPf: aborted by fall guard — ${fallGuardReason}`);
+        return;
+      } catch (rawErr) {
+        lastErr = rawErr;
+      }
+    }
+
+    if (fallGuardReason) {
+      throw new Error(`gotoLoopPf: aborted by fall guard — ${fallGuardReason}`);
+    }
+    throw new Error(`gotoLoopPf: failed after ${maxAttempts} attempts: ${lastErr?.message ?? 'unknown error'}`);
+  } finally {
+    detachFallGuard();
+  }
 }
 
 async function runPf(bot, { x, y, z, range, timeoutMs }, ctx) {
