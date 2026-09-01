@@ -750,6 +750,125 @@
     });
   }
 
+  // Economy (v3, §3.2) — /api/economy's per-item, time-bucketed net-flow
+  // series over cave/ledger/*.jsonl. Hand-rolled inline SVG (no lib, matches
+  // the file's zero-deps doctrine) — a sparkline is just N numbers mapped to
+  // a path, per the architecture note's own sparklinePath() sketch, extended
+  // here with a zero baseline and dot markers so a mostly-flat 36-bucket
+  // window with only 1-4 real movements still reads as "activity happened
+  // here", not as a flat, information-free line.
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+  function svgEl(tag, attrs) {
+    var e = document.createElementNS(SVG_NS, tag);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+  // One fixed hue per tracked item (ECONOMY_KEY_ITEMS, panel-data.mjs) via
+  // the --econ-* tokens (panel.mjs :root) — referenced live through
+  // var(--token) exactly like durabilityColor() above, so a future skin pass
+  // only ever touches the :root block, never this file.
+  var ECON_ITEM_TOKEN = {
+    iron_ingot: 'var(--econ-iron)',
+    raw_iron: 'var(--econ-raw-iron)',
+    wheat: 'var(--econ-wheat)',
+    bread: 'var(--econ-bread)',
+    oak_log: 'var(--econ-oak)',
+    cobblestone: 'var(--econ-cobble)'
+  };
+  var ECON_W = 160, ECON_H = 30, ECON_PAD = 3;
+  function buildSparkline(itemData) {
+    var values = itemData.buckets || [];
+    var color = ECON_ITEM_TOKEN[itemData.item] || 'var(--muted)';
+    var svg = svgEl('svg', { width: String(ECON_W), height: String(ECON_H), viewBox: '0 0 ' + ECON_W + ' ' + ECON_H, class: 'econ-svg' });
+    if (values.length < 2) return svg;
+    var max = 0, min = 0;
+    values.forEach(function (v) { if (v > max) max = v; if (v < min) min = v; });
+    // A window that's entirely zero (no bucket has moved) still needs a
+    // non-zero range to divide by — widen it symmetrically around zero
+    // rather than special-casing an all-flat render.
+    if (max === min) { max += 1; min -= 1; }
+    var range = max - min;
+    var innerH = ECON_H - ECON_PAD * 2;
+    var stepX = (ECON_W - ECON_PAD * 2) / (values.length - 1);
+    function xAt(i) { return ECON_PAD + i * stepX; }
+    function yAt(v) { return ECON_PAD + innerH - ((v - min) / range) * innerH; }
+    var zeroY = yAt(0);
+    svg.appendChild(svgEl('line', { x1: String(ECON_PAD), x2: String(ECON_W - ECON_PAD), y1: zeroY.toFixed(1), y2: zeroY.toFixed(1), stroke: 'var(--line)', 'stroke-width': '1' }));
+    var d = '';
+    values.forEach(function (v, i) {
+      d += (i === 0 ? 'M' : 'L') + xAt(i).toFixed(1) + ',' + yAt(v).toFixed(1) + ' ';
+    });
+    svg.appendChild(svgEl('path', { d: d.trim(), fill: 'none', stroke: color, 'stroke-width': '1.6', 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
+    // Dots only at buckets that actually moved — 36 mostly-zero buckets
+    // would otherwise drown a real 1-4-datapoint window in near-invisible
+    // markers sitting right on the zero baseline.
+    values.forEach(function (v, i) {
+      if (!v) return;
+      var dot = svgEl('circle', { cx: xAt(i).toFixed(1), cy: yAt(v).toFixed(1), r: '2.4', fill: color });
+      var title = svgEl('title', {});
+      title.textContent = (v > 0 ? '+' : '') + v + ' ' + itemData.item;
+      dot.appendChild(title);
+      svg.appendChild(dot);
+    });
+    return svg;
+  }
+  function renderEconomyRow(itemData) {
+    var row = el('div', 'econ-row');
+    row.appendChild(el('div', 'econ-name', itemData.item));
+    var spark = el('div', 'econ-spark');
+    spark.appendChild(buildSparkline(itemData));
+    row.appendChild(spark);
+    var netCls = 'econ-net' + (itemData.net > 0 ? ' pos' : (itemData.net < 0 ? ' neg' : ''));
+    row.appendChild(el('div', netCls, (itemData.net > 0 ? '+' : '') + itemData.net));
+    // 'et' (event-timestamp) is the shared class refreshTimestamps() scans
+    // for — reusing it here means this ticks on the same rule as every other
+    // relative clock on the page instead of needing its own refresh loop.
+    var last = el('div', 'econ-last et');
+    if (itemData.lastTs) {
+      last.dataset.ts = itemData.lastTs;
+      last.textContent = fmtDur(Date.now() - Date.parse(itemData.lastTs)) + ' ago';
+    }
+    row.appendChild(last);
+    return row;
+  }
+  var economySection = document.getElementById('economy');
+  var economyItemsEl = document.getElementById('economy-items');
+  var economySig = '';
+  function paintEconomy(data) {
+    if (!data || data.missing) {
+      economySection.hidden = true;
+      return;
+    }
+    economySection.hidden = false;
+    var sig = JSON.stringify(data);
+    if (sig === economySig) {
+      // Nothing changed server-side, but "N ago" still needs to keep ticking
+      // the same honesty-over-shortcuts rule every other relative clock on
+      // this page follows.
+      refreshTimestamps(economyItemsEl);
+      return;
+    }
+    economySig = sig;
+    economyItemsEl.textContent = '';
+    if (data.ok === false) {
+      economyItemsEl.appendChild(el('div', 'econ-empty', data.error || 'economy unavailable'));
+      return;
+    }
+    if (data.empty) {
+      economyItemsEl.appendChild(el('div', 'econ-empty', 'Ledger leer — Bewegungen erscheinen ab jetzt'));
+      return;
+    }
+    var items = data.items || [];
+    if (!items.length) {
+      // Real ledger movement exists (empty:false), just nothing for a
+      // tracked item in this window — a different honest fact from "leer"
+      // above, so it gets its own line rather than reusing that message.
+      economyItemsEl.appendChild(el('div', 'econ-empty', 'keine Bewegung bei erfassten Items (letzte 6h)'));
+      return;
+    }
+    items.forEach(function (it) { economyItemsEl.appendChild(renderEconomyRow(it)); });
+  }
+
   var tick = document.getElementById('tick');
   var lastBots = [];
 
@@ -796,6 +915,19 @@
     });
   }, 1000);
 
+  // Economy rides its own, slower timer (architecture note, §3.2's cadence
+  // recommendation) — ledger files only change on a deposit/withdraw event,
+  // not sub-second like task status, so re-scanning them at the main loop's
+  // 3s cadence would be pure waste, not diligence.
+  function refreshEconomy() {
+    return fetch('/api/economy')
+      .then(function (r) { return r.json(); })
+      .catch(function () { return { ok: false, error: 'unreachable' }; })
+      .then(paintEconomy);
+  }
+
   refresh();
   setInterval(refresh, 3000);
+  refreshEconomy();
+  setInterval(refreshEconomy, 20000);
 })();

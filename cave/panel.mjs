@@ -35,6 +35,7 @@ import {
   readAlerts,
   getTodoBoard,
   getVault,
+  getEconomy,
   getMissionsForBot,
   doWake,
   doStop,
@@ -208,6 +209,15 @@ async function handle(req, res) {
     return sendJson(res, 200, await getVault());
   }
 
+  // Economy graphs (PANEL_V3_SPEC.md §3.2) — per-item, time-bucketed net-flow
+  // series over cave/ledger/*.jsonl, decoupled from the fast /api/fleet poll
+  // (panel-client.js fetches this on its own slower ~20s timer, see that
+  // file's own comment — ledger files only change on deposit/withdraw
+  // events, not sub-second like task status).
+  if (m === 'GET' && p === '/api/economy') {
+    return sendJson(res, 200, await getEconomy());
+  }
+
   // Mission Control drilldown (PANEL_V3_SPEC.md §3.1) — one bot's mission
   // history, fetched lazily when a card's drilldown is opened, deliberately
   // NOT part of /api/fleet's fast 3s payload (no reason to ship 8 bots' worth
@@ -287,6 +297,18 @@ function renderPage() {
     --alert-text: #ffc0bb;
     --quota-grad-start: #9aa4b2;
     --quota-grad-end: #dfe6f0;
+    /* Economy sparkline palette (v3, §3.2) — one fixed hue per tracked item
+       (ECONOMY_KEY_ITEMS, panel-data.mjs), chosen to evoke the real material
+       rather than reused from the red/amber/green severity set (that trio
+       means "something's wrong" everywhere else on this page; an item chart
+       isn't a severity signal) or from TEAM_HEX (that set means "which bot",
+       a different identity axis entirely). */
+    --econ-iron: #b9c3d6;
+    --econ-raw-iron: #d98f5a;
+    --econ-wheat: #e3c66a;
+    --econ-bread: #c98a52;
+    --econ-oak: #a97c4f;
+    --econ-cobble: #9aa4b2;
     --radius: 12px;
     --radius-sm: 8px;
     --radius-xs: 7px;
@@ -580,6 +602,26 @@ function renderPage() {
   .vault-total { margin-left: auto; font-size: 11px; color: var(--muted); white-space: nowrap; }
   .vault-error { font-size: 11px; color: var(--amber); font-style: italic; }
 
+  /* Economy (v3, §3.2) — cave/ledger/*.jsonl's per-item net-flow sparklines,
+     same full-width card shell as #board/#vault. Sits between the fleet
+     grid and the Tribe Board per the launch brief's layout ask. Hidden
+     outright (not an empty-state message) when no ledger file has ever
+     existed — mirrors Vault's "never audited" rule exactly, since "no
+     economic activity recorded yet" is a normal state for a brand-new
+     primitive, not a broken one. Once at least one file/entry exists the
+     section always shows, even a single data point being honest information
+     (unlike an empty Vault audit, which genuinely has nothing to say). */
+  #economy { margin: 0 22px 24px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 18px 16px; }
+  .econ-empty { font-size: 11px; color: var(--dim); font-style: italic; }
+  .econ-items { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+  .econ-row { display: flex; align-items: center; gap: 12px; padding: 7px 10px; background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+  .econ-name { width: 100px; flex: none; font-size: 12px; font-weight: 600; color: var(--text); font-family: var(--font-mono); }
+  .econ-spark { flex: none; line-height: 0; }
+  .econ-net { flex: none; width: 64px; text-align: right; font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--muted); }
+  .econ-net.pos { color: var(--green); }
+  .econ-net.neg { color: var(--red); }
+  .econ-last { flex: 1; min-width: 0; font-size: 10px; color: var(--dim); text-align: right; white-space: nowrap; }
+
   footer { padding: 0 22px 28px; font-size: 11px; color: var(--dim); }
   footer code { color: var(--muted); }
 </style>
@@ -607,6 +649,14 @@ function renderPage() {
     <div id="alerts"><div class="none">nothing yet</div></div>
   </aside>
 </main>
+
+<section id="economy" hidden>
+  <div class="board-head">
+    <h2>Economy</h2>
+    <span class="board-sub" id="economy-sub">cave/ledger/*.jsonl — last 6h, 10-min buckets</span>
+  </div>
+  <div class="econ-items" id="economy-items"></div>
+</section>
 
 <section id="board">
   <div class="board-head">

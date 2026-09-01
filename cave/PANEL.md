@@ -26,10 +26,11 @@ architecture note — split from one 1840-line file, phase 1, 2026-09-01):
   `node -e "import('./cave/panel-data.mjs').then(m => console.log(m.getVault()))"`.
   Also carries the newer v3 primitives (`BASE_ANCHOR`, ledger/deaths/missions
   readers, the FEL relation reader). `BASE_ANCHOR`/`distanceFromBase()` and
-  the per-bot mission reader are now wired into Mission Control (see `##
-  Mission Control drilldown` below); the ledger, deaths-streak, and FEL
-  relation readers remain unwired, waiting on the Economy graphs / Tribe Stat
-  Wall sections — see `cave/PANEL_V3_SPEC.md` for what will consume them.
+  the per-bot mission reader are wired into Mission Control (see `## Mission
+  Control drilldown` below); `getEconomy()` (built on the ledger reader) is
+  wired into the `## Economy` section below. The deaths-streak and FEL
+  relation readers remain unwired, waiting on the Tribe Stat Wall section —
+  see `cave/PANEL_V3_SPEC.md` for what will consume them.
 - **`cave/panel-client.js`** — the entire client-side script, served as a real
   static file via `GET /panel.js` and loaded with
   `<script src="/panel.js"></script>`. This is what used to be an inline
@@ -209,6 +210,16 @@ Offline runners are tolerated, never fatal: the card dims, the entry is marked
 **Alerts column** — the tail of the overseer's escalation log merged with every
 bot's live `lastError`, newest first.
 
+**Economy** (v3) — below the fleet grid, full width, above the Tribe Board:
+one row per tracked item (`iron_ingot`, `raw_iron`, `wheat`, `bread`,
+`oak_log`, `cobblestone` — a fixed, explicit allowlist, not "whatever moved
+today") that has had any deposit/withdraw movement in the last 6 hours, each
+row a hand-rolled inline SVG sparkline (36 ten-minute buckets, dots on the
+buckets that actually moved, hover a dot for its exact signed value), the
+window's net total, and a relative "last movement" time. An item on the
+allowlist with zero movement in the window is simply omitted, never rendered
+as a flat zero line. See `## Economy` below for the full contract.
+
 **Tribe board** — below the fleet grid, full width: `cave/TODO.md`'s work
 state, parsed server-side into three groups — DOING and QUEUED always shown,
 DONE collapsed behind a `▸ DONE (N)` toggle (same expand motion as a card's
@@ -237,7 +248,10 @@ message where the age would be, since that IS worth noticing. See `## Vault`
 below for the field-by-field detail.
 
 Auto-refresh is every 3s and updates the DOM in place — no page reload, no
-flicker. Task ages tick locally each second between polls.
+flicker. Task ages tick locally each second between polls. The Economy
+section (v3) is the one exception: it polls `/api/economy` on its own
+independent ~20s timer rather than riding the main 3s loop — see `## Economy`
+below for why.
 
 ## Movement deltas
 
@@ -290,6 +304,7 @@ there is no persistence by design.
 | `GET` | `/api/alerts` | last ~50 lines of the alerts log |
 | `GET` | `/api/todo` | `cave/TODO.md`'s markdown tables, parsed and bucketed into `doing`/`todo`/`done`; cached on the file's mtime |
 | `GET` | `/api/vault` | `cave/audit-snapshot.json`'s per-chest ledger, joined with hand-synced chest coords/labels; cached on the file's mtime, snapshot age always computed fresh |
+| `GET` | `/api/economy` | (v3) per-item, time-bucketed net-flow series over `cave/ledger/*.jsonl` for a fixed six-item allowlist, last 6h in 10-min buckets; entries cached on the ledger directory's newest mtime, buckets recomputed fresh every call (the window is relative to "now"). Fetched by the client on its own ~20s timer, decoupled from the 3s fleet poll — see `## Economy` below. |
 | `GET` | `/api/missions?bot=<name-or-port>` | one bot's mission history (v3, `cave/missions/<bot>.jsonl`), newest first, capped at 30 — see `## Mission Control drilldown` above. `bot` accepts the same name/port shapes as `wake`/`stop`. Fetched by the client only while that card's drilldown is open, not on the main poll. |
 | `POST` | `/api/wake` | `{bot}` — push the role-default task, `force: false` |
 | `POST` | `/api/stop` | `{bot}` — forward `POST /stop` |
@@ -364,6 +379,70 @@ file being hand-edited:
   unrecognized token (a driver name, "orchestrator", loose prose) still
   renders as a chip, just uncoloured — the parser never tries to guess
   which words in freeform prose are "really" a bot name.
+
+## Economy
+
+`/api/economy` reads every `cave/ledger/<bot>.jsonl` (written by `runner.js`'s
+`appendLedgerLine()`, the single choke point every `DEPOT`-prefixed status
+line passes through — see `cave/ledger.mjs`'s own header for the format) and
+buckets each tracked item's parsed deltas into a 6-hour sliding window, ten
+minutes per bucket (36 buckets total).
+
+- **Tracked items** — a fixed, explicit allowlist:
+  `iron_ingot`, `raw_iron`, `wheat`, `bread`, `oak_log`, `cobblestone`
+  (`ECONOMY_KEY_ITEMS`, `panel-data.mjs`). Deliberately not "top N by ledger
+  volume" — a row set that means the same thing every time it renders beats
+  one that reshuffles as the tribe's economy shifts. An allowlisted item with
+  zero movement in the window is omitted entirely, never rendered as a flat
+  zero line — the same "never fabricate" rule as everywhere else on this
+  page.
+- **Parsed vs. unparsed** — mirrors `cave/ledger.mjs`'s own rule exactly: a
+  line only counts toward a bucket's sum when it has a clean numeric `delta`
+  (`typeof delta === 'number'`); a correction/malformed `DEPOT`-ish line
+  (`raw` + `parsed:false`) is read but never summed.
+- **Caching** — two layers, the same split Vault's age-vs-snapshot uses: the
+  parsed ledger entries are cached on the ledger directory's newest file
+  mtime (generalizing the single-file mtime check `/api/todo`/`/api/vault`
+  already use to N files), re-read only when a bot actually
+  deposits/withdraws. The time-bucketed series itself is recomputed fresh on
+  every single call, cache hit or not — the 6h window is relative to "now",
+  which moves every second, so baking bucket boundaries into the mtime-keyed
+  cache would freeze the window at whatever "now" was when the ledger last
+  changed.
+- **Update cadence** — the client fetches `/api/economy` on its own ~20s
+  timer, decoupled from the main 3s `refresh()` loop: ledger files only
+  change on a deposit/withdraw event, not sub-second like task status, so
+  polling them at the fast cadence would be pure waste.
+- **Empty/missing states** — three, each distinct and honest:
+  - No `cave/ledger/` directory, or a directory with zero `.jsonl` files:
+    `{ok:true, missing:true}`, and the whole section hides via `hidden`
+    (same rule as Vault's missing-snapshot case) — "no economic activity has
+    ever been recorded" is a normal state for a brand-new primitive, not a
+    broken one.
+  - Ledger file(s) exist but nothing in them has a clean numeric `delta`
+    (only unparsed correction lines so far, or a freshly-created empty
+    file): `{ok:true, missing:false, empty:true, items:[]}` — the section
+    shows, with the line `Ledger leer — Bewegungen erscheinen ab jetzt`.
+  - Real parsed movement exists somewhere in the ledger, just not for any
+    allowlisted item within the 6h window: `{ok:true, missing:false,
+    empty:false, items:[]}` — a different honest fact from "leer" above (the
+    ledger isn't empty, the tracked items just haven't moved), so the client
+    shows its own distinct line, `keine Bewegung bei erfassten Items (letzte
+    6h)`, rather than reusing the "leer" message.
+- **Rendering** — one row per active item: a hand-rolled inline SVG
+  sparkline (no library, vanilla `<path>`/`<circle>`/`<line>` built via
+  `document.createElementNS`, matching the whole page's zero-deps doctrine),
+  a zero baseline, a line through all 36 buckets, and a dot only on buckets
+  that actually moved (36 mostly-zero buckets would otherwise drown a real
+  1-4-datapoint window in near-invisible zero-baseline markers) — hovering a
+  dot shows its exact signed value via `<title>`. Beside the sparkline: the
+  window's net total (green when positive, red when negative, muted at
+  exactly zero) and a relative "last movement" time that ticks every second
+  like every other clock on this page. Item name/sparkline colour comes from
+  a fixed `--econ-*` token per item (`panel.mjs`'s `:root` block) — a
+  deliberately different hue family from the red/amber/green severity set
+  (that trio means "something's wrong" everywhere else on the page) and from
+  `TEAM_HEX` (that set means "which bot", a different identity axis).
 
 ## Vault
 

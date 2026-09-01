@@ -4,9 +4,10 @@
 // the alerts tail, the TODO board parser, the Vault reader, the two write
 // actions (wake/stop), and the newer v3 data primitives (ledger, deaths,
 // FEL relation, missions) — of which distanceFromBase() and
-// getMissionsForBot() are now wired into Mission Control (PANEL_V3_SPEC.md
-// §3.1); the ledger/deaths-streak/FEL-relation readers remain unwired,
-// waiting on the Economy graphs / Tribe Stat Wall sections.
+// getMissionsForBot() are wired into Mission Control (PANEL_V3_SPEC.md
+// §3.1), and getEconomy() is wired into the Economy section (§3.2); the
+// deaths-streak/FEL-relation readers remain unwired, waiting on the Tribe
+// Stat Wall section.
 //
 // Split out of cave/panel.mjs (PANEL V3 SPEC, architecture note, phase 1) so
 // each parser is independently testable without booting the HTTP server:
@@ -721,10 +722,12 @@ export async function getVault() {
 // ---------------------------------------------------------------------------
 // v3 data primitives (PANEL_V3_SPEC.md §1.3/1.4/1.8, G2/G4). readLedgerEntries/
 // readDeathFiles/readFelRelation below remain UNWIRED — no route calls them
-// and no client code renders them yet, waiting on the Economy graphs / Tribe
-// Stat Wall sections. getMissionsForBot() (further down, mission history)
-// IS wired — GET /api/missions, consumed by Mission Control's drilldown
-// (PANEL_V3_SPEC.md §3.1). All of these share the same contract as
+// and no client code renders them yet, waiting on the Tribe Stat Wall
+// section. getEconomy() (right after readLedgerEntries, built on top of it)
+// IS wired — GET /api/economy, consumed by the Economy section
+// (PANEL_V3_SPEC.md §3.2). getMissionsForBot() (further down, mission
+// history) IS wired too — GET /api/missions, consumed by Mission Control's
+// drilldown (PANEL_V3_SPEC.md §3.1). All of these share the same contract as
 // getTodoBoard/getVault above: never fabricate, never guess, tolerate a
 // missing file/directory as the normal "nothing recorded yet" state rather
 // than an error.
@@ -764,6 +767,112 @@ export async function readLedgerEntries() {
     }
   }
   return { entries, badLines, files };
+}
+
+// ---------------------------------------------------------------------------
+// Economy graphs (PANEL_V3_SPEC.md §3.2) — per-item, time-bucketed net-flow
+// series over cave/ledger/*.jsonl for the wall-state sparkline row. Wired
+// into GET /api/economy (panel.mjs), consumed by panel-client.js's Economy
+// section — the ledger reader above (readLedgerEntries) is no longer
+// unwired as of this round; readDeathFiles/readFelRelation below remain
+// unwired, waiting on the Tribe Stat Wall.
+//
+// ECONOMY_KEY_ITEMS is a fixed, explicit allowlist (task brief's own six
+// items) rather than "top N by ledger volume" — a stable sparkline row set
+// that means the same thing every time it renders beats one that reshuffles
+// as the tribe's economy shifts. An item on the list with zero movement in
+// the window is simply omitted (never a fabricated flat-zero row) — same
+// "never guess, never fabricate" contract as every other v3 primitive.
+// ---------------------------------------------------------------------------
+export const ECONOMY_KEY_ITEMS = ['iron_ingot', 'raw_iron', 'wheat', 'bread', 'oak_log', 'cobblestone'];
+const ECONOMY_WINDOW_MS = 6 * 60 * 60 * 1000; // 6h
+const ECONOMY_BUCKET_MS = 10 * 60 * 1000; // 10min
+const ECONOMY_BUCKET_COUNT = ECONOMY_WINDOW_MS / ECONOMY_BUCKET_MS; // 36
+
+// Parsed-entries cache, keyed on the ledger directory's newest file mtime
+// (generalizing /api/todo's single-file mtime check to N files, per the
+// architecture note's own recommendation) plus the sorted file list, so a
+// file being added/removed also busts the cache even on the rare tie where
+// it wouldn't otherwise move the max mtime. Re-reads all files only when the
+// directory actually changed, not on every /api/economy poll.
+let economyEntriesCache = { sigKey: null, entries: null };
+
+async function getLedgerEntriesCached() {
+  let files;
+  try {
+    files = (await fsp.readdir(LEDGER_DIR)).filter((f) => f.endsWith('.jsonl'));
+  } catch {
+    return { entries: null, files: [] }; // no ledger/ dir at all — distinct from "dir exists, empty"
+  }
+  if (!files.length) return { entries: [], files: [] };
+  let newest = 0;
+  for (const f of files) {
+    try {
+      const stat = await fsp.stat(path.join(LEDGER_DIR, f));
+      if (stat.mtimeMs > newest) newest = stat.mtimeMs;
+    } catch {
+      // vanished between readdir and stat — readLedgerEntries()'s own
+      // per-file try/catch below tolerates this exact race too.
+    }
+  }
+  const sigKey = `${newest}|${files.slice().sort().join(',')}`;
+  if (economyEntriesCache.entries && economyEntriesCache.sigKey === sigKey) {
+    return { entries: economyEntriesCache.entries, files };
+  }
+  const { entries } = await readLedgerEntries();
+  economyEntriesCache = { sigKey, entries };
+  return { entries, files };
+}
+
+// Reads + buckets fresh on every call (the bucket boundaries are relative to
+// "now", which moves every second — baking them into the mtime-keyed cache
+// above would freeze the window at whatever "now" was when the ledger last
+// changed, same lesson Vault's ageMs-computed-fresh split already teaches).
+// The underlying parsed-entries read IS cached above, so this stays cheap.
+export async function getEconomy() {
+  const { entries, files } = await getLedgerEntriesCached();
+  if (entries === null || !files.length) return { ok: true, missing: true };
+
+  const parsed = entries.filter((e) => typeof e.delta === 'number' && typeof e.item === 'string' && typeof e.ts === 'string');
+  if (!parsed.length) {
+    // Files exist (an unparsed correction line, or a brand-new empty file)
+    // but nothing summable yet — the honest "leer" state, distinct from "no
+    // files at all" above, which hides the section outright instead.
+    return { ok: true, missing: false, empty: true, windowMs: ECONOMY_WINDOW_MS, bucketMs: ECONOMY_BUCKET_MS, buckets: ECONOMY_BUCKET_COUNT, items: [] };
+  }
+
+  const now = Date.now();
+  const cutoff = now - ECONOMY_WINDOW_MS;
+
+  const items = [];
+  for (const item of ECONOMY_KEY_ITEMS) {
+    const rows = parsed.filter((e) => {
+      const t = Date.parse(e.ts);
+      return e.item === item && Number.isFinite(t) && t >= cutoff && t <= now;
+    });
+    if (!rows.length) continue; // no movement for this item in-window — omit, don't render a flat-zero row
+    const buckets = new Array(ECONOMY_BUCKET_COUNT).fill(0);
+    let net = 0;
+    let lastTs = null;
+    for (const r of rows) {
+      const t = Date.parse(r.ts);
+      const age = now - t;
+      // Oldest bucket first (index 0), newest last — standard left-to-right
+      // sparkline reading order. Clamped defensively against the exact-edge
+      // case (age === windowMs) landing one past the last valid index.
+      const idx = ECONOMY_BUCKET_COUNT - 1 - Math.min(ECONOMY_BUCKET_COUNT - 1, Math.floor(age / ECONOMY_BUCKET_MS));
+      buckets[idx] += r.delta;
+      net += r.delta;
+      if (lastTs === null || t > Date.parse(lastTs)) lastTs = r.ts;
+    }
+    items.push({ item, net, lastTs, buckets });
+  }
+
+  // items can legitimately be empty here even though parsed.length > 0 — real
+  // ledger movement exists, just not for any tracked item in-window. That is
+  // a different honest fact from "ledger leer" (empty:true above) and gets
+  // its own client-side message rather than being folded into it.
+  return { ok: true, missing: false, empty: false, windowMs: ECONOMY_WINDOW_MS, bucketMs: ECONOMY_BUCKET_MS, buckets: ECONOMY_BUCKET_COUNT, items };
 }
 
 // cave/deaths/<bot>.json reader (PANEL_V3_SPEC.md §1.4). One record per bot
