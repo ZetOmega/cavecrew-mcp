@@ -222,6 +222,77 @@ active use for different purposes, neither is declared "the" canonical
 base-position constant. See Gap G3 — Mission Control's "distance from
 base" needs ONE authoritative anchor, and today there isn't one.
 
+### 1.10 `minecraft-assets` npm package — real item icons (CHIEF ADDITION, buy-before-build)
+
+**Already in `node_modules`, already a proven dependency in this exact
+tree — not a new install.** `node_modules/minecraft-assets` v1.19.0 (the
+NPM wrapper's own version number, unrelated to Minecraft's version),
+MIT-licensed wrapper by PrismarineJS, wrapping a data submodule at
+`node_modules/minecraft-assets/minecraft-assets/data/<mc-version>/`.
+**Best of all, it's not a cold dependency** — `mineflayer-web-inventory`
+(already installed, used elsewhere in this project's mineflayer tooling)
+depends on `minecraft-assets` itself for exactly this job: rendering a
+web view of a bot's real inventory with real textures. This panel would
+be doing nothing this dependency tree hasn't already proven works.
+
+**Version match confirmed exact.** The cavecrew server runs Minecraft
+1.21.11 (per `cave/BARITONE.md`'s fabric-mod version pins), and
+`minecraft-assets/minecraft-assets/data/1.21.11/` exists in this
+checkout right now — no version-gap fallback logic needed for the
+common case (the package's own `getVersion()` already has a
+last-of-major-version fallback built in for when it doesn't, worth
+using defensively anyway).
+
+**Layout, confirmed by directly inspecting the files:**
+
+```
+minecraft-assets/minecraft-assets/data/1.21.11/
+  items/*.png     — 792 files, one per genuine item (tools, food, ingots — e.g. iron_pickaxe.png, bread.png, iron_ingot.png)
+  blocks/*.png    — 1210 files, one per block's inventory-icon texture (e.g. oak_log.png, cobblestone.png) — this is where BLOCK-type
+                    carried items live, since a block held in inventory shows its own block texture, not a separate "item" render
+  items_textures.json / blocks_textures.json — index files (numeric-keyed arrays, not directly name-keyed — the flat filenames
+                    are the simpler and sufficient lookup for this use case)
+```
+
+Confirmed: filenames match `minecraft-data`'s own item/block names
+1:1 (`iron_pickaxe.png`, `oak_log.png`) — **no name-mapping table is
+needed** for the common case. Total size for the matched version:
+~20MB across ~2000 PNGs — small enough to serve on-demand with a simple
+in-memory cache (lazily populated per-name, not preloaded), never a
+real disk-space or memory concern at this item-name cardinality (the
+tribe's actual inventories/chests only ever touch a few dozen distinct
+item names, not all 2000).
+
+**Lookup rule** (two-tier, no external mapping needed): try
+`items/<name>.png` first, fall back to `blocks/<name>.png`, fall back to
+a generic "unknown item" placeholder icon (hand-drawn or a simple grey
+square — matches this file's "never show garbage, show an honest
+placeholder" doctrine) if neither exists — covers any exotic item name a
+future MC version or a typo introduces without ever 404-ing a chip's
+`<img>` into a broken-image icon.
+
+**License note (asked for precisely, not glossed over):** the NPM
+wrapper's *code* is MIT. The *textures themselves* are Mojang's own
+copyrighted Minecraft assets, community-extracted and redistributed via
+this package — the wrapper's own README doesn't make an explicit
+redistribution-rights claim beyond linking to the upstream
+`rom1504/minecraft-assets` data repo, and neither does that repo. This
+is the same well-established (if legally informal) norm the entire
+mineflayer/PrismarineJS tooling ecosystem already operates on — this
+exact package is a direct, non-optional dependency of
+`mineflayer-web-inventory`, meaning it's already sitting in this
+project's own `node_modules` and already used by tooling this project
+already runs. Serving it is **local-only, never a CDN, never
+redistributed beyond `127.0.0.1`/the tailnet** (matches the panel's
+existing network posture exactly — see `PANEL.md`'s Host allow-list
+section) — the same "extracted from an asset pack a licensed client
+already has" posture every mineflayer bot on this server already relies
+on just to render blocks/items to itself. Flagging this precisely so
+the decision to ship it is made with eyes open, not because there's a
+real alternative that's meaningfully cleaner — there isn't one that
+gives *real* game textures, which is specifically what chief asked for
+("actual game textures, not emoji/text").
+
 ---
 
 ## 2. GAPS
@@ -229,46 +300,74 @@ base" needs ONE authoritative anchor, and today there isn't one.
 Each gap below is written to be handed to Engineer as a standalone,
 parallel-buildable ask — no gap depends on another shipping first.
 
-### G1 — Tool durability is not in `/status`
+### G1 — Tool durability AND held-item are not in `/status` (revised per chief's icon addition)
 
 **What exists:** `summarizeInventory()` (`runner.js` ~1886) returns only
-`{name, count}` per stack. mineflayer/prismarine-item items already
-expose `.durabilityUsed` and `.maxDurability` natively on any stack that
-supports it (confirmed against `node_modules/prismarine-item`) — tools,
-weapons, and armor; food/blocks/materials simply don't have the property
-(`maxDurability` is `undefined`).
+`{name, count}` per stack — no durability, and no notion of "which item
+is actually equipped right now" at all. mineflayer already tracks both
+natively and for free:
 
-**Ask:** extend `summarizeInventory()` to include a `durability` object
-only when `it.maxDurability` is truthy:
+- `.durabilityUsed` / `.maxDurability` on any prismarine-item stack that
+  supports it (confirmed against `node_modules/prismarine-item`) — tools,
+  weapons, armor; food/blocks/materials simply don't have the property
+  (`maxDurability` is `undefined`).
+- `bot.heldItem` — a live getter (confirmed in
+  `node_modules/mineflayer/lib/plugins/inventory.js`), the actual item
+  object in the main hand right now, or `null` for an empty hand. This is
+  the AUTHORITATIVE answer to "what tool is this bot using" — better than
+  any heuristic scan of the inventory list guessing which stack is "the"
+  tool (a bot can carry a pickaxe AND an axe AND a sword at once; only
+  one is actually equipped).
 
-```js
-function summarizeInventory(b) {
-  const map = new Map();
-  for (const it of b.inventory.items()) {
-    const key = it.name;
-    const existing = map.get(key);
-    const entry = existing || { name: key, count: 0 };
-    entry.count += it.count;
-    // Durability doesn't sum across a stack sensibly (each tool wears
-    // independently) — surface the FIRST/current instance's wear, which
-    // is what a driver holding one pickaxe actually cares about. Tools
-    // don't stack past 1 in vanilla anyway, so this is exact in practice.
-    if (it.maxDurability && entry.durability === undefined) {
-      entry.durability = { used: it.durabilityUsed ?? 0, max: it.maxDurability };
-    }
-    map.set(key, entry);
-  }
-  return Array.from(map.values());
-}
-```
+**Ask, two parts, one small diff:**
 
-Resulting item shape becomes `{name, count}` (unchanged for non-durable
-items) or `{name, count, durability:{used,max}}` (tools/armor/weapons).
-Backward compatible — `panel.mjs`'s existing inventory-chip rendering
-(bot cards, vault) doesn't read `durability` and won't break; Mission
-Control reads it when present, omits the field from its tool line when
-absent (matches every other "hide chip when null" rule already in this
-codebase).
+1. Extend `summarizeInventory()` to attach a `durability` object to any
+   item that has one — feeds icon+durability-bar rendering everywhere an
+   inventory list is shown (bot cards, Vault chests, Mission Control's
+   full-inventory drilldown):
+
+   ```js
+   function summarizeInventory(b) {
+     const map = new Map();
+     for (const it of b.inventory.items()) {
+       const key = it.name;
+       const entry = map.get(key) || { name: key, count: 0 };
+       entry.count += it.count;
+       // Durability doesn't sum across a stack sensibly (each tool wears
+       // independently) — surface the current instance's wear. Tools
+       // don't stack past 1 in vanilla anyway, so this is exact in practice.
+       if (it.maxDurability && entry.durability === undefined) {
+         entry.durability = { used: it.durabilityUsed ?? 0, max: it.maxDurability };
+       }
+       map.set(key, entry);
+     }
+     return Array.from(map.values());
+   }
+   ```
+
+2. Add a `heldItem` field to `buildStatus()` (~1859) — this is the field
+   Mission Control's wall-state tool line should actually read, not a
+   heuristic pick from `inventory`:
+
+   ```js
+   heldItem: spawned && b.heldItem
+     ? { name: b.heldItem.name, count: b.heldItem.count,
+         durability: b.heldItem.maxDurability
+           ? { used: b.heldItem.durabilityUsed ?? 0, max: b.heldItem.maxDurability }
+           : undefined }
+     : null,
+   ```
+
+Resulting shapes: inventory items become `{name, count}` (unchanged for
+non-durable items) or `{name, count, durability:{used,max}}`
+(tools/armor/weapons) — fully backward compatible, nothing existing reads
+`durability` today so nothing breaks. `heldItem` is a wholly new
+top-level `/status` field, `null` when the hand is empty or the bot isn't
+spawned. Mission Control reads `heldItem` for its tool+durability line
+(hidden entirely when `null` or when `durability` is absent — an empty
+hand or a non-tool held item are both real, different, honest states,
+neither is "0% durability"); every OTHER inventory view (bot card chips,
+Vault chest chips) reads the per-item `durability` field the same way.
 
 **Owner:** Engineer (`runner.js`). **Size:** ~10 line diff, one function.
 
@@ -435,7 +534,7 @@ drilldown, rather than introducing a parallel card system.
 |---|---|---|
 | current task kind + detail + state | `/status.currentTask` (existing) | unchanged — already handled |
 | distance from base + direction | `/status.pos` vs. `BASE_POS` (G3) — `dist = sqrt(dx²+dz²)` (2D, matching how `overseer.mjs`'s own ring check ignores Y), `bearing` → 8-point compass (`N/NE/E/SE/S/SW/W/NW`) via `atan2` | `pos` null (offline/unspawned) → hide the whole badge, don't show "0m" |
-| primary tool + durability bar | `/status.inventory`, filtered to the currently-equipped/most-relevant tool (pick the first tool-type item with a `durability` field — pickaxe/axe/sword priority order, matching what `ensureTool` already treats as "the" tool for a task) | G1 not shipped yet → hide the whole tool line, not a fake full bar; durability present but the item is a non-degrading tool variant (shouldn't happen post-G1, but if `max` is falsy, hide) |
+| item icon + primary tool + durability bar | `/status.heldItem` (G1's new field — the authoritative "what's equipped," not a guess) rendered as a real texture (§1.10) with a durability bar overlay when `heldItem.durability` is present | G1 not shipped yet → hide the whole tool line; `heldItem: null` (empty hand) → show an empty-hand state, don't conflate with "no data"; `heldItem` present but no `durability` (non-tool item in hand) → icon only, no bar, that's correct not a bug |
 | mission history (count today / last N) | new `cave/missions/<bot>.jsonl` (G2) — wall shows just a compact count ("7 today"), full list is drilldown-only | G2 not shipped → hide the whole line (same rule as durability) rather than showing "0" (0 could mean "shipped, no missions yet" OR "not shipped" — those are different facts, don't conflate them; only render the line at all once `/api/missions` (or wherever this lands) returns `ok:true`) |
 
 **Drilldown (click the card, or a dedicated `▸ details` toggle matching
@@ -548,6 +647,65 @@ flowing through the main poll or cheap to add); missions and FEL status
 can ride the slower economy-style cadence since neither changes
 sub-minute.
 
+### 3.4 Item icons + durability bars (CHIEF ADDITION — cross-cutting, not one section)
+
+Real Minecraft textures (§1.10) replace every plain `{name, count}` chip
+this panel already renders — bot card inventory chips, Vault chest chips,
+and Mission Control's new tool line — plus the durability bar overlay
+wherever G1's `durability` field is present. This is a rendering upgrade
+to THREE existing/planned views at once, not a new section of its own.
+
+**Icon sprite sizing:**
+
+| Context | Size | Reasoning |
+|---|---|---|
+| Wall-state chips (bot cards, Vault chests) | 16x16 (native texture resolution, upscaled with `image-rendering: pixelated` to avoid the blurry-resample look every MC-texture web tool avoids) at roughly 20-24px on-screen | matches the existing chip's own compact scale (today's `.chip`/`.c` count-badge sizing) — icons should not make chips noticeably taller, just replace the bare text name with icon+name |
+| Mission Control's held-tool line | one larger icon, ~28-32px, since this is a single highlighted item, not a chip-cloud entry | this is the one "hero" icon per card — it earns a bit more size the way the health/food bars already get more visual weight than a chip |
+| Drilldown views (full inventory, Vault expanded) | same 16x16-native chips as wall state — drilldown adds MORE items shown (§3.1's "cap at 30" precedent), not bigger icons | consistent icon language at every zoom level; only durability-bar detail (see below) changes between wall and drilldown |
+
+**Durability bar overlay:**
+
+- Position: a thin bar along the icon's bottom edge (matches vanilla
+  Minecraft's own inventory GUI convention exactly — drivers and chief
+  already know how to read this at a glance from the game itself, zero
+  new visual language to learn).
+- Fill fraction: `remaining = 1 - (durabilityUsed / maxDurability)`.
+- Colour thresholds (chief's exact numbers, distinct from and NOT to be
+  confused with the existing HP/FD 20-point-scale thresholds elsewhere on
+  the card — durability is a different kind of urgency curve, a tool
+  genuinely breaks at 0%, health doesn't have an equivalent hard wall at
+  the same fraction): green when `remaining >= 0.30`, amber when
+  `0.10 <= remaining < 0.30`, red when `remaining < 0.10`. This feeds the
+  established severity ladder directly — a red-durability tool is a
+  "watch closer to bad" signal worth the same visual register as an idle
+  or errored task, without needing its own bespoke color language.
+- Wall state: bar visible on every icon that HAS durability data (tools/
+  armor in chip clouds too, not just the held-item hero icon) — a
+  half-worn pickaxe sitting in a chest is exactly the kind of thing an
+  audit-minded chief wants to spot without opening a drilldown.
+- Drilldown: same bar, plus the raw numbers (`"187/250"`) as text next to
+  it — wall state stays icon-only (no text clutter), drilldown can afford
+  the precision.
+
+**Damaged-tool warning state:** a bot whose `heldItem.durability` crosses
+into the red band (`remaining < 0.10`) should surface the same way any
+other "watch this" fact already does on these cards — recommend folding
+it into the existing amber/red card-border severity ladder (round 2's
+panic-response red flag, round 1's idle/err amber-vs-red weight
+distinction) as a NEW tier: a red-durability tool is not as urgent as a
+`panic-response` task, but is more actionable than a routine idle state
+(a bot about to break its only pickaxe mid-task is heading for a `chop`/
+`mine` failure the driver could pre-empt). Exact position in the ladder
+is a design-canvas call, not this dossier's to make — flagging the
+*existence* of a fifth state (below panic, likely alongside or just above
+plain `err`) as something the design pass should account for rather than
+retrofit later.
+
+**Explicitly out of scope for v3 (chief's own line):** enchantment glint
+(the shimmering overlay vanilla shows on enchanted items). No mineflayer
+API surfaces enchantment data to `/status` today either, so this is a
+double no — no data, and not asked for. Not spec'd further here.
+
 ---
 
 ## 4. ARCHITECTURE NOTE
@@ -659,6 +817,45 @@ hand-rolled SVG, not a pulled-in charting library — the doctrine and the
 data volume (dozens to low hundreds of points, not thousands) both argue
 against needing one.
 
+### Item icons: served local-only, cached lazily, zero new dependency
+
+`panel.mjs` gains one new static-asset route, e.g. `GET /mc-icon/<name>.png`:
+
+```js
+const MC_ASSETS_DIR = path.join(HERE, '..', 'node_modules', 'minecraft-assets', 'minecraft-assets', 'data', '1.21.11');
+const iconCache = new Map(); // item/block name -> Buffer, populated on first request
+
+async function getIcon(name) {
+  if (iconCache.has(name)) return iconCache.get(name);
+  for (const sub of ['items', 'blocks']) {
+    try {
+      const buf = await fsp.readFile(path.join(MC_ASSETS_DIR, sub, `${name}.png`));
+      iconCache.set(name, buf);
+      return buf;
+    } catch { /* try the next tier, or fall through to the placeholder below */ }
+  }
+  iconCache.set(name, null); // remember "no icon for this name" too — don't re-stat a miss every request
+  return null;
+}
+```
+
+Lazy, on-demand, per-name cache (never preloads all ~2000 PNGs) — this
+project's inventories/chests only ever touch a few dozen distinct item
+names, so real memory use stays tiny regardless of the full asset set's
+20MB on disk. A cached `null` (item genuinely has no matching texture —
+typo, exotic future-version item) serves the placeholder icon (§1.10)
+without repeatedly hitting the filesystem for a name that will never
+resolve. `<img src="/mc-icon/iron_pickaxe.png">` in the client script,
+same-origin, no CORS/CDN considerations, fits the panel's existing
+Host-allowlist network posture exactly since nothing external is ever
+fetched.
+
+**Version pinning:** the `1.21.11` path segment should be a named
+constant, not scattered inline — if/when the server updates MC versions,
+this is the one line that needs to change (plus confirming
+`minecraft-assets` ships that new version's data, per the package's own
+last-of-major fallback in `index.js` if not).
+
 ### Drilldown state
 
 Client-side only, no server persistence needed — a plain per-card/
@@ -689,10 +886,15 @@ different rates.
 - **Buildable today, zero runner.js changes**: Economy graphs (ledger
   already exists), most of the Tribe Stat Wall (deaths-free streak, ore,
   bread — all already-available data), FEL relation tile IF G4's file is
-  created by hand first (a `team-lead`/orchestrator action, not code).
+  created by hand first (a `team-lead`/orchestrator action, not code),
+  real item icons for existing chip views (§1.10/§3.4 — `minecraft-assets`
+  is already a dependency, textures already match the server's exact MC
+  version, no runner.js change needed to show icons on today's `{name,
+  count}` shape; only the durability BAR overlay needs G1).
 - **Blocked on Engineer (parallel, independent asks)**: G1 (tool
-  durability, ~10 lines), G2 (mission log, ~15-20 lines, precedented
-  almost exactly by the ledger commit).
+  durability + `heldItem`, ~15 lines across two functions, revised this
+  round per chief's icon/durability-bar addition), G2 (mission log,
+  ~15-20 lines, precedented almost exactly by the ledger commit).
 - **Blocked on a decision, not code**: G3 (which point is `BASE_POS`).
 - **Architecture ask for whoever runs the implementation Workflow**: do
   the panel-data.mjs / panel-client.js split FIRST, before building v3's
