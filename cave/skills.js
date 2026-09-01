@@ -3530,7 +3530,18 @@ export async function buildStaircase(bot, opts = {}, ctx = {}) {
     // (4) LAVA CHECK (existing pattern) — scan every cell this step touches
     // BEFORE digging any of them. Sight of lava seals the exposed cell and
     // aborts loud rather than digging into it.
-    const watchCells = [aheadHead, aheadFeet, aheadLower, newFloor];
+    //
+    // (VERIFIER FINDING, f98395c review) newFloor is the floor UNDER
+    // targetFeet — only relevant when this step actually descends
+    // (treadCell non-null). A flat-ahead step never touches aheadLower/
+    // newFloor at all (digCells above is just [aheadHead, aheadFeet] in
+    // that branch) — including newFloor here unconditionally meant a lava
+    // pocket 2 cells below-and-ahead, which this step was never going to
+    // dig into or walk near, could still abort the whole staircase run.
+    // Scan exactly what this step touches: match digCells (+newFloor,
+    // still checked one step ahead of actually digging it) when
+    // descending, or just the walk-through cells when flat.
+    const watchCells = treadCell ? [aheadHead, aheadFeet, aheadLower, newFloor] : [aheadHead, aheadFeet];
     const lavaCell = watchCells.find((p) => bot.blockAt(p)?.name === 'lava');
     if (lavaCell) {
       await sealStairCell(bot, lavaCell, ctx).catch(() => {});
