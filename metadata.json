@@ -1,0 +1,16 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "01M1EF03WPS01DK5FF9X4STZAG",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "cave/movement.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "prompt": ""
+    }
+  ]
+}
