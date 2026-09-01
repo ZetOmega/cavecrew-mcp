@@ -169,3 +169,12 @@ If this event is something the user would act on now, send a PushNotification. R
 <event>STATUS task="task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788267929223} aborted="aborted":null line="lastBaritoneLine":"[15:06:25] [ForkJoinPool.commonPool-worker-6/INFO]: [STDOUT]: Saving region -1,-1 to disk C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariThak\\gamedir\\baritone\\localhost_25565\\minecraft\\overworld_384\\cache"</event>
 If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
 </task-notification>
+
+---
+
+<task-notification>
+<task-id>bhkj4rwfk</task-id>
+<summary>Monitor event: "BariThak goto camp staging (20,90,60) — watch arrival/nogo/stall"</summary>
+<event>STATUS task="task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788267929223} aborted="aborted":null line="lastBaritoneLine":"[15:06:25] [ForkJoinPool.commonPool-worker-6/INFO]: [STDOUT]: Saving region -1,-1 to disk C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariThak\\gamedir\\baritone\\localhost_25565\\minecraft\\overworld_384\\cache"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
