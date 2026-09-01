@@ -3,7 +3,7 @@
   "checkpoint_id": "01M1EGXPH6BFKFVH8QAKG0PV33",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 41,
+  "checkpoints_count": 46,
   "files_touched": [
     "cave/PANEL_DESIGN_HANDOFF.md",
     "cave/TODO.md"
@@ -30,6 +30,13 @@
       "compact_transcript": "/3/transcript.jsonl",
       "content_hash": "/3/content_hash.txt",
       "prompt": "/3/prompt.txt"
+    },
+    {
+      "metadata": "/4/metadata.json",
+      "transcript": "/4/full.jsonl",
+      "compact_transcript": "/4/transcript.jsonl",
+      "content_hash": "/4/content_hash.txt",
+      "prompt": "/4/prompt.txt"
     }
   ],
   "token_usage": {
