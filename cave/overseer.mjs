@@ -1,6 +1,7 @@
 // overseer.mjs — deterministic idle watchdog for the cavecrew fleet.
 // No LLM. Polls every bot; any bot idle past the idle threshold gets a
-// role-default task so resources always flow. Stuck bots get teleported,
+// role-default task so resources always flow. Stuck bots escalate stop →
+// relog → their own `/trigger home` (cavehome datapack; RCON tp retired),
 // disconnected bots relogged.
 // Run: node cave/overseer.mjs   (detached; pid in cave/pids/overseer.json)
 //
@@ -198,26 +199,28 @@ async function tick(bot) {
     }
   }
 
-  // stuck detection escalation ladder (user law 2026-09-01: tp allowed as
-  // WORST CASE only): 1st detection = stop + relog; still frozen at the SAME
-  // spot on a later detection = teleport to spawn as last resort.
+  // stuck detection escalation ladder (user law 2026-09-01 v2: RCON tp
+  // RETIRED — bots self-rescue LEGIT): 1st detection = stop + relog; still
+  // frozen at the SAME spot on a later detection = send the bot's own
+  // `/trigger home` chat command (cavehome datapack — works only if the bot
+  // ran `/trigger sethome` on the surface first, which is fleet doctrine).
+  // No home set / trigger fails = nothing more the overseer may do: log loud
+  // and leave it for the orchestrator's stuck report.
   if (running && st.pos) {
     const key = `${Math.round(st.pos.x)},${Math.round(st.pos.y)},${Math.round(st.pos.z)}`
     if (s.lastPos === key) {
       if (now - s.posSince > STUCK_MS && st.currentTask.kind === 'goto') {
         if (s.stuckAtKey === key) {
-          // TP TARGET = CAMP YARD OPEN AIR, never world spawn: spawn coords got
-          // built over and suffocated UngaBunga inside a block (death #1).
-          log(`${bot.name} STILL stuck at ${key} after relog -> worst-case tp camp yard`)
+          log(`${bot.name} STILL stuck at ${key} after relog -> last-resort /trigger home (no tp — retired)`)
           await api(bot.port, '/stop', {})
-          await rconCmd(`tp ${bot.name} 12 93 50`)
-          await grey(bot.name, bot.color, '(overseer) worst-case teleport to camp — was hard-stuck')
+          await api(bot.port, '/chat', { message: '/trigger home' })
+          await grey(bot.name, bot.color, '(overseer) hard-stuck — sent /trigger home (works only if sethome done)')
           s.stuckAtKey = null
         } else {
           log(`${bot.name} stuck at ${key} -> stop + relog (tp next if still frozen)`)
           await api(bot.port, '/stop', {})
           await api(bot.port, '/relog', {})
-          await grey(bot.name, bot.color, '(overseer) stuck — relogged; tp-to-spawn next if still frozen')
+          await grey(bot.name, bot.color, '(overseer) stuck — relogged; /trigger home next if still frozen')
           s.stuckAtKey = key
         }
         s.posSince = now
