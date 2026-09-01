@@ -1176,11 +1176,31 @@ function wireBot(b) {
     // both depot chests as "path obstacles". Travel must never dig or scaffold;
     // actual digging happens only inside skills via bot.dig. Also fall-safety
     // caps (their fleet's fall death) and no ugly self-built towers.
+    //
+    // AUDIT (Grog 17-block fall, y54->37, health 20->6, team-lead priority
+    // 2026-09-01): re-checked the FEEDBACK "Movements safety config" entry's
+    // full list against this block line by line. 5 of 6 were ALREADY here
+    // (allowParkour, maxDropDown=3, allow1by1towers, infiniteLiquidDropdown-
+    // Distance, scafoldingBlocks — all correctly set since fe9e63c, early
+    // today). Only allowSprinting was genuinely missing; added below.
+    // IMPORTANT CAVEAT, not fixed by this change: maxDropDown only governs
+    // pf's OWN voluntary route-planning (mineflayer-pathfinder source,
+    // lib/movements.js ~467/487 — checked only inside the drop-down move
+    // generator) — it does nothing for a fall caused by DIGGING out from
+    // under/beside the bot mid-mine, which is not a pf-planned move at all.
+    // Grog was branchmining (y45-62 band) when this happened; a mining-
+    // triggered floor collapse is the far more likely cause than a travel
+    // goto choosing too big a voluntary drop, and maxDropDown was already
+    // active either way. Flagged to team-lead as a separate, real gap — a
+    // mining-side "don't dig your own supporting floor out" check, if one
+    // doesn't already exist, is not something this Movements-config audit
+    // can address.
     try {
       const m = new pathfinderPkg.Movements(b);
       m.canDig = false;
       m.allow1by1towers = false;
       m.allowParkour = false;
+      m.allowSprinting = false;
       m.maxDropDown = 3;
       m.infiniteLiquidDropdownDistance = false;
       m.scafoldingBlocks = [];
