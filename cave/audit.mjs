@@ -72,6 +72,35 @@ async function apiGet(port, pathname, timeoutMs = 8000) {
   return res.json();
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// (LIVE-TEST BUG FIX, 2026-09-01) POST /goto (like every taskEndpoint —
+// runner.js's startTask resolves once a task STARTS, not once it finishes,
+// confirmed live: a direct curl came back with state:"running" instantly)
+// is fire-and-forget, same as any DRIVER_GUIDE-documented task endpoint —
+// the caller is expected to POLL /status itself. First live run against
+// UngaBunga caught this the hard way: this script fired /eval right after
+// /goto's HTTP response, while the goto was often still mid-walk, and got
+// a constant stream of "409 busy" for it. Poll /status until the given
+// task id is no longer "running" (or timeoutMs elapses) before doing
+// anything else with the bot.
+async function waitForTaskDone(port, taskId, { pollMs = 1000, timeoutMs = 35000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const status = await apiGet(port, '/status').catch(() => null);
+    const task = status?.currentTask;
+    if (task && task.id === taskId && task.state !== 'running') return task;
+    // Task got replaced by something else (id mismatch) before finishing —
+    // stop waiting on it, the caller's next call will surface the real
+    // state (busy, or whatever replaced it) on its own.
+    if (task && task.id !== taskId) return task;
+    await sleep(pollMs);
+  }
+  throw new Error(`waitForTaskDone: task ${taskId} still running after ${timeoutMs}ms`);
+}
+
 // The eval payload deliberately avoids anything requiring a require()'d
 // class (Vec3, pathfinder goals) — /eval's scope is only (bot, mcData,
 // skills, log), see DRIVER_GUIDE.md. An absolute-position Vec3 is built via
@@ -107,11 +136,31 @@ function buildReadChestCode(chest) {
 }
 
 async function auditOneChest(port, chest) {
-  await apiPost(port, '/goto', { x: chest.x, y: chest.y, z: chest.z, range: 2, timeoutMs: 30000 });
-  const result = await apiPost(port, '/eval', { code: buildReadChestCode(chest) }, 15000);
-  if (result?.error) throw new Error(result.error);
-  if (!Array.isArray(result?.items)) throw new Error(`eval returned no items array (got ${JSON.stringify(result)})`);
-  return result.items;
+  const gotoResp = await apiPost(port, '/goto', { x: chest.x, y: chest.y, z: chest.z, range: 2, timeoutMs: 30000 });
+  const finished = await waitForTaskDone(port, gotoResp.task.id, { timeoutMs: 40000 });
+  if (finished.id !== gotoResp.task.id) {
+    throw new Error(`goto task ${gotoResp.task.id} got replaced by ${finished.kind} (${finished.id}) before finishing`);
+  }
+  if (finished.state === 'failed' || !finished.result?.reached) {
+    throw new Error(`goto did not reach ${chest.x},${chest.y},${chest.z}: ${JSON.stringify(finished.result ?? finished)}`);
+  }
+  // (LIVE-TEST BUG FIX, 2026-09-01) POST /eval's success shape is
+  // {result: <your eval's return value>, task: {...}} (see runner.js
+  // handleEval's final sendJson) — NOT the return value at the top level.
+  // A failed task instead comes back as {error, task}, and a run still in
+  // flight past the 10s soft timeout as {note, task} with neither result
+  // nor error. First live run against UngaBunga (2026-09-01) caught this:
+  // the eval genuinely succeeded (chest A read correctly) but this
+  // function reported a false failure because it read the wrong field.
+  const response = await apiPost(port, '/eval', { code: buildReadChestCode(chest) }, 15000);
+  if (response?.error) throw new Error(response.error);
+  if (response?.note) throw new Error(`eval still running past its soft timeout: ${response.note}`);
+  const payload = response?.result;
+  if (payload?.error) throw new Error(payload.error);
+  if (!Array.isArray(payload?.items)) {
+    throw new Error(`eval returned no items array (got ${JSON.stringify(response)})`);
+  }
+  return payload.items;
 }
 
 function toCountMap(items) {
