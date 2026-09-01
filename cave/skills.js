@@ -619,23 +619,51 @@ function assertNotProtected(block) {
 // instead of needing a per-site edit.
 async function ensureWithinReach(bot, block, ctx) {
   if (!block || !block.position || !bot?.entity) return;
-  const dist = bot.entity.position
-    .offset(0, 1.62, 0)
-    .distanceTo(block.position.offset(0.5, 0.5, 0.5));
+  const eyeDist = () =>
+    bot.entity.position.offset(0, 1.62, 0).distanceTo(block.position.offset(0.5, 0.5, 0.5));
+  const dist = eyeDist();
   if (dist <= 4.2) return;
   ctx?.log?.(
     'warn',
     `ensureWithinReach: ${dist.toFixed(2)} blocks from ${posKey(block.position)} (>4.2) — closing distance before dig/place`
   );
-  try {
-    await gotoLoop(
-      bot,
-      new goals.GoalNear(block.position.x, block.position.y, block.position.z, 2),
-      { timeoutMs: 15000, maxAttempts: 3 },
-      ctx
-    );
-  } catch (err) {
-    ctx?.log?.('warn', `ensureWithinReach: could not close distance to ${posKey(block.position)}: ${err.message}`);
+  // (REACH-GAP: near-vertical GoalNear worst case, FEEDBACK "exact 1.80-block
+  // reach gap" investigation, Bonk) — real mineflayer-pathfinder semantics
+  // (node_modules/mineflayer-pathfinder/lib/goals.js GoalNear.isEnd): the
+  // goal is met the instant floor(bot position) lands within `range` cells
+  // (squared-distance, integer grid) of the block's integer corner — no
+  // credit for WHERE inside that final cell the bot's continuous position
+  // actually ends up. Worst case with the old single range=2 attempt spent
+  // entirely on the Y axis (mining straight down/up, the common branchMine
+  // shape): bot.y can land up to ~2.999 above the block, and the +1.62 eye
+  // offset stacks on top of that rather than cancelling it when digging
+  // DOWN — eye-to-center vertical alone reaches ~4.12 blocks, so any
+  // horizontal slop at all (bot not dead-centered in x/z, itself worth up to
+  // ~1 block at this same range budget) pushes past the 4.2 law with zero
+  // margin left. That is a real, distinct gap from the GoalGetToBlock
+  // "exactly 1.80h" bug (fixed separately, movement.js goalGroundTruth —
+  // that one is GoalGetToBlock-specific and already lands within this
+  // function's dist<=4.2 short-circuit above). range=2 stays the FIRST
+  // attempt (tightening it outright risks false "no path" on legitimate
+  // near-ledge/pit targets pf could route around at range 2 but not 1) —
+  // only fall back to a tighter GoalNear(1) (worst-case vertical ~3.12,
+  // comfortable margin under 4.2) if that first, looser attempt still isn't
+  // actually close enough. The 4.2 law itself never moves.
+  for (const range of [2, 1]) {
+    try {
+      await gotoLoop(
+        bot,
+        new goals.GoalNear(block.position.x, block.position.y, block.position.z, range),
+        { timeoutMs: 15000, maxAttempts: 3 },
+        ctx
+      );
+    } catch (err) {
+      ctx?.log?.(
+        'warn',
+        `ensureWithinReach: could not close distance to ${posKey(block.position)} (range ${range}): ${err.message}`
+      );
+    }
+    if (eyeDist() <= 4.2) return;
   }
   // (1b) REACH LAW HARD STOP — a goto that throws (no path) or one that
   // spuriously "succeeds" without actually landing within reach must never
@@ -646,12 +674,10 @@ async function ensureWithinReach(bot, block, ctx) {
   // "No path to the goal!" and this function silently swallowed that). Recheck
   // real distance regardless of which branch above ran, and refuse the
   // dig/place outright if still out of reach.
-  const distAfter = bot.entity.position
-    .offset(0, 1.62, 0)
-    .distanceTo(block.position.offset(0.5, 0.5, 0.5));
+  const distAfter = eyeDist();
   if (distAfter > 4.2) {
     throw new Error(
-      `ensureWithinReach: still ${distAfter.toFixed(2)} blocks from ${posKey(block.position)} after approach attempt — refusing to dig/place out of reach`
+      `ensureWithinReach: still ${distAfter.toFixed(2)} blocks from ${posKey(block.position)} after approach attempt(s) — refusing to dig/place out of reach`
     );
   }
 }
