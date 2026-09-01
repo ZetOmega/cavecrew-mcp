@@ -3,7 +3,7 @@
   "checkpoint_id": "01M1EKTW3R0JEB3WG210RKAWF3",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 5,
+  "checkpoints_count": 6,
   "files_touched": [
     "cave/TODO.md"
   ],
@@ -14,13 +14,20 @@
       "compact_transcript": "/0/transcript.jsonl",
       "content_hash": "/0/content_hash.txt",
       "prompt": "/0/prompt.txt"
+    },
+    {
+      "metadata": "/1/metadata.json",
+      "transcript": "/1/full.jsonl",
+      "compact_transcript": "/1/transcript.jsonl",
+      "content_hash": "/1/content_hash.txt",
+      "prompt": "/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 1130,
-    "cache_creation_tokens": 721751,
-    "cache_read_tokens": 112515960,
-    "output_tokens": 202383,
-    "api_call_count": 565
+    "input_tokens": 2550,
+    "cache_creation_tokens": 1454609,
+    "cache_read_tokens": 296263721,
+    "output_tokens": 393062,
+    "api_call_count": 1275
   }
 }
