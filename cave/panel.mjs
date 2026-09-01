@@ -38,6 +38,8 @@ import {
   getEconomy,
   getMissionsForBot,
   getStatWall,
+  getIcon,
+  PLACEHOLDER_ICON_SVG,
   doWake,
   doStop,
 } from './panel-data.mjs';
@@ -192,6 +194,35 @@ async function handle(req, res) {
       'cache-control': 'no-store',
     });
     return res.end(text);
+  }
+
+  // Item icons (PANEL_V3_SPEC.md §1.10/§3.4, integration round) — real
+  // Minecraft textures, served from the already-installed minecraft-assets
+  // package (see panel-data.mjs's getIcon() for the version pin + lookup
+  // rule). A long-lived cache-control is safe and deliberate here, unlike
+  // every /api/* route's no-store: these are static game textures that
+  // never change short of an MC_ASSET_VERSION bump, which is a deploy
+  // event anyway. A miss (unknown name, or a name ICON_NAME_RE rejected
+  // outright — see getIcon) serves the SVG placeholder with its own
+  // content-type instead, which browsers render fine regardless of the
+  // .png the <img> tag asked for.
+  if (m === 'GET' && p.startsWith('/mc-icon/')) {
+    const rawName = decodeURIComponent(p.slice('/mc-icon/'.length)).replace(/\.png$/i, '');
+    const buf = await getIcon(rawName);
+    if (buf) {
+      res.writeHead(200, {
+        'content-type': 'image/png',
+        'content-length': buf.length,
+        'cache-control': 'public, max-age=31536000, immutable',
+      });
+      return res.end(buf);
+    }
+    res.writeHead(200, {
+      'content-type': 'image/svg+xml',
+      'content-length': PLACEHOLDER_ICON_SVG.length,
+      'cache-control': 'no-store',
+    });
+    return res.end(PLACEHOLDER_ICON_SVG);
   }
 
   if (m === 'GET' && p === '/api/fleet') {
@@ -411,6 +442,7 @@ function renderPage() {
   .sw-tile.fel-trading { border-left-color: var(--fel-trading); }
   .sw-tile.fel-trading .sw-word { color: var(--fel-trading); }
   .sw-tile.fel-neutral { border-left-color: var(--fel-neutral); }
+  .sw-tile.fel-neutral .sw-word { color: var(--fel-neutral); }
   .sw-tile.fel-tense { border-left-color: var(--fel-tense); }
   .sw-tile.fel-tense .sw-word { color: var(--fel-tense); }
   .sw-tile.fel-disputed { border-left-color: var(--fel-disputed); }
@@ -458,6 +490,12 @@ function renderPage() {
   .dot.warn { background: var(--amber); box-shadow: 0 0 7px rgba(var(--amber-rgb), .5); }
   .dot.off { background: var(--dot-off); }
   .name { font-size: 15px; font-weight: 650; letter-spacing: .02em; }
+  /* Baritone card badge (v3, integration round) — the one bit of new CSS
+     its card needs; everything else (dot/pos/distance/task/head/kind/
+     state/detail/meta, idle/offline severity classes) is the exact same
+     markup+class language a mineflayer card already uses, deliberately —
+     see buildBaritoneCard() in panel-client.js. */
+  .brain { font-size: 13px; flex: none; }
   .port { font-size: 11px; color: var(--dim); }
   .age { margin-left: auto; font-size: 11px; color: var(--muted); white-space: nowrap; }
 
@@ -544,6 +582,14 @@ function renderPage() {
   .chip .c { padding: 0 6px; border-radius: var(--radius-pill); background: var(--chip-count-bg); color: var(--text); font-size: 10px; font-weight: 600; }
   .inv-empty { margin-top: 10px; font-size: 11px; color: var(--dim); font-style: italic; }
 
+  /* Item icons (v3, §3.4, integration round) — real Minecraft textures via
+     GET /mc-icon/<name>.png (panel.mjs), native 16x16 resolution upscaled
+     with image-rendering:pixelated so it stays crisp rather than blurring
+     into a resample. Sits as the first child in a chip (before .n) or
+     .chip-top (durability chips below) — the existing flex gap already
+     spaces it from the name, nothing else needed. */
+  .chip-icon { width: 16px; height: 16px; image-rendering: pixelated; flex: none; }
+
   /* Durability chips (v3, G1's per-item durability field) — a thin bar under
      the name+count row, vanilla Minecraft's own inventory-GUI convention for
      "this tool is wearing out." Only items that actually carry a
@@ -554,6 +600,24 @@ function renderPage() {
   .chip-top { display: flex; align-items: center; gap: 5px; }
   .dur-bar { display: block; height: 3px; border-radius: var(--radius-track); background: var(--health-track); overflow: hidden; }
   .dur-fill { display: block; height: 100%; border-radius: var(--radius-track); transition: width .3s ease, background .3s; }
+
+  /* Held-tool "hero" line (v3, Mission Control §3.4, integration round) —
+     /status.heldItem (G1) rendered bigger than a chip since it's the one
+     highlighted item per card, same reasoning the HP/FD bars already get
+     more visual weight than a chip. Hidden entirely when heldItem itself
+     is undefined (G1 not shipped on that runner yet — see
+     panel-data.mjs's pollBot() for why that's a different value than
+     null); null (a real G1 runner, empty hand) renders the row with
+     .tool-empty text instead of an icon, a real and different fact from
+     "no data available at all". */
+  .tool { margin-top: 10px; display: flex; align-items: center; gap: 8px; }
+  .tool-icon { width: 28px; height: 28px; image-rendering: pixelated; flex: none; }
+  .tool-name { font-size: 12px; color: var(--muted); }
+  .tool-empty { font-size: 11px; color: var(--dim); font-style: italic; }
+  .tool-dur { flex: 1; min-width: 40px; display: flex; align-items: center; gap: 6px; }
+  .tool-dur-bar { flex: 1; height: 4px; border-radius: var(--radius-track); background: var(--health-track); overflow: hidden; }
+  .tool-dur-fill { display: block; height: 100%; border-radius: var(--radius-track); transition: width .3s ease, background .3s; }
+  .tool-dur-text { font-size: 10px; color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
   .acts { margin-top: 12px; display: flex; gap: 8px; align-items: center; }
   button {

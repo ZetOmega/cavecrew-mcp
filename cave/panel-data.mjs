@@ -32,12 +32,6 @@ const EVENTS_PER_BOT = 10;
 const ALERT_LINES = 50;
 export const IRON_QUOTA = 360;
 
-// Runner ports. Default is the production fleet 3201-3208; CAVE_PANEL_PORTS
-// (comma-separated) overrides it so the write paths can be exercised against a
-// throwaway test runner (e.g. CAVE_PANEL_PORTS=3209) without ever pointing at
-// a production bot a driver owns.
-const DEFAULT_PORTS = [3201, 3202, 3203, 3204, 3205, 3206, 3207, 3208];
-
 function parsePorts(raw) {
   if (!raw) return null;
   const ports = raw
@@ -46,6 +40,36 @@ function parsePorts(raw) {
     .filter((n) => Number.isInteger(n) && n > 0 && n < 65536);
   return ports.length ? ports : null;
 }
+
+// Baritone-controlled bots (BariBrute today, a future "second gigabrain"
+// someday) live in the reserved 3301-3309 range per cave/CIV.md's port
+// registry — a completely different HTTP API shape than a mineflayer
+// runner (see pollBot()'s baritone branch below: {name, position,
+// positionSource, task:{kind,block,count,at}, lastBaritoneLine, connected,
+// phase, uptime, aborted} — no health/food/inventory/idleGuard/
+// currentTask.state at all, ground-truthed live against the real bot).
+// isBaritonePort() drives kind-inference by RANGE, not just a named roster
+// row, so a second instance on 3302 gets baritone-shaped parsing the
+// instant its port is polled — CAVE_PANEL_BARITONE_PORTS below is a config
+// line to make panel-data.mjs actually POLL that port, not a code change to
+// teach it what shape to expect once it does.
+const BARITONE_PORT_MIN = 3301;
+const BARITONE_PORT_MAX = 3309;
+function isBaritonePort(port) {
+  return port >= BARITONE_PORT_MIN && port <= BARITONE_PORT_MAX;
+}
+
+// Runner ports. Default is the production mineflayer fleet 3201-3208 plus
+// today's one known baritone bot (3301); CAVE_PANEL_BARITONE_PORTS
+// (comma-separated, same shape as CAVE_PANEL_PORTS) extends just the
+// baritone set without restating the whole mineflayer list — e.g.
+// CAVE_PANEL_BARITONE_PORTS=3301,3302 once a second gigabrain exists.
+// CAVE_PANEL_PORTS (unchanged) still overrides the ENTIRE combined list, for
+// the existing throwaway-test-runner use case.
+const DEFAULT_MINEFLAYER_PORTS = [3201, 3202, 3203, 3204, 3205, 3206, 3207, 3208];
+const DEFAULT_BARITONE_PORTS = [3301];
+const BARITONE_PORTS = parsePorts(process.env.CAVE_PANEL_BARITONE_PORTS) ?? DEFAULT_BARITONE_PORTS;
+const DEFAULT_PORTS = [...DEFAULT_MINEFLAYER_PORTS, ...BARITONE_PORTS];
 
 export const PORTS = parsePorts(process.env.CAVE_PANEL_PORTS) ?? DEFAULT_PORTS;
 
@@ -78,6 +102,14 @@ const BOTS = [
     wake: { ep: '/collect', body: { radius: 16 }, say: 'idle: sweep drops' } },
   { name: 'Mog', port: 3208, team: 'dark_aqua',
     wake: { ep: '/collect', body: { radius: 16 }, say: 'idle: sweep drops' } },
+  // BariBrute (cave/CIV.md's roster + port registry) — a BARITONE wrapper
+  // bot, not a mineflayer runner: no team colour assigned in CIV.md's Team
+  // tags table, and no `wake` plan on purpose. Its real HTTP API has no
+  // /chop, /mine, /collect or any other task endpoint this panel knows the
+  // shape of — doWake()/doStop() below refuse outright for any port in the
+  // baritone range rather than guessing FALLBACK_WAKE at an unknown control
+  // surface. `kind` routes pollBot() to a separate parse branch.
+  { name: 'BariBrute', port: 3301, team: 'white', kind: 'baritone', wake: null },
 ];
 
 // Any runner on a port outside the roster (a test bot under CAVE_PANEL_PORTS)
@@ -161,6 +193,61 @@ export function distanceFromBase(pos) {
     compass: horiz < COMPASS_MIN_DIST ? null : compassBearing(dx, dz),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Item icons (PANEL_V3_SPEC.md §1.10/§3.4, integration round) — real
+// Minecraft textures served locally from the ALREADY-INSTALLED
+// minecraft-assets package (buy-before-build: mineflayer-web-inventory,
+// also already a dependency here, uses this exact package for the exact
+// same job). Version-pinned to the real server version (confirmed against
+// cave/BARITONE.md's fabric pins, 1.21.11) so a future MC upgrade is a
+// one-line constant change, not a code change.
+//
+// Two-tier lookup, no name-mapping table needed: item textures live under
+// items/, but a BLOCK held in inventory (oak_log, cobblestone, ...) shows
+// its own block texture, not a separate "item" render — confirmed by
+// directly inspecting both directories. A name that matches neither (a
+// typo, an exotic future-version item) gets the honest placeholder below
+// rather than a browser's broken-image icon.
+// ---------------------------------------------------------------------------
+const MC_ASSET_VERSION = '1.21.11';
+const MC_ASSETS_DIR = path.join(HERE, '..', 'node_modules', 'minecraft-assets', 'minecraft-assets', 'data', MC_ASSET_VERSION);
+// Vanilla item/block ids are lowercase ascii + underscore only — this also
+// doubles as the path-traversal guard on the two fs.readFile calls below
+// (name arrives straight off a URL path segment in panel.mjs's route): a
+// rejected name never reaches the filesystem at all, it just falls through
+// to the placeholder like any other unrecognized name.
+const ICON_NAME_RE = /^[a-z0-9_]+$/;
+const iconCache = new Map(); // name -> Buffer | null ('null' = confirmed no texture, don't re-stat every request)
+
+export async function getIcon(name) {
+  if (typeof name !== 'string' || !ICON_NAME_RE.test(name)) return null;
+  if (iconCache.has(name)) return iconCache.get(name);
+  for (const sub of ['items', 'blocks']) {
+    try {
+      const buf = await fsp.readFile(path.join(MC_ASSETS_DIR, sub, `${name}.png`));
+      iconCache.set(name, buf);
+      return buf;
+    } catch {
+      // try the next tier
+    }
+  }
+  iconCache.set(name, null);
+  return null;
+}
+
+// Grey rounded-square placeholder for a name with no real texture (miss on
+// both items/ and blocks/, or a name ICON_NAME_RE rejected outright) — an
+// inline SVG rather than a bundled PNG asset, so there is nothing to ship
+// or keep in sync: panel.mjs serves this with an image/svg+xml content-type
+// regardless of the .png the client requested, which browsers render fine
+// (they trust Content-Type, not the URL's extension).
+export const PLACEHOLDER_ICON_SVG = Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16">' +
+  '<rect width="16" height="16" fill="#2c3441"/>' +
+  '<rect x="0.5" y="0.5" width="15" height="15" fill="none" stroke="#454e5e"/>' +
+  '</svg>'
+);
 
 // ---------------------------------------------------------------------------
 // Runner polling
@@ -247,14 +334,34 @@ async function pollEvents(port) {
   return slot.window;
 }
 
+// Fields no baritone bot has at all (no health/food/inventory bar, no
+// idleGuard, no mineflayer-shaped currentTask, no /events ring proven to
+// exist) — factored once so every "this bot isn't that kind" return site
+// below stays honest without repeating the same null block three times.
+const MINEFLAYER_ONLY_NULLS = {
+  health: null, food: null, gamemode: null, inventory: [], heldItem: undefined,
+  currentTask: null, lastError: null, deathCount: null, idleGuard: null,
+  lastDeath: null, engine: null,
+};
+// Mirror image — fields ONLY a baritone bot has, defaulted null for every
+// mineflayer bot rather than simply omitted, so client code can check
+// `bot.phase` etc. on any bot without an extra `bot.kind === 'baritone'`
+// guard first.
+const BARITONE_ONLY_NULLS = {
+  phase: null, lastBaritoneLine: null, positionSource: null, baritoneTask: null,
+  aborted: null, uptime: null,
+};
+
 async function pollBot(port) {
   const roster = BOT_BY_PORT.get(port) ?? null;
+  const kind = roster?.kind ?? (isBaritonePort(port) ? 'baritone' : 'mineflayer');
   const base = {
     port,
     name: roster?.name ?? `:${port}`,
     team: roster?.team ?? 'white',
     color: TEAM_HEX[roster?.team ?? 'white'] ?? TEAM_HEX.white,
     inRoster: !!roster,
+    kind,
   };
 
   let status = null;
@@ -280,18 +387,44 @@ async function pollBot(port) {
       connected: false,
       pos: null,
       distance: null,
-      health: null,
-      food: null,
-      inventory: [],
-      currentTask: null,
-      lastError: null,
-      deathCount: null,
-      idleGuard: null,
-      lastDeath: null,
-      engine: null,
+      ...MINEFLAYER_ONLY_NULLS,
+      ...BARITONE_ONLY_NULLS,
       idle: false,
+      running: false,
       taskStartedAt: null,
       events: eventSlot(port).window,
+    };
+  }
+
+  // Baritone branch — ground-truthed live against the real BariBrute
+  // (PANEL_V3_SPEC.md's integration-round notes): {name, position,
+  // positionSource, task:{kind,block,count,at}, lastBaritoneLine,
+  // connected, phase, uptime, aborted}. No /events ring proven to exist —
+  // never polled, never guessed at (empty array, same shape the client
+  // already treats as "no events" for any bot).
+  if (kind === 'baritone') {
+    return {
+      ...base,
+      name: typeof status.name === 'string' && status.name ? status.name : base.name,
+      offline: false,
+      offlineReason: null,
+      connected: !!status.connected,
+      pos: status.position ?? null,
+      distance: distanceFromBase(status.position ?? null),
+      positionSource: status.positionSource ?? null,
+      phase: status.phase ?? null,
+      lastBaritoneLine: typeof status.lastBaritoneLine === 'string' ? status.lastBaritoneLine : null,
+      baritoneTask: status.task ?? null,
+      aborted: status.aborted ?? null,
+      uptime: typeof status.uptime === 'number' ? status.uptime : null,
+      ...MINEFLAYER_ONLY_NULLS,
+      // "Task presence IS the state" (no separate running/done/failed field
+      // in this API at all) — idle mirrors that directly rather than
+      // inventing a state this bot's own API doesn't expose.
+      idle: !status.task,
+      running: !!status.task,
+      taskStartedAt: null,
+      events: [],
     };
   }
 
@@ -315,6 +448,14 @@ async function pollBot(port) {
     food: typeof status.food === 'number' ? status.food : null,
     gamemode: status.gamemode ?? null,
     inventory: Array.isArray(status.inventory) ? status.inventory : [],
+    // heldItem (G1) — 'in' rather than `status.heldItem ?? null` on purpose:
+    // that would collapse "field absent" (an older runner, or a non-
+    // mineflayer bot) into the same value as "present and explicitly
+    // null" (a real G1 runner reporting an empty hand). Keeping `undefined`
+    // for the absent case means it's dropped entirely by JSON.stringify,
+    // so panel-client.js can tell "no data" from "empty hand" apart — same
+    // distinction G1's own runner.js comment draws.
+    heldItem: 'heldItem' in status ? status.heldItem : undefined,
     currentTask: task,
     lastError: status.lastError ?? null,
     deathCount: typeof status.deathCount === 'number' ? status.deathCount : null,
@@ -325,6 +466,7 @@ async function pollBot(port) {
     idleGuard: typeof status.idleGuard === 'boolean' ? status.idleGuard : null,
     lastDeath: status.lastDeath ?? null,
     engine: status.engine ?? null,
+    ...BARITONE_ONLY_NULLS,
     idle,
     running,
     taskStartedAt: task ? (slot.starts.get(task.id) ?? null) : null,
@@ -407,13 +549,14 @@ async function buildFleet() {
     name: BOT_BY_PORT.get(p)?.name ?? `:${p}`,
     team: BOT_BY_PORT.get(p)?.team ?? 'white',
     color: TEAM_HEX[BOT_BY_PORT.get(p)?.team ?? 'white'] ?? TEAM_HEX.white,
+    kind: BOT_BY_PORT.get(p)?.kind ?? (isBaritonePort(p) ? 'baritone' : 'mineflayer'),
     offline: true,
     offlineReason: err?.message ?? String(err),
     connected: false,
-    pos: null, distance: null, health: null, food: null, inventory: [],
-    currentTask: null, lastError: null, deathCount: null, idleGuard: null,
-    lastDeath: null, engine: null,
-    idle: false, taskStartedAt: null, events: [],
+    pos: null, distance: null,
+    ...MINEFLAYER_ONLY_NULLS,
+    ...BARITONE_ONLY_NULLS,
+    idle: false, running: false, taskStartedAt: null, events: [],
   }))));
 
   // Feed the position ring and stamp each bot's deltas. Offline bots still get
@@ -1196,6 +1339,16 @@ function resolveBot(nameOrPort) {
 export async function doWake(botArg) {
   const bot = resolveBot(botArg);
   if (!bot) return { status: 404, body: { ok: false, error: `unknown bot "${botArg}" (not on this panel's port list)` } };
+  // Baritone bots (3301-3309, see isBaritonePort above) speak an unknown,
+  // unproven HTTP action surface — this checks the PORT directly rather
+  // than trusting `bot.kind` (resolveBot()'s off-roster fallback branches
+  // below don't carry that field), so a bot in this range is refused no
+  // matter which path resolveBot() took to find it. FALLBACK_WAKE's
+  // /collect guess is exactly the wrong thing to fire blind at a control
+  // surface this panel has never confirmed exists.
+  if (isBaritonePort(bot.port)) {
+    return { status: 409, body: { ok: false, bot: bot.name, error: 'baritone bots do not speak the wake/stop task API — different control surface, not supported here' } };
+  }
 
   const plan = bot.wake ?? FALLBACK_WAKE;
   // force:false is built here, not copied from the plan and not read from the
@@ -1244,6 +1397,11 @@ export async function doWake(botArg) {
 export async function doStop(botArg) {
   const bot = resolveBot(botArg);
   if (!bot) return { status: 404, body: { ok: false, error: `unknown bot "${botArg}" (not on this panel's port list)` } };
+  // Same refusal as doWake above, same reasoning: an unproven control
+  // surface never gets a guessed-at action fired at it.
+  if (isBaritonePort(bot.port)) {
+    return { status: 409, body: { ok: false, bot: bot.name, error: 'baritone bots do not speak the wake/stop task API — different control surface, not supported here' } };
+  }
   try {
     const { status, json } = await postJson(`http://127.0.0.1:${bot.port}/stop`, {});
     if (status !== 200) {

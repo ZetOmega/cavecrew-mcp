@@ -133,16 +133,34 @@
   // yet; real fleet data today is a live mix of both on the SAME bot, see
   // PANEL.md) it grows a bottom bar; every other item renders byte-for-byte
   // the same markup as before this round — zero fake bars, ever.
+  // Real Minecraft item icons (v3, §3.4, integration round) — served by
+  // panel.mjs from the already-installed minecraft-assets package (see that
+  // file's GET /mc-icon/<name>.png route + panel-data.mjs's getIcon()).
+  // alt="" + loading="lazy": a chip's meaning is fully carried by its own
+  // .n text regardless of whether the image loads, and most icons for a
+  // given fleet are the same handful of names reused across every card —
+  // the browser's own image cache (server sends a long max-age) makes this
+  // effectively free after the first paint.
+  function buildIcon(name) {
+    var img = document.createElement('img');
+    img.className = 'chip-icon';
+    img.src = '/mc-icon/' + encodeURIComponent(name) + '.png';
+    img.alt = '';
+    img.loading = 'lazy';
+    return img;
+  }
   function buildItemChip(item) {
     var d = item.durability;
     var hasDur = !!(d && typeof d.used === 'number' && typeof d.max === 'number' && d.max > 0);
     var chip = el('span', 'chip' + (hasDur ? ' has-dur' : ''));
     if (!hasDur) {
+      chip.appendChild(buildIcon(item.name));
       chip.appendChild(el('span', 'n', item.name));
       chip.appendChild(el('span', 'c', String(item.count)));
       return chip;
     }
     var top = el('span', 'chip-top');
+    top.appendChild(buildIcon(item.name));
     top.appendChild(el('span', 'n', item.name));
     top.appendChild(el('span', 'c', String(item.count)));
     chip.appendChild(top);
@@ -164,6 +182,46 @@
     return items.map(function (i) {
       return i.name + ':' + i.count + ':' + (i.durability ? i.durability.used + '/' + i.durability.max : '');
     }).join('|');
+  }
+
+  // Held-tool hero line (v3, Mission Control §3.4) — three real, distinct
+  // states per G1's own shape: `undefined` (this runner hasn't shipped G1
+  // yet — hide the row, don't show a fake "empty hand"), `null` (a G1
+  // runner, hand genuinely empty — show it as exactly that), or a real
+  // item (icon + name, durability bar only when the item actually carries
+  // one — a held block/food item has none, correctly no bar).
+  function toolSignature(heldItem) {
+    if (heldItem === undefined) return 'undef';
+    if (heldItem === null) return 'empty';
+    var d = heldItem.durability;
+    return heldItem.name + ':' + heldItem.count + ':' + (d ? d.used + '/' + d.max : '');
+  }
+  function renderTool(container, heldItem) {
+    container.textContent = '';
+    if (heldItem === undefined) {
+      container.hidden = true;
+      return;
+    }
+    container.hidden = false;
+    if (heldItem === null) {
+      container.appendChild(el('span', 'tool-empty', 'empty hand'));
+      return;
+    }
+    container.appendChild(buildIcon(heldItem.name));
+    container.appendChild(el('span', 'tool-name', heldItem.name));
+    var d = heldItem.durability;
+    if (d && typeof d.used === 'number' && typeof d.max === 'number' && d.max > 0) {
+      var remaining = Math.max(0, Math.min(1, 1 - d.used / d.max));
+      var durWrap = el('span', 'tool-dur');
+      var bar = el('span', 'tool-dur-bar');
+      var fill = el('span', 'tool-dur-fill');
+      fill.style.width = (remaining * 100) + '%';
+      fill.style.background = durabilityColor(remaining);
+      bar.appendChild(fill);
+      durWrap.appendChild(bar);
+      durWrap.appendChild(el('span', 'tool-dur-text', Math.max(0, d.max - d.used) + '/' + d.max));
+      container.appendChild(durWrap);
+    }
   }
 
   // Relative-timestamp refresh, shared by every ledger-style list on the page
@@ -286,6 +344,13 @@
     var hp = vital('HP', healthColor);
     var fd = vital('FD', healthColor);
 
+    // Held-tool hero line (v3, Mission Control §3.4) — /status.heldItem
+    // (G1). Built empty here; paint() below fills it in (icon+name, or
+    // .tool-empty text, or hides the whole row) since which of those three
+    // applies depends on live data, not anything known at build time.
+    var tool = el('div', 'tool');
+    tool.hidden = true;
+
     var task = el('div', 'task');
     var thead = el('div', 'head');
     var tkind = el('span', 'kind');
@@ -369,12 +434,13 @@
     });
 
     c.appendChild(r1); c.appendChild(pos); c.appendChild(dist); c.appendChild(delta); c.appendChild(vitals);
+    c.appendChild(tool);
     c.appendChild(task); c.appendChild(errBox); c.appendChild(meta);
     c.appendChild(inv); c.appendChild(evList); c.appendChild(acts);
     c.appendChild(dd);
     grid.appendChild(c);
 
-    return { root: c, dot: dot, name: name, port: port, age: age, pos: pos, dist: dist,
+    return { root: c, dot: dot, name: name, port: port, age: age, pos: pos, dist: dist, tool: tool, toolSig: null,
       d30v: d30v, d60v: d60v,
       hp: hp, fd: fd, task: task, tkind: tkind, tstate: tstate, tsrc: tsrc, tdetail: tdetail,
       errBox: errBox, deaths: deaths, lastDeath: lastDeath, guard: guard, engine: engine,
@@ -407,8 +473,135 @@
       });
   }
 
+  // BariBrute / baritone-controlled bots (v3, integration round) — a
+  // completely different HTTP API shape than a mineflayer runner, ground-
+  // truthed live before writing any of this: {name, position,
+  // positionSource, task:{kind,block,count,at}, lastBaritoneLine,
+  // connected, phase, uptime, aborted} — no health/food/inventory/
+  // idleGuard/mineflayer-shaped currentTask at all. A deliberately SEPARATE
+  // builder rather than branching the mineflayer build()/paint() in a dozen
+  // places — reuses the exact same classes (card/row1/dot/pos/distance/
+  // task/head/kind/state/detail/err-box/meta, idle/offline/err severity)
+  // so it reads as the same visual language with a lot less content, and
+  // gets NO wake/stop buttons at all: this control surface is unproven,
+  // and panel-data.mjs's doWake/doStop refuse it outright regardless.
+  function buildBaritoneCard() {
+    var c = el('div', 'card baritone');
+    var r1 = el('div', 'row1');
+    var dot = el('span', 'dot');
+    var brain = el('span', 'brain', '🧠');
+    brain.title = 'baritone-controlled bot — different control surface, no wake/stop here';
+    var name = el('span', 'name');
+    var port = el('span', 'port');
+    var age = el('span', 'age');
+    r1.appendChild(dot); r1.appendChild(brain); r1.appendChild(name); r1.appendChild(port); r1.appendChild(age);
+
+    var pos = el('div', 'pos');
+    var dist = el('div', 'distance');
+
+    var task = el('div', 'task');
+    var thead = el('div', 'head');
+    var tkind = el('span', 'kind');
+    var tstate = el('span', 'state');
+    thead.appendChild(tkind); thead.appendChild(tstate);
+    var tdetail = el('div', 'detail');
+    task.appendChild(thead); task.appendChild(tdetail);
+
+    var errBox = el('div', 'err-box');
+    errBox.hidden = true;
+
+    var meta = el('div', 'meta');
+    var uptimeEl = el('span');
+    meta.appendChild(uptimeEl);
+
+    c.appendChild(r1); c.appendChild(pos); c.appendChild(dist);
+    c.appendChild(task); c.appendChild(errBox); c.appendChild(meta);
+    grid.appendChild(c);
+
+    return { root: c, dot: dot, name: name, port: port, age: age, pos: pos, dist: dist,
+      task: task, tkind: tkind, tstate: tstate, tdetail: tdetail, errBox: errBox, uptime: uptimeEl };
+  }
+
+  // "Task presence IS the state" (ground-truthed: no running/done/failed
+  // field anywhere in this API) — age is derived from the task's own `at`
+  // timestamp rather than the mineflayer taskAge()'s event-log-derived
+  // start time, which this bot's API has no equivalent of at all.
+  function fmtBaritoneAge(bot) {
+    var at = bot.baritoneTask && typeof bot.baritoneTask.at === 'number' ? bot.baritoneTask.at : null;
+    if (at == null) return bot.phase || '';
+    return 'running ' + fmtDur(Date.now() - at);
+  }
+
+  function paintBaritoneCard(c, bot) {
+    var idle = !bot.offline && bot.idle;
+    setCls(c.root, 'card baritone' + (bot.offline ? ' offline' : '') + (idle ? ' idle' : '') + (bot.aborted ? ' err' : ''));
+    setCls(c.dot, 'dot ' + (bot.offline ? 'off' : (bot.connected ? 'on' : 'warn')));
+    setText(c.name, bot.name);
+    setText(c.port, ':' + bot.port);
+    setText(c.age, bot.offline ? (bot.offlineReason || 'offline') : fmtBaritoneAge(bot));
+
+    // positionSource IS the honesty hint (e.g. "goal-poll") — surfaced
+    // verbatim rather than invented wording, since this bot's own API
+    // already says how derived/potentially-lagged its position reading is.
+    var posText = bot.offline
+      ? 'runner not answering'
+      : (bot.connected ? fmtPos(bot.pos) + (bot.positionSource ? ' (' + bot.positionSource + ')' : '') : 'runner up, bot disconnected');
+    setText(c.pos, posText);
+
+    var distText = bot.offline ? null : fmtDistance(bot.distance);
+    c.dist.hidden = !distText;
+    if (distText) setText(c.dist, distText);
+
+    var bt = bot.baritoneTask;
+    setText(c.tstate, bot.phase || '');
+    setCls(c.tstate, 'state');
+    if (bt) {
+      c.task.hidden = false;
+      setText(c.tkind, bt.kind || '?');
+      var parts = [];
+      if (bt.block) parts.push(bt.block);
+      if (typeof bt.count === 'number') parts.push('x' + bt.count);
+      var head = parts.join(' ');
+      // Raw baritone pathfinder log lines run long ("Finished finding a
+      // path from BetterBlockPos{...} to GoalComposite[...]. 2029 nodes
+      // considered") — capped for the glanceable wall state, full text
+      // still reachable via the title tooltip rather than lost.
+      var line = bot.lastBaritoneLine || '';
+      var LINE_CAP = 140;
+      var shownLine = line.length > LINE_CAP ? line.slice(0, LINE_CAP) + '…' : line;
+      var det = [head, shownLine].filter(Boolean).join(' — ');
+      setText(c.tdetail, det);
+      c.tdetail.title = line;
+      c.tdetail.hidden = !det;
+    } else {
+      c.task.hidden = false;
+      setText(c.tkind, bot.offline ? 'no data' : 'no task');
+      var idleLine = bot.lastBaritoneLine || '';
+      setText(c.tdetail, bot.offline ? '' : idleLine);
+      c.tdetail.title = idleLine;
+      c.tdetail.hidden = bot.offline || !idleLine;
+    }
+
+    // aborted is unproven in practice (every live observation so far has
+    // it null) — rendered as a plain fact rather than an interpreted
+    // message, since this codebase's own rule is never fabricate meaning
+    // beyond what the data actually says.
+    if (bot.aborted) {
+      c.errBox.hidden = false;
+      setText(c.errBox, 'aborted: ' + JSON.stringify(bot.aborted));
+    } else {
+      c.errBox.hidden = true;
+    }
+
+    setText(c.uptime, typeof bot.uptime === 'number' ? 'uptime ' + fmtDur(bot.uptime) : '');
+  }
+
   function paint(bot) {
     var key = String(bot.port);
+    if (bot.kind === 'baritone') {
+      var bc = cards[key] || (cards[key] = buildBaritoneCard());
+      return paintBaritoneCard(bc, bot);
+    }
     var c = cards[key] || (cards[key] = build(bot));
 
     var idle = !bot.offline && bot.idle;
@@ -455,6 +648,15 @@
     }
     vit(c.hp, bot.health);
     vit(c.fd, bot.food);
+
+    // Held-tool hero line (v3, Mission Control §3.4) — signature-gated
+    // like inventory/events above, so an unchanged tool doesn't churn the
+    // <img> element (and its src) every 3s poll for nothing.
+    var toolSig = toolSignature(bot.heldItem);
+    if (toolSig !== c.toolSig) {
+      c.toolSig = toolSig;
+      renderTool(c.tool, bot.heldItem);
+    }
 
     var t = bot.currentTask;
     setCls(c.task, 'task' + (isPanic ? ' panic' : ''));
@@ -735,11 +937,13 @@
       } else {
         var items = el('div', 'inv');
         var list = c.items;
+        // buildItemChip() (v3, §3.4) — same shared chip builder a bot
+        // card's own inventory uses, so a chest's contents and a bot's
+        // pockets read as the same kind of fact (real icon, durability bar
+        // if the item happens to carry one — chest reads don't today, see
+        // audit.mjs, but the function already handles that honestly).
         list.slice(0, ITEM_CAP).forEach(function (it) {
-          var chip = el('span', 'chip');
-          chip.appendChild(el('span', 'n', it.name));
-          chip.appendChild(el('span', 'c', String(it.count)));
-          items.appendChild(chip);
+          items.appendChild(buildItemChip(it));
         });
         if (list.length > ITEM_CAP) {
           items.appendChild(el('span', 'chip', '+' + (list.length - ITEM_CAP) + ' more'));
@@ -1024,7 +1228,13 @@
   setInterval(function () {
     lastBots.forEach(function (b) {
       var c = cards[String(b.port)];
-      if (c && !b.offline) setText(c.age, taskAge(b));
+      if (!c || b.offline) return;
+      // taskAge() assumes the mineflayer currentTask shape (.state/
+      // .finishedAt) — a baritone bot's currentTask is always null (see
+      // pollBot()'s baritone branch), so calling it here would silently
+      // blank out whatever paintBaritoneCard() just set, once a second,
+      // forever. Same "running Xs" reasoning, different data source.
+      setText(c.age, b.kind === 'baritone' ? fmtBaritoneAge(b) : taskAge(b));
     });
     tickDeathsTile();
   }, 1000);

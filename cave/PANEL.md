@@ -1,7 +1,8 @@
 # FLEET PANEL
 
-A read-mostly web dashboard for the cavecrew bot fleet. One page, eight cards,
-live vitals, and exactly two buttons.
+A read-mostly web dashboard for the cavecrew bot fleet. One page, one card per
+bot (eight mineflayer + BariBrute's baritone card by default), live vitals,
+and exactly two buttons — mineflayer bots only, see `## Baritone bots`.
 
 The panel is a plain observer: it speaks the same public HTTP API a driver
 speaks (`cave/DRIVER_GUIDE.md`) and knows nothing about runner internals. It
@@ -51,14 +52,16 @@ Then open <http://127.0.0.1:3200>.
 
 - **Panel port:** `3200`, bound to `127.0.0.1` only. Not reachable off the
   machine.
-- **Runner ports polled:** `3201-3208` by default (the production fleet).
+- **Runner ports polled:** `3201-3208` (the mineflayer fleet) plus `3301` (the
+  baritone fleet — see `## Baritone bots` below) by default.
 - **Dependencies:** none. Node built-ins only, no `npm install`.
 
 Stop it with Ctrl-C.
 
 ### Port override
 
-`CAVE_PANEL_PORTS` replaces the default port list with a comma-separated one:
+`CAVE_PANEL_PORTS` replaces the **entire** default port list (mineflayer +
+baritone) with a comma-separated one:
 
 ```powershell
 $env:CAVE_PANEL_PORTS = '3209'; node cave/panel.mjs
@@ -68,6 +71,13 @@ This exists so the two write actions can be exercised against a throwaway test
 runner without ever pointing at a production bot a driver owns. Point it at the
 test port, click the buttons, confirm the behaviour, then restart without the
 variable.
+
+`CAVE_PANEL_BARITONE_PORTS` extends just the baritone side of the default list
+without restating the whole mineflayer fleet — e.g. `3301,3302` once a second
+baritone-controlled bot exists. Any port in `3301-3309` (`cave/CIV.md`'s
+reserved baritone range) gets baritone-shaped parsing automatically, with or
+without a named entry in `panel-data.mjs`'s `BOTS` table — adding a port here
+is a config line, not a code change.
 
 `PANEL_PORT` (default `3200`) runs a second instance of the panel itself on a
 different port — for developing the panel against the live, read-only fleet
@@ -81,9 +91,11 @@ The Host allow-list is built off `PANEL_PORT`, so a dev instance allow-lists
 its own port automatically. `3290` is the registered panel-dev port (see
 `cave/CIV.md`'s port registry).
 
-A runner on a port outside the roster shows up under its `/status` name (or
-`:PORT` if it is down), and its WAKE button falls back to the universally safe
-`/collect {radius: 16}` sweep.
+A mineflayer runner on a port outside the roster shows up under its `/status`
+name (or `:PORT` if it is down), and its WAKE button falls back to the
+universally safe `/collect {radius: 16}` sweep. This fallback does NOT apply
+to a port in the baritone range (`3301-3309`) — see `## Baritone bots` below
+for why those get refused outright instead.
 
 ## The two buttons
 
@@ -136,6 +148,70 @@ Forwards `POST /stop` to that bot's runner, which cancels the current task
 cleanly. Small and secondary on purpose: it is for calling off work you can see
 going wrong, not for routine use. If a driver owns that bot, tell the driver.
 
+## Baritone bots
+
+BariBrute (`cave/CIV.md`'s roster, port `3301`) and any future "second
+gigabrain" in the reserved `3301-3309` range are BARITONE-controlled, not
+mineflayer runners — a completely different HTTP API, ground-truthed live
+before any of this was written rather than assumed:
+
+```json
+{"name":"BariBrute","position":{"x":56,"y":107,"z":99},"positionSource":"goal-poll",
+ "task":{"kind":"mine","block":"iron_ore","count":32,"at":1788264026052},
+ "lastBaritoneLine":"Finished finding a path from ... 2029 nodes considered",
+ "connected":true,"phase":"in-world","uptime":548692,"aborted":null}
+```
+
+No `health`/`food`/`inventory`/`idleGuard`/`deathCount`/`currentTask.state` at
+all — `panel-data.mjs`'s `pollBot()` routes any port in `3301-3309` to a
+separate parse branch (`isBaritonePort()`, by range — works even for a port
+with no named entry in `BOTS`, so a second instance is a
+`CAVE_PANEL_BARITONE_PORTS` config line away, not a code change) rather than
+guessing at a mineflayer shape that isn't there.
+
+The card itself (`buildBaritoneCard()`/`paintBaritoneCard()`,
+`panel-client.js`) is a deliberately separate, much smaller builder — a 🧠
+badge next to the name, then only what this API actually has:
+
+- **position** with the API's own `positionSource` value shown verbatim in
+  parens (e.g. `(goal-poll)`) — the honesty hint comes from the bot's own
+  status field, not invented wording, since it already says how derived/
+  potentially-lagged the reading is.
+- **distance from base** — the exact same `fmtDistance()`/`BASE_ANCHOR` badge
+  a mineflayer card gets; distance-from-base only needs a position, and this
+  API has one.
+- **phase** (e.g. `in-world`) shown as the task-state pill, and the current
+  `task`'s `kind`/`block`/`count` as the task line — there is no separate
+  running/done/failed field anywhere in this API, so "a `task` object is
+  present" IS the state, the same "task presence = state" reading confirmed
+  against the live bot before writing any of this.
+- **`lastBaritoneLine`** (Baritone's own raw pathfinder log line) as the task
+  detail, capped at 140 characters for the glanceable wall view with the full
+  line still reachable via the `title` tooltip — these lines run long
+  (`"Finished finding a path from BetterBlockPos{...} to
+  GoalComposite[...]. 2029 nodes considered"`) and would otherwise dominate
+  the card.
+- **`uptime`** in the footer meta row.
+- **`aborted`**, when truthy, flags the card red (reusing `.card.err`) with
+  the raw value rendered as-is — every live observation so far has this
+  `null`, so its populated shape/meaning is unproven; this renders the fact
+  rather than an interpreted message, same "never fabricate meaning beyond
+  what the data says" rule as everywhere else on this page.
+
+No `deaths`/`guard`/`engine` chips, no inventory, no event log, no Mission
+Control drilldown — those fields simply don't exist in this API, so they are
+never faked, not even as empty placeholders.
+
+**No WAKE/STOP, ever, for a baritone bot — enforced twice.** The card renders
+neither button (there is nothing in `buildBaritoneCard()` that would). Even a
+stray or malicious `POST /api/wake`/`/api/stop` naming a baritone-range port
+is refused server-side with `409` before anything is forwarded anywhere —
+`doWake()`/`doStop()` check the port against the same `3301-3309` range
+directly, independent of how `resolveBot()` found it. This control surface
+has never been proven to have a `/chop`/`/collect`/`/stop` endpoint at all;
+`FALLBACK_WAKE`'s `/collect` guess is exactly the wrong thing to fire blind
+at an unknown API.
+
 ## What the page shows
 
 **Header** — `x/8 online`, `y idle`, and total `iron_ingot` across every
@@ -173,7 +249,34 @@ blinks green on each successful poll.
   normal while a driver actively drives, see issue #6; older runners without
   the field just omit the chip), and movement engine
 - `lastError` in a red box when set
+- **held-tool line** (v3, Mission Control, integration round) — one line
+  under the vitals bars, driven by `/status.heldItem` (G1): the equipped
+  item's real Minecraft icon (see below) at a slightly larger "hero" size
+  than a chip's, its name, and the same durability bar as an inventory chip
+  when the item carries one. `heldItem === undefined` (this runner hasn't
+  shipped G1 yet — real fleet data today is a live mix of both, restart by
+  restart) hides the whole line entirely; `heldItem === null` (a real G1
+  runner, hand genuinely empty) shows the line with `empty hand` text
+  instead of an icon — two different, both honest states, never conflated
+  and never faked as each other.
 - inventory as compact chips — top 10 stacks by count, with count badges.
+  Every chip (here, in Vault, and in the Mission Control drilldown's full
+  inventory) now leads with the item's real Minecraft texture (v3, §3.4,
+  integration round) — served locally from the already-installed
+  `minecraft-assets` package via `GET /mc-icon/<name>.png`
+  (`panel-data.mjs`'s `getIcon()`; version-pinned to the real server version,
+  currently `1.21.11`), 16×16 native resolution rendered with
+  `image-rendering: pixelated` so it stays crisp rather than blurring into a
+  resample. A name with no matching texture (a handful of multi-sprite/
+  entity-rendered blocks — `chest`, `furnace`, `crafting_table`,
+  `cobblestone_stairs` confirmed today; MC renders these from several
+  separate face textures or a full entity model, not one flat PNG) gets an
+  honest grey placeholder icon instead of a broken-image glyph — never
+  guessed at, never a name-mapping table to maintain. Icons are served with
+  a long-lived `Cache-Control` (the one exception to this panel's usual
+  `no-store` — a game texture never changes short of an MC version bump,
+  which is a deploy event anyway), so repeat chips across many cards cost
+  nothing after the first paint.
   Any item carrying a real `durability: {used, max}` pair (a runner-side
   field, currently a live mix of present/absent even within the SAME bot's
   inventory depending on when each item was picked up relative to a runner
@@ -300,6 +403,8 @@ there is no persistence by design.
 | Method | Path | Does |
 | --- | --- | --- |
 | `GET` | `/` | the dashboard, one self-contained HTML document |
+| `GET` | `/panel.js` | the client script (`cave/panel-client.js`), served as a real static file; mtime-cached in memory |
+| `GET` | `/mc-icon/<name>.png` | (v3, §3.4, integration round) a real Minecraft item/block texture from the already-installed `minecraft-assets` package, or an SVG placeholder on a miss — see `## What the page shows`'s inventory bullet. `Cache-Control: public, max-age=31536000, immutable` on a hit (the one exception to this panel's usual `no-store`); `no-store` on the placeholder |
 | `GET` | `/api/fleet` | every runner's `/status` polled in parallel (3s timeout each), with the last ~10 `/events` merged per bot and `delta30`/`delta60` movement figures; whole aggregate cached 2s |
 | `GET` | `/api/alerts` | last ~50 lines of the alerts log |
 | `GET` | `/api/todo` | `cave/TODO.md`'s markdown tables, parsed and bucketed into `doing`/`todo`/`done`; cached on the file's mtime |
@@ -567,8 +672,18 @@ script that calls `main()` directly with no module exports):
   brightened off their literal chat colours; the rest are palette values)
 - the chest coords + labels, from `audit.mjs`'s `CHESTS` (~line 36), as
   `CHEST_META`
+- BariBrute's own roster row (name, port, `kind: 'baritone'`) — from
+  `cave/CIV.md`'s roster + port registry, not an importable source either
 
 If any of these change upstream, update `panel-data.mjs` by hand.
+
+`MC_ASSET_VERSION` (`panel-data.mjs`, currently `1.21.11`) is the one thing
+to update when the server's Minecraft version changes — the whole point of
+naming it once is that a version bump is this single constant, not a code
+change; `minecraft-assets` shipping that version's texture data is the other
+half of the check (its own `index.js` falls back to the last release of the
+same major version if not, so a near-miss degrades rather than breaking
+outright).
 
 ## Phase 2 ideas
 
