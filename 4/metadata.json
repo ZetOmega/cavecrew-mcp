@@ -1,0 +1,108 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "01M1EDVKE58Z5N85H6K5EGV6EH",
+  "session_id": "ebbc4e8d-d11a-41a2-8798-d7e515350594",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-01T12:07:18.009761869Z",
+  "branch": "main",
+  "checkpoints_count": 7,
+  "save_step_count": 7,
+  "files_touched": [
+    ".gitignore",
+    "cave/goals.json",
+    "cave/overseer.mjs"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-5",
+  "turn_id": "648498e9f460",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 52,
+    "cache_creation_tokens": 158792,
+    "cache_read_tokens": 1885631,
+    "output_tokens": 15882,
+    "api_call_count": 26
+  },
+  "session_metrics": {
+    "turn_count": 7
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-01T12:07:17.99409265Z",
+    "agent_lines": 322,
+    "agent_removed": 5,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 322,
+    "total_lines_changed": 327,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 129,
+      "agent_lines_removed": 53
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 113,
+      "user_lines_removed": 0,
+      "agent_lines_added": 148,
+      "agent_lines_removed": 53,
+      "user_added_per_file": {
+        "cave/panel-data.mjs": 113
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 30,
+      "user_lines_removed": 1,
+      "agent_lines_added": 329,
+      "agent_lines_removed": 63,
+      "user_added_per_file": {
+        "cave/BASE.md": 2,
+        "cave/panel.mjs": 28
+      },
+      "user_removed_per_file": {
+        "cave/BASE.md": 1
+      }
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 533,
+      "agent_lines_removed": 69
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 818,
+      "agent_lines_removed": 69
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 2,
+      "user_lines_removed": 1,
+      "agent_lines_added": 818,
+      "agent_lines_removed": 69,
+      "user_added_per_file": {
+        "cave/TODO.md": 2
+      },
+      "user_removed_per_file": {
+        "cave/TODO.md": 1
+      }
+    }
+  ]
+}
