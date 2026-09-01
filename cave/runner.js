@@ -1407,10 +1407,18 @@ function wireBot(b) {
       taskKind: state.currentTask?.kind ?? null,
     });
     persistDeaths();
-    // IMPORTANT WHITE announcement — the '!' path (see smartChat above)
-    // strips the '!' and sends this as real, unmissed chat: every death is
-    // worth every bot/player noticing, unlike routine status narration.
-    smartChat(`!${name} died at (${posStr}) — deathCount ${state.deathCount}`).catch((err) =>
+    // TOTAL DE-CHAT, death included (chief decree, 2026-09-01): "chat =
+    // talk only, no telemetry exceptions" — this used to be the one
+    // deliberate holdout on the "!" real-chat path ("every death is worth
+    // every bot/player noticing"), but the decree's spirit doesn't carve
+    // out an importance exception. Routes through announce('status', ...)
+    // like every other status line now; logLine + pushEvent('death', ...)
+    // above already give the durable record. Bold + a skull emoji keeps it
+    // visually unmissable in the Discord feed without needing real embed
+    // support (discord.mjs's postStatus is plain-text content only today —
+    // out of scope for this change) — Discord renders the markdown, and
+    // the panel already shows death red from state.deathCount/lastDeath.
+    announce('status', `**💀 DEATH:** ${name} died at (${posStr}) — deathCount ${state.deathCount}`).catch((err) =>
       logLine('warn', `death announce failed: ${err?.message ?? err}`)
     );
     // Grab the dying task's target BEFORE failing it (failActiveTask doesn't

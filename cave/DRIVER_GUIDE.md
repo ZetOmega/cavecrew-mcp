@@ -251,6 +251,11 @@ narration of what you find, same as any other unexpected task failure.
 
 - A death **aborts the current task** — whatever was running is over,
   don't assume it resumes on respawn.
+- The runner announces every death automatically — **Discord status feed
+  and the runner log, never game chat** (chief decree, 2026-09-01: chat
+  is real talk only, no telemetry exceptions, death included). Don't wait
+  on or expect a game-chat line; `deathCount`/`/events` below and the
+  Discord feed are the actual signal.
 - `GET /status` carries a `deathCount` field. Check it after any
   unexpected task failure or gap in `/events` — a jump means the bot
   died and respawned since you last looked.
