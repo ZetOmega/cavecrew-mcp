@@ -1093,6 +1093,14 @@ export async function chopTrees(bot, opts = {}, ctx = {}) {
   const count = opts.count ?? 8;
   const maxDistance = opts.maxDistance ?? 48;
 
+  // (15) Same relocation hazard as branchMine (see its own header comment):
+  // ensureTool()'s depot-chest fallback can silently walk the bot to camp
+  // (depot withdraw + crafting table) to fetch/craft an axe, so the loop
+  // below would then search for trees from camp instead of wherever the
+  // driver actually positioned the bot for this chop. Snapshot the intended
+  // origin now, before ensureTool runs.
+  const chopOrigin = bot.entity.position.clone();
+
   // (9) Axe is optional here — hand-chopping works, just slower. Best-effort
   // only: a failed ensureTool() must never abort a chop task.
   //
@@ -1106,18 +1114,70 @@ export async function chopTrees(bot, opts = {}, ctx = {}) {
     await ensureTool(bot, { kind: 'axe' }, ctx).catch((err) => {
       ctx.log?.('warn', `chopTrees: ensureTool(axe) failed, hand-chopping instead: ${err.message}`);
     });
+
+    // Unlike branchMine (which treats a failed return as fatal — a trunk
+    // corridor has one legitimate start), a chop task degrades fine from a
+    // slightly different position: warn and continue rather than aborting.
+    if (bot.entity.position.distanceTo(chopOrigin) > 8) {
+      ctx.log?.(
+        'warn',
+        `chopTrees: ensureTool relocated the bot (now ${posKey(bot.entity.position)}) — returning to origin ${posKey(chopOrigin)} before chopping`
+      );
+      try {
+        await gotoLoop(
+          bot,
+          new goals.GoalNear(chopOrigin.x, chopOrigin.y, chopOrigin.z, 1),
+          { timeoutMs: 30000, maxAttempts: 3 },
+          ctx
+        );
+      } catch (err) {
+        ctx.log?.(
+          'warn',
+          `chopTrees: could not return to origin after ensureTool relocation (${err.message}) — chopping from current position instead`
+        );
+      }
+    }
   }
 
   const choppedTrees = [];
   const collectedAll = [];
   const skippedKeys = new Set();
   const maxIterations = count * 4 + 20;
+  // (FIELD BUG report: camp has ~30 protected structural logs within
+  // maxDistance of camp positions — every quarantine/no-go skip below used
+  // to burn one of these iterations before findBlock ever reached a legit
+  // tree farther out, so a count:4 chop (36-iteration budget) could exhaust
+  // itself entirely on skips with real trees still in range.) iterations
+  // only counts real chop ATTEMPTS now (incremented below, after the skip
+  // checks) — the loop still terminates because every skip adds a NEW key
+  // to skippedKeys and findBlock's matcher excludes skipped keys, so log
+  // blocks in range are finite. loopPasses is a separate hard safety cap on
+  // total passes through this loop (skips included) so a pathological
+  // matcher can never spin forever.
+  const HARD_LOOP_CAP = 500;
   let iterations = 0;
+  let loopPasses = 0;
   let consecutiveStalls = 0;
 
   while (choppedTrees.length < count && iterations < maxIterations) {
-    iterations++;
+    // (REVIEW FIX 2b) cancel check FIRST — a task cancelled mid-run must
+    // read as a clean cancel, not race the loop-cap check below and come
+    // out looking like "matcher stuck".
     if (ctx.isCancelled?.()) break;
+    loopPasses++;
+    if (loopPasses > HARD_LOOP_CAP) {
+      // (REVIEW FIX 2a) warn + break, not throw — a throw here discarded
+      // every tree already chopped/collected this run and skipped the
+      // late-drop sweep below, turning a "matcher stuck after grabbing
+      // most of the count" run into a hard total failure. Falling through
+      // to the normal end-of-loop path returns the partial result and
+      // still runs the sweep, same as running out of maxIterations does.
+      ctx.log?.(
+        'warn',
+        `chopTrees: hit ${HARD_LOOP_CAP} loop passes without reaching ${count} chop(s) — matcher likely stuck, stopping with partial results (${choppedTrees.length} chopped)`
+      );
+      break;
+    }
     await checkHealthRetreat(bot, ctx);
     ctx.setDetail?.(`chopping tree ${choppedTrees.length + 1}/${count}`);
 
@@ -1170,6 +1230,11 @@ export async function chopTrees(bot, opts = {}, ctx = {}) {
       ctx.log?.('warn', `chopTrees: skipping ${key} — no leaves within 4 blocks above top log (built structure, not tree)`);
       continue;
     }
+
+    // Real chop ATTEMPT starts here — every check above this line is a
+    // pre-filter skip and must never consume the chop budget (see
+    // maxIterations comment above).
+    iterations++;
 
     // Per-tree abandon flag — see abandonableCtx above. Fresh object every
     // iteration so a previous tree's flag can never mute the current one.
@@ -2328,23 +2393,57 @@ async function ensureLogs(bot, ctx, minLogs) {
 }
 
 async function ensurePlanksAndSticks(bot, ctx) {
-  // Need >=3 planks for a pickaxe/axe head plus >=2 planks worth of sticks —
-  // keep this simple and just make sure we have a healthy buffer (>=5
-  // planks, >=2 sticks) before attempting the tool recipe itself.
+  // Need >=3 planks for a pickaxe/axe head plus >=2 planks worth of sticks.
+  // craftToolChain calls this once per tool it crafts (bootstrap pickaxe,
+  // then the requested tool, then the stone upgrade) — top up toward a
+  // healthy buffer (5 planks) when logs are available, but only REQUIRE the
+  // immediate recipe's actual minimum (3 planks). Requiring the full 5-plank
+  // buffer here used to be fatal: the mandatory wooden_pickaxe bootstrap
+  // (crafted right before this runs again for the requested axe) leaves
+  // EXACTLY 3 planks + 2 sticks behind — enough for the axe recipe — but the
+  // old >=5 floor forced a second log-gather anyway, and when that gather
+  // failed (no logs left in reach), it threw and discarded the axe craft
+  // even though everything needed for it was already in hand. (FIELD BUG
+  // report: ensureTool(axe) ended with only the bootstrap wooden_pickaxe +
+  // 3 planks + 2 sticks — exact leftovers of a pickaxe craft, wooden_axe
+  // recipe never attempted.)
+  const PLANK_MIN = 3;
+  const PLANK_BUFFER = 5;
+  // (REVIEW FIX 1: plank-min gate blind to stick cost) — the stick craft
+  // below eats 2 planks. A bot sitting on exactly PLANK_MIN(3) planks + 0
+  // sticks + 0 logs used to sail straight through the gather gate (3 < 3
+  // is false) and the floor check below (same reason), only to have the
+  // stick craft drop it to 1 plank — one short of the tool recipe it was
+  // just cleared for. requiredPlanks folds the stick deficit in BEFORE
+  // both the gather gate and the floor check, and is `let` because it gets
+  // recomputed with fresh state after a gather attempt (REVIEW FIX 3
+  // below), not just read once up front.
+  let requiredPlanks = PLANK_MIN + (itemCount(bot, 'stick') < 2 ? 2 : 0);
   let planks = bot.inventory.items().find((it) => it.name.endsWith('_planks'));
-  if (!planks || planks.count < 5) {
+  if (!planks || planks.count < PLANK_BUFFER) {
     let log = bot.inventory.items().find((it) => /_log$/.test(it.name));
-    if (!log) {
-      if (!(await ensureLogs(bot, ctx, 2))) throw new Error('ensureTool: could not gather any logs for planks');
+    if (!log && (!planks || planks.count < requiredPlanks)) {
+      const gathered = await ensureLogs(bot, ctx, 2);
+      // (REVIEW FIX 3: stale recheck) — re-fetch planks/log/requiredPlanks
+      // fresh from inventory after the gather attempt. The old code
+      // rechecked the `planks` variable captured BEFORE ensureLogs ran, so
+      // a successful gather that grew the stack could never clear this
+      // recheck — it always saw the pre-gather count and threw anyway.
+      planks = bot.inventory.items().find((it) => it.name.endsWith('_planks'));
       log = bot.inventory.items().find((it) => /_log$/.test(it.name));
+      requiredPlanks = PLANK_MIN + (itemCount(bot, 'stick') < 2 ? 2 : 0);
+      if (!gathered && (!planks || planks.count < requiredPlanks)) {
+        throw new Error('ensureTool: could not gather any logs for planks');
+      }
     }
-    if (!log) throw new Error('ensureTool: no logs available to craft planks');
-    const plankName = log.name.replace(/_log$/, '_planks');
-    const logCount = itemCount(bot, log.name);
-    await craftLocal(bot, plankName, Math.min(logCount, 4), ctx);
-    planks = bot.inventory.items().find((it) => it.name.endsWith('_planks'));
+    if (log) {
+      const plankName = log.name.replace(/_log$/, '_planks');
+      const logCount = itemCount(bot, log.name);
+      await craftLocal(bot, plankName, Math.min(logCount, 4), ctx);
+      planks = bot.inventory.items().find((it) => it.name.endsWith('_planks'));
+    }
   }
-  if (!planks || planks.count < 5) throw new Error('ensureTool: not enough planks after crafting');
+  if (!planks || planks.count < requiredPlanks) throw new Error('ensureTool: not enough planks after crafting');
 
   if (itemCount(bot, 'stick') < 2) {
     await craftLocal(bot, 'stick', 1, ctx);
