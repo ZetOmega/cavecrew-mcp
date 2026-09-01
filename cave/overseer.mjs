@@ -34,6 +34,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRconChat } from './rconchat.js'
+import { postStatus, isConfigured as discordConfigured } from './discord.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const LOG = path.join(HERE, 'logs', 'overseer.log')
@@ -129,7 +130,31 @@ const alert = (m) => { const line = `[${new Date().toISOString()}] ALERT ${m}\n`
 
 let rcon = null
 const getRcon = () => (rcon ??= createRconChat())
-const grey = async (name, color, text) => { try { await getRcon().sayStatus(name, color, text) } catch (e) { log(`grey fail: ${e.message}`) } }
+// local.json config — read once, lazily, cached. Same file rconchat.js reads
+// for its own [rcon] block; this reads the sibling [discord] block.
+let localConfigLoaded = false
+let localConfig = null
+const getLocalConfig = () => {
+  if (!localConfigLoaded) {
+    localConfigLoaded = true
+    try { localConfig = JSON.parse(fs.readFileSync(path.join(HERE, 'local.json'), 'utf8')) } catch { localConfig = null }
+  }
+  return localConfig
+}
+// grey() — status/narration line. CHAT-SILENCE LAW: this NEVER touches game
+// chat, not even tellraw grey — it goes to the Discord status feed when
+// cave/local.json has discord.webhookUrl configured, else just the log.
+const grey = async (name, color, text) => {
+  try {
+    const cfg = getLocalConfig()
+    if (discordConfigured(cfg)) {
+      const ok = await postStatus({ botName: name, color, text, webhookUrl: cfg.discord.webhookUrl })
+      if (ok) return
+      log(`grey: discord postStatus failed, status stays in log only`)
+    }
+    log(`(status) ${name}: ${text}`)
+  } catch (e) { log(`grey fail: ${e.message}`) }
+}
 const rconCmd = async (cmd) => { try { return await getRcon().send(cmd) } catch (e) { log(`rcon fail: ${e.message}`); return null } }
 
 const api = async (port, ep, body, method = 'POST') => {

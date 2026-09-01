@@ -2539,14 +2539,16 @@ export async function ensureTool(bot, opts = {}, ctx = {}) {
     }
     if (match) {
       const depotLine = `DEPOT -1 ${match.name} (chest A)`;
-      // Grey narration via the runner's rconchat sayStatus when ctx supplies
-      // it (see runner.js's makeCtx) — it already falls back to bot.chat
-      // internally on any rconchat trouble. Bare ctx (tests, /eval helpers
-      // without a runner behind them) falls back to plain bot.chat here.
+      // Grey narration via the runner's ctx.sayStatus (see runner.js's
+      // makeCtx) — routes to Discord status feed, never game chat. Bare ctx
+      // (tests, /eval helpers without a runner behind them) falls back to
+      // ctx.log, then console.log — CHAT-SILENCE LAW: never bot.chat here.
       if (typeof ctx.sayStatus === 'function') {
         await ctx.sayStatus(depotLine);
+      } else if (typeof ctx.log === 'function') {
+        ctx.log('info', depotLine);
       } else {
-        bot.chat(depotLine);
+        console.log(depotLine);
       }
       const got = bot.inventory.items().find((it) => it.name === match.name);
       if (got) await bot.equip(got, 'hand');
@@ -2563,8 +2565,10 @@ export async function ensureTool(bot, opts = {}, ctx = {}) {
     const depotLine = `DEPOT -${m.count} ${m.name} (chest A)`;
     if (typeof ctx.sayStatus === 'function') {
       await ctx.sayStatus(depotLine);
+    } else if (typeof ctx.log === 'function') {
+      ctx.log('info', depotLine);
     } else {
-      bot.chat(depotLine);
+      console.log(depotLine);
     }
   }
   if (depotMaterials.length) {
