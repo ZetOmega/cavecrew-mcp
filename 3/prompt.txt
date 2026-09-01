@@ -185,3 +185,13 @@
 <status>completed</status>
 <summary>Background command "Wait for goto to chest A" completed (exit code 0)</summary>
 </task-notification>
+
+---
+
+<task-notification>
+<task-id>bqmbo2z3i</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-phili-tools-cavecrew-mcp/ebb423eb-48a4-4d86-b91c-e8cb33ab9d63/tasks/bqmbo2z3i.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for goto to stump 1" completed (exit code 0)</summary>
+</task-notification>
