@@ -1,0 +1,6 @@
+<task-notification>
+<task-id>bsx02t64t</task-id>
+<summary>Monitor event: "poll BariOok status until staging-goto (20,90,60) clears or stalls"</summary>
+<event>poll1: {"name":"BariOok","position":{"x":17,"y":96,"z":47},"positionSource":"goal-poll","task":{"kind":"goto","x":20,"y":90,"z":60,"at":1788267996875},"lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=17,y=96,z=47} to GoalBlock{x=20,y=90,z=60}. 81 nodes considered","connected":true,"phase":"in-world","uptime":1387736,"joinedAt":1788266652997,"aborted":null,"gameDir":"C:\\Users\\phili\\tools\\baritone-lifter\\bots\\BariOok\\gamedir","launcherPid":10684}</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
