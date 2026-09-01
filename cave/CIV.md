@@ -59,7 +59,7 @@ Roles get reassigned fresh by the orchestrator as each bot boots.
 | Durk      | 3207 | unassigned (relaunch)       | —               | stopped | —                                |
 | BariBrute | 3301 | baritone heavy-lift miner   | BariBruteDriver | active | free-range southeast (baritone)  |
 | BariThak  | 3302 | baritone miner (team cave_BariThak joined) | ThakDriver | active | staging → camp (20,90,60) |
-| BariOok   | 3303 | baritone long-range scout/hauler (team cave_BariOok joined) | OokDriver | active | camp staging (21,90,60), idle awaiting assignment |
+| BariOok   | 3303 | baritone long-range scout/hauler (team cave_BariOok joined) | OokDriver | active | recon (252,94,131) — Base 2.0 candidate, killTree crash-loop fixed+RCON-confirmed, board #19/#21 |
 | Mog       | 3208 | unassigned (relaunch)       | —               | stopped | —                                |
 
 Per-bot workstations exist so bots spread out rather than clump on one
@@ -99,6 +99,11 @@ Standing driver rules (user law):
     the sign-on-chest quirk logged under Trading post above).
 11. Equality doctrine: all bots are equally cavecrew — no bot's
     output/goal outranks another's without team-lead say-so.
+12. Radio discipline (chief order 2026-09-01): poll interval 30-60s on
+    running tasks; message team-lead ONLY on real events — task result
+    (with ground-truth numbers), escalation after the retry budget, a
+    finding, or danger. Silence = all good. No per-poll status ticks,
+    no "holding/waiting" messages.
 
 Full detail on all of the above, plus build standards, chat tiers,
 plugin-first doctrine, and the blink/tp-rescue protocols: `DRIVER_GUIDE.md`.
