@@ -59,15 +59,26 @@ function isBaritonePort(port) {
   return port >= BARITONE_PORT_MIN && port <= BARITONE_PORT_MAX;
 }
 
+function rangePorts(min, max) {
+  const out = [];
+  for (let p = min; p <= max; p++) out.push(p);
+  return out;
+}
+
 // Runner ports. Default is the production mineflayer fleet 3201-3208 plus
-// today's one known baritone bot (3301); CAVE_PANEL_BARITONE_PORTS
-// (comma-separated, same shape as CAVE_PANEL_PORTS) extends just the
-// baritone set without restating the whole mineflayer list — e.g.
-// CAVE_PANEL_BARITONE_PORTS=3301,3302 once a second gigabrain exists.
-// CAVE_PANEL_PORTS (unchanged) still overrides the ENTIRE combined list, for
-// the existing throwaway-test-runner use case.
-const DEFAULT_MINEFLAYER_PORTS = [3201, 3202, 3203, 3204, 3205, 3206, 3207, 3208];
-const DEFAULT_BARITONE_PORTS = [3301];
+// the FULL reserved baritone range 3301-3309 (roster/name-autodetect hotfix,
+// team-lead order 2026-09-01: "Flotte hat sich gedreht" — BariThak/BariOok
+// landed on 3302/3303 same-day with zero code change here, and the panel
+// never polled them because only 3301 was in the old default list, so they
+// were flat-out invisible, not just mis-named). Scanning the whole range by
+// default means a brand-new wrapper bot on any reserved slot just appears —
+// see buildFleet()'s "tote Ports raus" filter below for why this doesn't
+// turn into 6 permanent offline cards for the unused slots.
+// CAVE_PANEL_BARITONE_PORTS (comma-separated, same shape as CAVE_PANEL_PORTS)
+// still narrows this for the throwaway-test-runner case. CAVE_PANEL_PORTS
+// (unchanged) still overrides the ENTIRE combined list.
+const DEFAULT_MINEFLAYER_PORTS = rangePorts(3201, 3208);
+const DEFAULT_BARITONE_PORTS = rangePorts(BARITONE_PORT_MIN, BARITONE_PORT_MAX);
 const BARITONE_PORTS = parsePorts(process.env.CAVE_PANEL_BARITONE_PORTS) ?? DEFAULT_BARITONE_PORTS;
 const DEFAULT_PORTS = [...DEFAULT_MINEFLAYER_PORTS, ...BARITONE_PORTS];
 
@@ -352,12 +363,24 @@ const BARITONE_ONLY_NULLS = {
   aborted: null, uptime: null,
 };
 
+// Learned display names + "ever answered" tracking (roster/name-autodetect
+// hotfix, team-lead order 2026-09-01) — process-lifetime only, never
+// hand-maintained: the first time ANY port (roster or not) answers /status
+// with a real name, that name is remembered so a later offline blip still
+// labels the card correctly instead of falling back to ":port". Backs
+// buildFleet()'s "tote Ports raus" rule: a candidate port with no roster
+// entry that has NEVER answered gets no card at all (unused baritone
+// capacity, not a bot); a port that answered even once keeps showing,
+// offline or not, from then on — same as a roster bot always does today.
+const learnedNames = new Map(); // port -> last live-reported name
+const everAlivePorts = new Set(); // ports that have answered /status at least once this process
+
 async function pollBot(port) {
   const roster = BOT_BY_PORT.get(port) ?? null;
   const kind = roster?.kind ?? (isBaritonePort(port) ? 'baritone' : 'mineflayer');
   const base = {
     port,
-    name: roster?.name ?? `:${port}`,
+    name: roster?.name ?? learnedNames.get(port) ?? `:${port}`,
     team: roster?.team ?? 'white',
     color: TEAM_HEX[roster?.team ?? 'white'] ?? TEAM_HEX.white,
     inRoster: !!roster,
@@ -396,6 +419,13 @@ async function pollBot(port) {
     };
   }
 
+  // Reached only when /status actually answered — remember it forever (this
+  // process's life) regardless of kind, per the learnedNames/everAlivePorts
+  // contract above.
+  everAlivePorts.add(port);
+  const liveName = typeof status.name === 'string' && status.name.trim() ? status.name : null;
+  if (liveName) learnedNames.set(port, liveName);
+
   // Baritone branch — ground-truthed live against the real BariBrute
   // (PANEL_V3_SPEC.md's integration-round notes): {name, position,
   // positionSource, task:{kind,block,count,at}, lastBaritoneLine,
@@ -405,7 +435,7 @@ async function pollBot(port) {
   if (kind === 'baritone') {
     return {
       ...base,
-      name: typeof status.name === 'string' && status.name ? status.name : base.name,
+      name: liveName ?? base.name,
       offline: false,
       offlineReason: null,
       connected: !!status.connected,
@@ -438,7 +468,7 @@ async function pollBot(port) {
 
   return {
     ...base,
-    name: typeof status.name === 'string' && status.name ? status.name : base.name,
+    name: liveName ?? base.name,
     offline: false,
     offlineReason: null,
     connected: !!status.connected,
@@ -546,7 +576,7 @@ function deltaOver(ring, pos, now, windowMs) {
 async function buildFleet() {
   const bots = await Promise.all(PORTS.map((p) => pollBot(p).catch((err) => ({
     port: p,
-    name: BOT_BY_PORT.get(p)?.name ?? `:${p}`,
+    name: BOT_BY_PORT.get(p)?.name ?? learnedNames.get(p) ?? `:${p}`,
     team: BOT_BY_PORT.get(p)?.team ?? 'white',
     color: TEAM_HEX[BOT_BY_PORT.get(p)?.team ?? 'white'] ?? TEAM_HEX.white,
     kind: BOT_BY_PORT.get(p)?.kind ?? (isBaritonePort(p) ? 'baritone' : 'mineflayer'),
@@ -571,8 +601,21 @@ async function buildFleet() {
     b.delta60 = deltaOver(ring, pos, now, 60_000);
   }
 
-  const online = bots.filter((b) => !b.offline);
-  const iron = bots.reduce((sum, b) => {
+  // "Tote Ports raus" (roster/name-autodetect hotfix): a candidate port with
+  // no roster entry that has NEVER once answered /status this process's life
+  // is scan noise, not a bot — most of the reserved baritone range
+  // (3304-3309 today) is unused capacity, and a permanent offline card for
+  // six ports nothing has ever run on would just be clutter. A roster bot
+  // (even a stopped one, e.g. Thak/Ook after today's fleet reshuffle) or ANY
+  // port that has answered at least once still always shows, offline or
+  // not — same honest "this is expected, and it's down" signal the panel
+  // has always given for known bots. Once a card exists it never disappears
+  // again this process's life (everAlivePorts only grows) — panel-client.js
+  // never prunes a card either, so this keeps the two in sync.
+  const visibleBots = bots.filter((b) => BOT_BY_PORT.has(b.port) || everAlivePorts.has(b.port));
+
+  const online = visibleBots.filter((b) => !b.offline);
+  const iron = visibleBots.reduce((sum, b) => {
     const stack = b.inventory.find((i) => i.name === 'iron_ingot');
     return sum + (stack ? stack.count : 0);
   }, 0);
@@ -581,12 +624,12 @@ async function buildFleet() {
     ts: new Date().toISOString(),
     quota: { iron_ingot: IRON_QUOTA },
     summary: {
-      total: PORTS.length,
+      total: visibleBots.length,
       online: online.length,
       idle: online.filter((b) => b.idle).length,
       iron_ingot: iron,
     },
-    bots,
+    bots: visibleBots,
   };
 }
 

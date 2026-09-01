@@ -30,6 +30,38 @@ const SNAPSHOT_FILE = path.join(HERE, 'audit-snapshot.json');
 const LOG_DIR = path.join(HERE, 'logs');
 const LOG_FILE = path.join(LOG_DIR, 'audit.log');
 
+// Cross-checkout mirror (team-lead hotfix ask, 2026-09-01): a driver runs
+// this script from wherever their shell happens to be cwd'd into — today
+// that's the WSL dev checkout, reachable to the real live bot runners via
+// WSL2 mirrored networking. But the LIVE panel (:3200) polls its own
+// audit-snapshot.json out of a totally separate checkout — the Windows
+// clone, a different filesystem (NTFS via /mnt/c) — and audit-snapshot.json
+// is (correctly) .gitignore'd, since a committed copy would go stale the
+// instant the next audit runs. Result before this fix: prod's /api/vault
+// permanently reported missing:true even right after a fresh, real audit,
+// because the snapshot only ever landed in the checkout that ran the
+// command. Best-effort mirror the freshly-written snapshot into every other
+// known checkout of this same repo so whichever one is serving the live
+// panel sees it too. Silently skipped, never fatal, for any candidate that
+// isn't actually on this machine (e.g. a differently-named clone, or this
+// script someday running directly on the Windows box itself).
+const MIRROR_SNAPSHOT_PATHS = [
+  '/mnt/c/Users/phili/tools/cavecrew-mcp/cave/audit-snapshot.json',
+  path.join(process.env.HOME ?? '/home/phili', 'tools', 'cavecrew-mcp', 'cave', 'audit-snapshot.json'),
+].filter((p) => path.resolve(p) !== path.resolve(SNAPSHOT_FILE));
+
+function mirrorSnapshot(json) {
+  for (const dest of MIRROR_SNAPSHOT_PATHS) {
+    try {
+      if (!fs.existsSync(path.dirname(dest))) continue; // that checkout isn't on this machine
+      fs.writeFileSync(dest, json);
+      console.log(`snapshot mirrored: ${dest}`);
+    } catch (err) {
+      console.log(`snapshot mirror skipped (${dest}): ${err.message}`);
+    }
+  }
+}
+
 // Camp depot/storage chests — coords from BASE.md's registry (chest_a/b rows,
 // storage_house's chest C/D ground-truth notes). Keep this in sync by hand
 // whenever a chest moves/gets added/removed in BASE.md.
@@ -223,8 +255,10 @@ async function main() {
     }
   }
 
-  fs.writeFileSync(SNAPSHOT_FILE, JSON.stringify(snapshot, null, 2));
+  const snapshotJson = JSON.stringify(snapshot, null, 2);
+  fs.writeFileSync(SNAPSHOT_FILE, snapshotJson);
   console.log(`\nsnapshot saved: ${SNAPSHOT_FILE}`);
+  mirrorSnapshot(snapshotJson);
 
   if (!prev) {
     console.log('no previous snapshot to diff against — this run is the new baseline.');
