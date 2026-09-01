@@ -3093,9 +3093,16 @@ async function placeTorchHere(bot, ctx) {
 async function extendFloorTowards(bot, footFloor, dx, dz, ctx) {
   const target = footFloor.offset(dx, 0, dz);
   const existing = bot.blockAt(target);
-  if (existing && existing.name !== 'air' && existing.name !== 'water' && existing.name !== 'lava') return true;
+  // (FIELD BUG, Ook 2026-09-01 — dripstone_caves fall incident) was
+  // `!== 'air'` only — dripstone_caves (and caves generally) read empty
+  // cells as `cave_air`/`void_air`, a DIFFERENT block name than plain
+  // `air`. That false-read "already solid" here, so a genuinely-open floor
+  // cell over a ledge/cliff got silently skipped instead of extended.
+  // NOT_PLACED_RE (module scope above, already proven in placedAt()) is
+  // the canonical air-like set — reused here instead of a second ad-hoc list.
+  if (existing && !NOT_PLACED_RE.test(existing.name)) return true;
   const anchor = bot.blockAt(footFloor);
-  if (!anchor || anchor.name === 'air' || anchor.name === 'water' || anchor.name === 'lava') return false;
+  if (!anchor || NOT_PLACED_RE.test(anchor.name)) return false;
   const material = bot.inventory.items().find((it) => SEAL_MATERIALS.test(it.name));
   if (!material) return false;
   const faceVec = target.minus(footFloor);
@@ -3114,7 +3121,16 @@ async function extendFloorTowards(bot, footFloor, dx, dz, ctx) {
 // side+below exposure checks.
 async function sealStairCell(bot, cellPos, ctx) {
   const b = bot.blockAt(cellPos);
-  if (!b || !(b.name === 'air' || b.name === 'water' || b.name === 'lava')) return false;
+  // (FIELD BUG, Ook 2026-09-01 — dripstone_caves fall incident) same
+  // cave_air/void_air gap as extendFloorTowards above, hit twice in one
+  // function here: the cell-needs-sealing check below AND the
+  // neighbor-is-solid check inside the loop both used to be `name==='air'`
+  // literal-only. A dripstone pocket's open neighbor cells read as
+  // cave_air, so the loop picked them as "solid" reference blocks, tried
+  // (and failed) to place against non-solid air, exhausted every
+  // direction, and logged "no solid neighbor found" even with 2 genuinely
+  // open sides that a real wall never backed. NOT_PLACED_RE fixes both.
+  if (!b || !NOT_PLACED_RE.test(b.name)) return false;
   const material = bot.inventory.items().find((it) => SEAL_MATERIALS.test(it.name));
   if (!material) {
     ctx.log?.('warn', `sealStairCell: no seal material on hand for ${posKey(cellPos)}`);
@@ -3131,7 +3147,7 @@ async function sealStairCell(bot, cellPos, ctx) {
   for (const [dx, dy, dz] of neighborOffsets) {
     const refPos = cellPos.offset(dx, dy, dz);
     const ref = bot.blockAt(refPos);
-    if (ref && ref.name !== 'air' && ref.name !== 'water' && ref.name !== 'lava') {
+    if (ref && !NOT_PLACED_RE.test(ref.name)) {
       const faceVec = cellPos.minus(refPos);
       try {
         await bot.equip(material, 'hand');
@@ -3257,17 +3273,39 @@ export async function emergencySeal(bot, ctx = {}) {
       // genuinely out-of-food case would already have been ruled out by
       // findBestFoodItem returning null, so anything that throws here is
       // presumed transient.
+      //
+      // (FIELD BUG, Ook 2026-09-01, dripstone-cave near-death incident) —
+      // "Item switched early to: undefined!\nItem: null" WITH 2 bread still
+      // held, worse than Grog's mis-pick above (total failure to switch to
+      // ANY item, not a timeout). Traced against mineflayer-auto-eat's own
+      // eat()/buildEatingListener source: it rejects the instant an
+      // inventory `updateSlot` fires for the food item's ORIGINAL `.slot`
+      // with a null newItem — i.e. the exact slot the item snapshot was
+      // read from went empty out from under it. `bestFood` used to be read
+      // ONCE above, outside this retry loop, then reused BY REFERENCE
+      // across both attempts — a stale `.slot`/`.type` snapshot, exactly
+      // the "trust a resolved reference instead of re-reading real state"
+      // bug class this codebase guards against everywhere else. Right
+      // after the placeBlock burst's own equip churn, the item's real slot
+      // can still be settling when attempt 1 reads it — and attempt 1's
+      // OWN customEquip call (inside autoEat.eat) moves it again before a
+      // stale attempt-2 reuse of the pre-attempt-1 snapshot would go stale
+      // a second time. Fix: re-resolve findBestFoodItem() FRESH every
+      // attempt, right after the look-wake, so autoEat.eat() always gets
+      // the item's real current slot/count — never a carried-over one.
       for (let attempt = 1; attempt <= 2 && !ate; attempt++) {
         try {
           await bot.look(bot.entity.yaw, bot.entity.pitch, true);
         } catch {
           // ignore — still attempt to eat even if the look packet itself fails
         }
+        const foodNow = findBestFoodItem(bot);
+        if (!foodNow) break; // genuinely out of edible food between attempts
         try {
           if (bot.autoEat && typeof bot.autoEat.eat === 'function') {
-            await bot.autoEat.eat({ food: bestFood, offhand: false });
+            await bot.autoEat.eat({ food: foodNow, offhand: false });
           } else {
-            await bot.equip(bestFood, 'hand');
+            await bot.equip(foodNow, 'hand');
             await bot.consume();
           }
           ate = true;
@@ -3284,9 +3322,11 @@ export async function emergencySeal(bot, ctx = {}) {
   return { pos: toPlainPos(pos), sealed, ate };
 }
 
-// Returns true when a block is solid ground — not air, not a liquid.
+// Returns true when a block is solid ground — not air (incl. cave_air/
+// void_air — see NOT_PLACED_RE above and the dripstone-cave field bug it
+// was ported here to fix), not a liquid.
 function isSolidGround(b) {
-  return !!b && b.name !== 'air' && b.name !== 'water' && b.name !== 'lava';
+  return !!b && !NOT_PLACED_RE.test(b.name);
 }
 
 // (VOID-AHEAD GUARD) — natural cave floors and cliff edges can leave the
