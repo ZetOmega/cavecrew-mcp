@@ -1,0 +1,66 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "01M1EH80XCPVFZMKXQ4MGYAD5H",
+  "session_id": "daee3274-e9de-4548-9a08-50bb6f293ac7",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-01T13:06:31.272271427Z",
+  "branch": "main",
+  "checkpoints_count": 2,
+  "save_step_count": 2,
+  "files_touched": [
+    "cave/CIV.md",
+    "cave/TODO.md",
+    "cave/schematics/convert-v3-to-v2.mjs",
+    "cave/schematics/github_samurai-house.schem",
+    "cave/schematics/github_samurai-house.v3-original.schem",
+    "cave/schematics/github_v2_house.schem",
+    "cave/schematics/sites_classic-village-house.schem",
+    "cave/schematics/sites_classic-village-house.v3-original.schem",
+    "cave/schematics/sites_cozy-cabin.schem",
+    "cave/schematics/sites_cozy-cabin.v3-original.schem",
+    "cave/schematics/sites_rustic-farmhouse.schem",
+    "cave/schematics/sites_rustic-farmhouse.v3-original.schem"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-5",
+  "turn_id": "d488e0910b3d",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 1180,
+    "cache_creation_tokens": 966670,
+    "cache_read_tokens": 230498418,
+    "output_tokens": 345428,
+    "api_call_count": 590
+  },
+  "session_metrics": {
+    "turn_count": 6
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-01T13:06:31.063826432Z",
+    "agent_lines": 136,
+    "agent_removed": 5,
+    "human_added": 2,
+    "human_modified": 2,
+    "human_removed": 0,
+    "total_committed": 140,
+    "total_lines_changed": 145,
+    "agent_percentage": 97.24137931034483,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
