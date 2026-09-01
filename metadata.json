@@ -3,13 +3,17 @@
   "checkpoint_id": "01M1EGXT00JD29Q8TJMQCZ9FGV",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "cave/FEEDBACK.md"
   ],
   "sessions": [
     {
       "metadata": "/0/metadata.json",
+      "prompt": ""
+    },
+    {
+      "metadata": "/1/metadata.json",
       "prompt": ""
     }
   ]
