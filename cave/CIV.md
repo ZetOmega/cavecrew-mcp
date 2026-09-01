@@ -31,18 +31,27 @@ stopped) — pick the next free port in the range instead.
 | 3204 | Bonk        |
 | 3205 | Thak        |
 | 3206 | Ook         |
+| 3207 | Durk        |
+| 3208 | Mog         |
 | 3298 | (reserved: short-lived test bots, e.g. PebbleZoom) |
 
 ## Roster
 
+RELAUNCH 2026-09-01: fleet was fully logged out at safe spot (17,96,47),
+homes unset, old roles dissolved (chief decree). Re-learning ramp per
+LAUNCH.md — bots come back online one at a time as confidence builds.
+Roles get reassigned fresh by the orchestrator as each bot boots.
+
 | Name      | Port | Role                        | Driver          | Status | Workstation                     |
 |-----------|------|-----------------------------|-----------------|--------|----------------------------------|
-| UngaBunga | 3201 | lumber, camp builder        | UngaBungaDriver | active | trading post ~(3, 95, 22)        |
-| Grog      | 3202 | stone/coal/iron miner       | GrogDriver      | active | house site (20, 89, 58)          |
-| Zug       | 3203 | food (hunt, later farm)     | ZugDriver       | active | farm (8-11, 58-59)                |
-| Bonk      | 3204 | builder (camp infra)        | BonkDriver      | active | door staging (10, 90, 61)         |
-| Thak      | 3205 | iron miner #2               | ThakDriver      | active | mine field (24, 90, 64)           |
-| Ook       | 3206 | hunter (far-range meat)     | OokDriver       | active | camp depot chest A (11, 89, 55)   |
+| UngaBunga | 3201 | ramp scout (re-learn)       | UngaBungaDriver | active | camp yard (12, 90, 52)           |
+| Grog      | 3202 | unassigned (relaunch)       | —               | stopped | —                                |
+| Zug       | 3203 | unassigned (relaunch)       | —               | stopped | —                                |
+| Bonk      | 3204 | unassigned (relaunch)       | —               | stopped | —                                |
+| Thak      | 3205 | unassigned (relaunch)       | —               | stopped | —                                |
+| Ook       | 3206 | unassigned (relaunch)       | —               | stopped | —                                |
+| Durk      | 3207 | unassigned (relaunch)       | —               | stopped | —                                |
+| Mog       | 3208 | unassigned (relaunch)       | —               | stopped | —                                |
 
 Per-bot workstations exist so bots spread out rather than clump on one
 spot — see Anti-clump law in `DRIVER_GUIDE.md`. A bot working away from
@@ -79,7 +88,7 @@ Standing driver rules (user law):
 10. Signs-for-labeling law: label camp fixtures (chests, stations) with
     physical signs where placement works, chat + `CIV.md` otherwise (see
     the sign-on-chest quirk logged under Trading post above).
-11. Equality doctrine: all five bots are equally cavecrew — no bot's
+11. Equality doctrine: all bots are equally cavecrew — no bot's
     output/goal outranks another's without team-lead say-so.
 
 Full detail on all of the above, plus build standards, chat tiers,

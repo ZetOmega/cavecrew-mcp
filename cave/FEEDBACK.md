@@ -761,6 +761,22 @@ cooldown or listener dedup keyed on coordinates that can wedge itself against
 one specific (x,y,z) after enough failed attempts land on it, independent of
 which bot/ref/face is used.
 
+## [open] chest A (11,89,55) missing AGAIN, ground-truth confirmed, not stale-chunk — UngaBunga, 2026-09-01 08:56
+Fresh re-learning ramp, step 5 (read chest A contents). blockAt(11,89,55) returned "air" from 2.7
+blocks away; walked to 1.57 blocks away (fresh goto, reached:true) and re-checked — still "air",
+ruling out the stale-unvisited-chunk gotcha. Wide scan (dx/dz -8..8, dy -2..2 around 11,89,55) found
+ONLY chest B (12,90,54), chest D (14,89,57), chest C (16,89,54) — no chest at or near (11,89,55), no
+loose item drops within 10 blocks (Object.values(bot.entities) scan, 0 results) either, so it wasn't
+just-broken-with-drops-uncollected. This contradicts BASE.md's 2026-09-01 "truth fix" entry which
+declared (11,89,55) the CANONICAL live chest_a_materials account. Either it was destroyed again after
+that note was written (churn from many bots active same session — canDig-eats-furniture family bug
+already hit this exact chest twice per Zug/Thak entries above) or the truth-fix itself was wrong.
+Did NOT rebuild (out of ramp scope, avoiding a duplicate-build repeat of the earlier (9,89,55)
+mixup). Held wood-run output in inventory instead of depositing to (11,89,55); reported to team-lead.
+Suggest: whoever owns BASE.md next should re-verify chest A by ground-truth blockAt before trusting
+the registry, and consider a canDig:false / no-dig-near-furniture regression check across all camp
+chests, not just A.
+
 ## 2026-09-01 orchestrator self-report: force-fire before arrival (self-two-commanders)
 Rescue staircase task-2 on Grog "done" in 1ms. NOT a bug: dig-law refusal, working as designed.
 Two orchestrator errors stacked: (1) /staircase force:true fired while own /goto (task-1) still
