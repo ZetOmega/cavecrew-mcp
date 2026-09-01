@@ -1123,6 +1123,35 @@ export async function mineBlocks(bot, opts = {}, ctx = {}) {
 // collectDrops
 // ---------------------------------------------------------------------------
 
+// (FIELD BUG, Bonk 2026-09-01 — FEEDBACK.md "/collect finds nothing despite
+// real nearby drops") A raw `Object.values(bot.entities).filter(e =>
+// e.name==='item')` scan found 9-11 real drops 2.8-8 blocks away — well
+// inside radius — while collectDrops still came back {collected:[]}, twice.
+// Filter/entity-detection itself checks out (e.name==='item' is correct for
+// this repo's mineflayer 4.35.0 + minecraft-data, confirmed against
+// entities.json; distanceTo is a real 3D check, not something silently NaN'd
+// — Number.isFinite guard added below anyway, cheap insurance). stuckIds is
+// function-local and freshly created every call — no cross-call leak.
+// Root cause: the only approach goal used to be GoalBlock onto the drop's own
+// EXACT voxel, no fallback. Bonk's own report already named the likely
+// cause — drops landing "inside/near dug-out pockets" from mining — and it
+// checks out: now that travel Movements are no-dig (m.canDig=false, see
+// runner.js's safety-Movements comment), that one exact voxel is very often
+// not part of the walkable graph in honeycombed post-mining terrain, even
+// though an immediately adjacent voxel — well within vanilla's own pickup
+// range — is perfectly reachable. Falling back to the 6 lateral/vertical
+// neighbor voxels before giving up fixes that without ever needing to dig.
+// Every branch below now logs to ctx.log so a future empty result is never
+// unexplained again.
+const DROP_NEIGHBOR_OFFSETS = [
+  { x: 1, y: 0, z: 0 },
+  { x: -1, y: 0, z: 0 },
+  { x: 0, y: 0, z: 1 },
+  { x: 0, y: 0, z: -1 },
+  { x: 0, y: 1, z: 0 },
+  { x: 0, y: -1, z: 0 },
+];
+
 export async function collectDrops(bot, opts = {}, ctx = {}) {
   const radius = opts.radius ?? 16;
   const maxIterations = opts.maxIterations ?? 24;
@@ -1130,11 +1159,21 @@ export async function collectDrops(bot, opts = {}, ctx = {}) {
   // Verified against this repo's installed mineflayer (4.35.0 + minecraft-data
   // entities.json): dropped-item entities always report e.name === 'item' —
   // do not gate on e.type/objectType, those aren't set that way here.
-  const isDrop = (e) => e && e.name === 'item' && e.position && bot.entity.position.distanceTo(e.position) <= radius;
+  const isDrop = (e) =>
+    e &&
+    e.name === 'item' &&
+    e.position &&
+    Number.isFinite(e.position.x) &&
+    bot.entity.position.distanceTo(e.position) <= radius;
 
   const before = snapshotInventory(bot);
   const stuckIds = new Set();
   let iterations = 0;
+  let reachFailures = 0;
+  let pickupMisses = 0;
+
+  const startCandidates = Object.values(bot.entities).filter((e) => isDrop(e)).length;
+  ctx.log?.('info', `collectDrops: ${startCandidates} item drop(s) within ${radius} blocks at start`);
 
   // bot.collectBlock.collect() used to do this via GoalFollow(entity, 0), but
   // one unreachable drop in the batch throws and silently aborts every drop
@@ -1147,15 +1186,41 @@ export async function collectDrops(bot, opts = {}, ctx = {}) {
     const drop = bot.nearestEntity((e) => isDrop(e) && !stuckIds.has(e.id));
     if (!drop) break;
     const dropId = drop.id;
+    const dropPos = drop.position.clone();
+    const dest = dropPos.floored();
 
-    // Vanilla pickup radius is tight (~1 block from the player). GoalNear
-    // with any slack (range 1-2) can stop the bot ~1.5+ blocks short and the
-    // drop never gets swept up — path onto the drop's exact block instead.
-    const dest = drop.position.floored();
-    try {
-      await gotoLoop(bot, new goals.GoalBlock(dest.x, dest.y, dest.z), { timeoutMs: 8000, maxAttempts: 2 }, ctx);
-    } catch (err) {
-      ctx.log?.('warn', `collectDrops: could not reach drop at ${posKey(dest)}: ${err.message}`);
+    // Vanilla pickup radius is tight (~1 block from the player). GoalBlock
+    // onto the drop's own exact voxel is tried first — path onto the drop's
+    // exact block instead of a slack GoalNear that can stop 1.5+ blocks
+    // short. If that exact voxel isn't reachable without digging
+    // (honeycombed mining pockets — see field bug note above), fall back to
+    // whichever neighbor voxel IS reachable before giving up on the drop.
+    let arrived = false;
+    let lastErr = null;
+    const attempts = [dest, ...DROP_NEIGHBOR_OFFSETS.map((o) => dest.offset(o.x, o.y, o.z))];
+    for (let i = 0; i < attempts.length && !arrived; i++) {
+      const c = attempts[i];
+      const goOpts = i === 0 ? { timeoutMs: 8000, maxAttempts: 2 } : { timeoutMs: 4000, maxAttempts: 1 };
+      try {
+        await gotoLoop(bot, new goals.GoalBlock(c.x, c.y, c.z), goOpts, ctx);
+        arrived = true;
+        if (i > 0) {
+          ctx.log?.(
+            'info',
+            `collectDrops: exact voxel at ${posKey(dest)} unreachable, reached neighbor ${posKey(c)} instead`
+          );
+        }
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+
+    if (!arrived) {
+      reachFailures++;
+      ctx.log?.(
+        'warn',
+        `collectDrops: could not reach drop ${dropId} at ${posKey(dropPos)} (exact voxel + ${DROP_NEIGHBOR_OFFSETS.length} neighbors all failed): ${lastErr?.message ?? 'unknown'}`
+      );
       stuckIds.add(dropId);
       continue;
     }
@@ -1166,6 +1231,12 @@ export async function collectDrops(bot, opts = {}, ctx = {}) {
     // Only mark it "handled" once it's actually gone — a drop that's still
     // sitting there after arrival didn't get collected, don't loop on it forever.
     if (bot.entities[dropId]) {
+      pickupMisses++;
+      const dist = bot.entity.position.distanceTo(dropPos);
+      ctx.log?.(
+        'warn',
+        `collectDrops: arrived near drop ${dropId} at ${posKey(dropPos)} (${dist.toFixed(2)} blocks off now) but it is still there — not picked up`
+      );
       stuckIds.add(dropId);
     }
   }
@@ -1177,7 +1248,12 @@ export async function collectDrops(bot, opts = {}, ctx = {}) {
   }
 
   const after = snapshotInventory(bot);
-  return { collected: diffInventory(before, after) };
+  const collected = diffInventory(before, after);
+  ctx.log?.(
+    'info',
+    `collectDrops: done — ${collected.length} item type(s) collected, ${reachFailures} unreachable, ${pickupMisses} reached-but-missed, ${iterations} iteration(s)`
+  );
+  return { collected };
 }
 
 // ---------------------------------------------------------------------------
