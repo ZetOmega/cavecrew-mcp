@@ -2395,6 +2395,58 @@ async function ensureTreadFoundation(bot, treadPos, ctx) {
   return false;
 }
 
+// True once the bot's real feet are inside stepPos (floored position match)
+// or close enough to its center (<0.7) to count as arrived — used by both
+// advanceIntoStep's pulse loop and the post-backup recheck below it.
+function isInStepCell(bot, stepPos) {
+  const feet = bot.entity.position.floored();
+  if (feet.x === stepPos.x && feet.y === stepPos.y && feet.z === stepPos.z) return true;
+  const center = new Vec3(stepPos.x + 0.5, stepPos.y, stepPos.z + 0.5);
+  return bot.entity.position.distanceTo(center) < 0.7;
+}
+
+// (STEP-ADVANCE FIX) — field trace with bot Thak proved the pathfinder
+// short-hop (a plain GoalNear one step away) can resolve without the bot
+// ever actually moving: 9 "completed" staircase steps logged digs + a torch
+// each, but bot.entity.position sat pinned at (16.7,87,44.5) +/-0.2 on EVERY
+// axis the whole run — the step counter was advancing on digs alone, never
+// on real movement. Replaces that call with the manual technique bot Thak
+// was hand-flown down staircases with all night: look at the tread center,
+// pulse forward in short (250-350ms) bursts, jump ONLY when the tread is
+// above the current floor (stepping down just falls the 1 block on its
+// own), and re-measure REAL position after every single pulse — a resolved
+// promise is never trusted alone (same lesson as movement.js's own THE
+// DRAGON). Never throws; returns whether it actually landed in stepPos.
+async function advanceIntoStep(bot, stepPos, ctx) {
+  const target = new Vec3(stepPos.x + 0.5, stepPos.y + 1.62, stepPos.z + 0.5);
+  const steppingUp = stepPos.y > Math.floor(bot.entity.position.y);
+  const deadline = Date.now() + 4000;
+  try {
+    while (Date.now() < deadline) {
+      if (isInStepCell(bot, stepPos)) return true;
+      if (ctx.isCancelled?.()) return isInStepCell(bot, stepPos);
+      try {
+        await bot.lookAt(target, true);
+      } catch {
+        // ignore — still attempt to walk even if look fails
+      }
+      bot.setControlState('forward', true);
+      if (steppingUp) bot.setControlState('jump', true);
+      await sleep(250 + Math.floor(Math.random() * 100));
+      bot.setControlState('forward', false);
+      if (steppingUp) bot.setControlState('jump', false);
+    }
+  } finally {
+    try {
+      bot.setControlState('forward', false);
+      bot.setControlState('jump', false);
+    } catch {
+      // ignore
+    }
+  }
+  return isInStepCell(bot, stepPos);
+}
+
 // buildStaircase({toY, direction?}) — sealed 1x2 staircase from current pos
 // down to toY. Never digs straight down: each step digs the 2-high walkway
 // forward (frontHead = front at current feet-y, frontFeet = front at
@@ -2506,10 +2558,24 @@ export async function buildStaircase(bot, opts = {}, ctx = {}) {
       await sealStairCell(bot, side, ctx);
     }
 
-    try {
-      await gotoLoop(bot, new goals.GoalNear(frontFeet.x, frontFeet.y, frontFeet.z, 0), { timeoutMs: 8000, maxAttempts: 2 }, ctx);
-    } catch (err) {
-      ctx.log?.('warn', `buildStaircase: step-forward to ${posKey(frontFeet)} failed: ${err.message}`);
+    // (STEP-ADVANCE FIX) — position-verified raw-control walk replaces the
+    // old plain gotoLoop call, which was field-proven to resolve without
+    // any real movement (see advanceIntoStep above). Pathfinder gets exactly
+    // one backup attempt if the raw walk doesn't land within 4s; if NEITHER
+    // gets the bot's feet into the step, fail loudly instead of digging the
+    // next step against a bot that never actually arrived at this one.
+    let arrived = await advanceIntoStep(bot, frontFeet, ctx);
+    if (!arrived) {
+      ctx.log?.('warn', `buildStaircase: raw-control advance to ${posKey(frontFeet)} didn't land within 4s — trying pathfinder once as backup`);
+      try {
+        await gotoLoop(bot, new goals.GoalNear(frontFeet.x, frontFeet.y, frontFeet.z, 0), { timeoutMs: 8000, maxAttempts: 1 }, ctx);
+      } catch (err) {
+        ctx.log?.('warn', `buildStaircase: backup pathfinder step-forward to ${posKey(frontFeet)} failed: ${err.message}`);
+      }
+      arrived = isInStepCell(bot, frontFeet);
+    }
+    if (!arrived) {
+      throw new Error(`staircase: cannot advance into step at (${posKey(frontFeet)})`);
     }
 
     if (steps % 8 === 0) {
