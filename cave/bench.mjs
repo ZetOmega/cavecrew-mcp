@@ -97,6 +97,12 @@
 // Config
 // ---------------------------------------------------------------------------
 
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const CAVE_DIR = path.dirname(fileURLToPath(import.meta.url));
+
 const BOT_NAME = 'TestRock';
 const PORT = 3209; // TESTLAB.md test-bot lane (3201-3208 are production)
 
@@ -914,6 +920,39 @@ async function preflight() {
   }
   if (!status?.pos) {
     throw new Error(`${BOT_NAME} reports connected but has no position yet (still spawning) — re-run in a few seconds`);
+  }
+  // REAL-SERVER CONNECT-CHECK LAW (team-lead, 2026-09-01, after the
+  // chat-mirror outage): a smoke-boot on a dead mcport never reaches
+  // connect/wireBot, so a crash class that fires on real connect is invisible
+  // to it. connected:true above IS that real-connect proof — but only if the
+  // bot PROCESS is newer than the newest code file. A TestRock started before
+  // the patch proves nothing about the patched code connecting.
+  let pidRec;
+  try {
+    pidRec = JSON.parse(fs.readFileSync(path.join(CAVE_DIR, 'pids', `${BOT_NAME}.json`), 'utf8'));
+  } catch (err) {
+    throw new Error(
+      `cannot verify ${BOT_NAME} runs current code (pid file unreadable: ${err.message}) — cave/pids/${BOT_NAME}.json is required for the connect-check law; restart ${BOT_NAME} and re-run`
+    );
+  }
+  const startedAt = Date.parse(pidRec?.startedAt);
+  let newestMs = 0;
+  let newestFile = '';
+  for (const f of ['runner.js', 'skills.js', 'movement.js']) {
+    try {
+      const m = fs.statSync(path.join(CAVE_DIR, f)).mtimeMs;
+      if (m > newestMs) {
+        newestMs = m;
+        newestFile = f;
+      }
+    } catch {
+      // a missing engine file would have failed far earlier than this
+    }
+  }
+  if (!Number.isFinite(startedAt) || newestMs > startedAt) {
+    throw new Error(
+      `${BOT_NAME} is running STALE code: process started ${pidRec?.startedAt ?? 'unknown'} but cave/${newestFile} changed after that — restart ${BOT_NAME} on the patched tree, then re-run bench (connect-check law)`
+    );
   }
   return status;
 }
