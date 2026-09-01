@@ -25,8 +25,10 @@
 //                           task-start, not a live value — never compare it
 //                           against a later read of itself.
 //   ctx.sayStatus(text)   — optional; routes through the runner's smartChat
-//                           (protocol-ledger lines like DEPOT stay real white
-//                           chat for parser compat; everything else goes grey
+//                           (protocol-ledger lines stay real white chat for
+//                           parser compat — DEPOT is NOT one of them since the
+//                           2026-09-01 de-chat decree, it goes to the Discord
+//                           status feed like any other status line; everything else goes grey
 //                           via rconchat, falling back to bot.chat on any
 //                           rconchat trouble — see runner.js's smartChat(),
 //                           announce(), and makeCtx()). Used for routine
@@ -110,7 +112,15 @@ const SEAL_MATERIALS = /cobblestone|_stone$|^stone$|dirt|netherrack|blackstone|d
 // Travel Movements (m.canDig=false, see runner.js's safety-Movements
 // comment) will never clear these on its own. Used by gotoLoop's
 // wedge-detection retry below (adapted from felcrew-mcp survey findings).
-const NUISANCE_BLOCKS = /^(torch|leaf_litter|short_grass|snow)$/;
+//
+// pointed_dripstone added 2026-09-01 (FEEDBACK "pointed_dripstone wedges
+// bot", Krug/TestRock): unlike the rest of this set it has a REAL collision
+// box, and TestRock full-wedged with one in its foot AND head tile at
+// (18.9,102,120.9) — a raw look-wake control burst moved 0.000 blocks, a
+// manual dig freed it instantly. It qualifies on the rule that actually
+// matters here: a natural cave hazard with zero build value, so clearing one
+// can never eat our own infrastructure.
+const NUISANCE_BLOCKS = /^(torch|leaf_litter|short_grass|snow|pointed_dripstone)$/;
 
 // (17) PROTECTED-BLOCK DIG GUARD (adapted from felcrew-mcp survey findings —
 // their own digguard.js hardcodes plaza-pillar coordinates as an anti-grief
@@ -256,6 +266,114 @@ function isInNoGoZone(pos, ctx, silent = false) {
     }
   }
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// (19) DIG LAW (chief decree, 2026-09-01) — bulk digging happens ONLY inside
+// dedicated mine zones. Zones are 3D boxes read from cave/zones.json
+// (committed infra, unlike local.json's per-machine noGoZones above):
+//   { "zones": [ { "name": "mine_main", "box": {x1,y1,z1,x2,y2,z2} }, ... ] }
+//
+// FAIL-OPEN BY DESIGN: an absent/unreadable/empty zones.json means ZERO
+// zones, and zero zones means the law is simply not in force — every dig is
+// allowed, exactly as before this landed. The alternative (fail-closed) would
+// brick the whole fleet's mining the first time a runner started from a
+// directory without the file, which is a far worse failure than an
+// unenforced law. Read once and cached for the process lifetime, same
+// assumption loadNoGoZones() makes.
+//
+// Scope, per the decree: mineBlocks (bulk ore/stone) and the two structured
+// diggers (buildStaircase, branchMine) are gated. Surface skills — chopTrees,
+// collectDrops, replant, seal/torch placement — are untouched: they are not
+// "digging out the world", and a chop quarantine already covers camp.
+// ---------------------------------------------------------------------------
+
+let cachedDigZones = null;
+
+function normalizeDigZone(z) {
+  const b = z?.box;
+  if (!b) return null;
+  const nums = [b.x1, b.y1, b.z1, b.x2, b.y2, b.z2];
+  if (nums.some((n) => typeof n !== 'number' || !Number.isFinite(n))) return null;
+  // Accept the corners in either order — a zone written x2 < x1 is a typo
+  // that should still describe the box the author obviously meant.
+  return {
+    name: typeof z.name === 'string' && z.name ? z.name : 'zone',
+    x1: Math.min(b.x1, b.x2),
+    x2: Math.max(b.x1, b.x2),
+    y1: Math.min(b.y1, b.y2),
+    y2: Math.max(b.y1, b.y2),
+    z1: Math.min(b.z1, b.z2),
+    z2: Math.max(b.z1, b.z2),
+  };
+}
+
+function loadDigZones() {
+  if (cachedDigZones) return cachedDigZones;
+  let zones = [];
+  try {
+    const raw = fs.readFileSync(path.join(__dirname, 'zones.json'), 'utf8');
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed?.zones)) {
+      zones = parsed.zones.map(normalizeDigZone).filter(Boolean);
+    }
+  } catch {
+    // No zones.json, unreadable, or bad JSON — zero zones, law not in force.
+  }
+  cachedDigZones = zones;
+  return cachedDigZones;
+}
+
+// True when the law permits digging at `pos`. Zero zones configured = the law
+// is not in force, so everything is permitted (see FAIL-OPEN above).
+function isInDigZone(pos, zones = loadDigZones()) {
+  if (zones.length === 0) return true;
+  return zones.some(
+    (z) => pos.x >= z.x1 && pos.x <= z.x2 && pos.y >= z.y1 && pos.y <= z.y2 && pos.z >= z.z1 && pos.z <= z.z2
+  );
+}
+
+// True when the vertical column from `fromY` down to `toY` at this x/z passes
+// through any zone — what makes a descending staircase legal: it is heading
+// INTO the mine, even though it starts outside one.
+function columnEntersDigZone(pos, fromY, toY, zones = loadDigZones()) {
+  if (zones.length === 0) return true;
+  const top = Math.max(fromY, toY);
+  const bottom = Math.min(fromY, toY);
+  return zones.some(
+    (z) => pos.x >= z.x1 && pos.x <= z.x2 && pos.z >= z.z1 && pos.z <= z.z2 && bottom <= z.y2 && top >= z.y1
+  );
+}
+
+// Nearest zone by centre distance, for the refusal message — a driver reading
+// "outside dedicated mine zones" needs to know where the legal ground IS.
+function nearestDigZone(pos, zones = loadDigZones()) {
+  let best = null;
+  let bestDist = Infinity;
+  for (const z of zones) {
+    const cx = (z.x1 + z.x2) / 2;
+    const cy = (z.y1 + z.y2) / 2;
+    const cz = (z.z1 + z.z2) / 2;
+    const d = Math.hypot(pos.x - cx, pos.y - cy, pos.z - cz);
+    if (d < bestDist) {
+      bestDist = d;
+      best = z;
+    }
+  }
+  if (!best) return null;
+  return {
+    name: best.name,
+    dist: Math.round(bestDist),
+    box: `(${best.x1},${best.y1},${best.z1})-(${best.x2},${best.y2},${best.z2})`,
+  };
+}
+
+function digLawRefusal(pos, what, zones = loadDigZones()) {
+  const near = nearestDigZone(pos, zones);
+  return (
+    `${what} at ${posKey(pos)} is outside dedicated mine zones (dig law)` +
+    (near ? ` — nearest zone "${near.name}" ${near.box}, ~${near.dist} blocks away` : '')
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -548,23 +666,143 @@ export async function safeDig(bot, block, ctx) {
   }
 }
 
-async function safePlaceBlock(bot, refBlock, faceVector, ctx, expectedPos) {
+// (FIELD LAW, Bonk + Grog 2026-09-01 — FEEDBACK "placeBlock false-success:
+// reports ok, block never sticks") A resolved placeBlock() is NOT proof a
+// block landed: 5 of 7 honeycomb caps that reported res:"ok" were air again
+// on a fresh re-check, and Grog hit the identical thing batch-patching a
+// floor. The mirror case is already handled below (Thak's table restoration:
+// placeBlock THREW "Event blockUpdate did not fire" while the block had in
+// fact landed) — so neither the resolve nor the throw can be trusted on its
+// own, and the ONLY authority is an independent world-state read of the
+// expected position afterwards. Both outcomes now funnel into the same
+// ground-truth check, with one retry (re-equipping first — equips do not
+// persist, same law as dig) before a hard throw, so no caller can skip the
+// verification by forgetting to write it.
+const PLACE_VERIFY_POLLS = 4;
+// Probe-style callers (retry:false — see safePlaceBlock's opts) walk a list of
+// candidate faces and expect most to fail, so they pay this poll per dud
+// face. 2 samples (300ms) instead of 4 keeps the verification honest while
+// cutting a 6-face sealStairCell sweep from ~3.6s of polling to ~1.8s, which
+// matters in exactly one place: emergencySeal with lava already in view.
+const PLACE_VERIFY_POLLS_PROBE = 2;
+const PLACE_VERIFY_INTERVAL_MS = 150;
+
+// air / cave_air / void_air read as "nothing landed here", and so do water and
+// lava: sealStairCell/emergencySeal place INTO fluid cells, so a cell that is
+// still fluid afterwards means the seal did not take — the old check
+// (`name !== 'air'`) called those a success and is exactly the false-success
+// class this fix exists to kill. Anything else counts as placed: a torch that
+// became wall_torch on a side face, a slab/stair variant, etc. — the caller
+// only ever needs to know the cell is no longer empty.
+const NOT_PLACED_RE = /^(?:cave_air|void_air|air|water|lava|bubble_column)$/;
+
+function placedAt(bot, checkPos) {
+  const now = bot.blockAt(checkPos);
+  return !!(now && !NOT_PLACED_RE.test(now.name));
+}
+
+// Server block updates lag the place packet by a tick or two; poll briefly
+// before declaring a miss so a slow confirm never triggers a duplicate
+// placement (the same race stepOntoAndCollect's 500ms wait exists for).
+async function pollPlaced(bot, checkPos, polls = PLACE_VERIFY_POLLS) {
+  for (let i = 0; i < polls; i++) {
+    if (placedAt(bot, checkPos)) return true;
+    await sleep(PLACE_VERIFY_INTERVAL_MS);
+  }
+  return placedAt(bot, checkPos);
+}
+
+// opts.retry (default true) — the one knob. PROBE-style callers walk a list
+// of candidate faces and expect most of them to throw (sealStairCell tries up
+// to 6 neighbors, placeTorchHere up to 5), so paying re-equip + a second
+// place + a second verify poll on every dud face costs ~20s worst case in
+// exactly the path that must be fastest: emergencySeal with lava in view.
+// Those callers pass { retry: false } and keep the single verified attempt;
+// every other caller gets the full verify-and-retry law.
+async function safePlaceBlock(bot, refBlock, faceVector, ctx, expectedPos, opts = {}) {
+  const retry = opts.retry !== false;
   await ensureWithinReach(bot, refBlock, ctx);
   const checkPos = expectedPos ?? refBlock.position.plus(faceVector);
+  // Captured BEFORE the first attempt: on the retry we have to put the same
+  // item back in hand ourselves. Callers equip immediately before calling,
+  // but a failed/half-completed place can leave the hand holding something
+  // else, and equips never persist across the failure anyway.
+  const heldName = bot.heldItem?.name ?? null;
+  const refPos = refBlock.position;
+
+  let firstErr = null;
   try {
     await withTimeoutLocal(bot.placeBlock(refBlock, faceVector), 10000);
-    return true;
   } catch (err) {
-    const now = bot.blockAt(checkPos);
-    if (now && now.name !== 'air') {
+    firstErr = err;
+  }
+
+  if (await pollPlaced(bot, checkPos, retry ? PLACE_VERIFY_POLLS : PLACE_VERIFY_POLLS_PROBE)) {
+    if (firstErr) {
+      // Unchanged legacy success path — errored/timed out, world says placed.
       ctx?.log?.(
         'warn',
-        `safePlaceBlock: placeBlock() errored/timed out but world state shows a block now present at ${posKey(checkPos)} — treating as success (${err?.message ?? err})`
+        `safePlaceBlock: placeBlock() errored/timed out but world state shows a block now present at ${posKey(checkPos)} — treating as success (${firstErr?.message ?? firstErr})`
       );
-      return true;
     }
-    throw err;
+    return true;
   }
+
+  if (!retry) {
+    // Probe caller: still VERIFIED (the false-success can never slip past),
+    // just not retried — the caller's own next candidate face is the retry.
+    throw new Error(
+      `safePlaceBlock: nothing placed at ${posKey(checkPos)} (${firstErr?.message ?? 'resolved ok, world showed air'})`
+    );
+  }
+
+  ctx?.log?.(
+    'warn',
+    firstErr
+      ? `safePlaceBlock: nothing at ${posKey(checkPos)} after failed place (${firstErr?.message ?? firstErr}) — re-equipping and retrying once`
+      : `safePlaceBlock: FALSE SUCCESS — placeBlock() resolved ok but ${posKey(checkPos)} is still air — re-equipping and retrying once`
+  );
+
+  if (heldName) {
+    const again = bot.inventory.items().find((it) => it.name === heldName);
+    if (!again) {
+      throw new Error(
+        `safePlaceBlock: nothing placed at ${posKey(checkPos)} and no ${heldName} left in inventory to retry with${firstErr ? ` (first attempt: ${firstErr.message})` : ''}`
+      );
+    }
+    try {
+      await bot.equip(again, 'hand');
+    } catch (equipErr) {
+      ctx?.log?.('warn', `safePlaceBlock: re-equip of ${heldName} failed before retry: ${equipErr?.message ?? equipErr}`);
+    }
+  }
+
+  // Re-read the reference block: the cached Block object handed in by the
+  // caller can be stale by now (the stale-chunk trap logged in FEEDBACK), and
+  // a reference that has since changed type is not something to place against.
+  const freshRef = bot.blockAt(refPos);
+  if (!freshRef || !placedAt(bot, refPos)) {
+    throw new Error(
+      `safePlaceBlock: reference block at ${posKey(refPos)} is gone — cannot retry placement at ${posKey(checkPos)}${firstErr ? ` (first attempt: ${firstErr.message})` : ''}`
+    );
+  }
+
+  await ensureWithinReach(bot, freshRef, ctx);
+  let retryErr = null;
+  try {
+    await withTimeoutLocal(bot.placeBlock(freshRef, faceVector), 10000);
+  } catch (err) {
+    retryErr = err;
+  }
+
+  if (await pollPlaced(bot, checkPos)) {
+    ctx?.log?.('info', `safePlaceBlock: retry landed a block at ${posKey(checkPos)}`);
+    return true;
+  }
+
+  throw new Error(
+    `safePlaceBlock: no block at ${posKey(checkPos)} after 2 verified attempts (first: ${firstErr?.message ?? 'resolved ok, world showed air'}; retry: ${retryErr?.message ?? 'resolved ok, world showed air'})`
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -753,6 +991,86 @@ async function replantSapling(bot, belowPos, ctx) {
 // chopTrees
 // ---------------------------------------------------------------------------
 
+// (FIELD BUG, UngaBunga 2026-09-01 — FEEDBACK "chopTrees dies with 'stalled'
+// mid-tree, no auto-retry") A stalled target used to poison exactly ONE log
+// position, but findBlock's next pick is simply the nearest remaining log —
+// which, on a tree the bot just failed to reach, is the very next log of that
+// SAME trunk one block up or across. Three "different" candidates in a row
+// were therefore three attempts at one unreachable tree, and the third one
+// killed the whole /chop with result.error "stalled" while the task detail
+// still read "chopping tree 1/12". Skipping the whole trunk (the 3x3 column
+// around the base, which also covers 2x2 dark-oak/jungle trunks) is what
+// actually makes "skip this tree, try the next one" mean the next TREE.
+// Returns how many log positions were poisoned, for the log line.
+//
+// The upward window has to clear the TALLEST trunk, not the average one: a
+// 2x2 jungle giant runs 25-30 logs, so a +12 window left the top third of it
+// still selectable and one unreachable giant could still eat all three stall
+// strikes (y0, y13, y26). The `*_log` type filter is what keeps this
+// surgical — a taller window only ever poisons blocks that are actually
+// logs, so overshooting costs nothing but blockAt reads off the local cache.
+const TREE_SKIP_Y_BELOW = 4;
+const TREE_SKIP_Y_ABOVE = 30;
+
+function markTreeSkipped(bot, basePos, skippedKeys) {
+  let n = 0;
+  skippedKeys.add(posKey(basePos));
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dy = -TREE_SKIP_Y_BELOW; dy <= TREE_SKIP_Y_ABOVE; dy++) {
+        const p = basePos.offset(dx, dy, dz);
+        const b = bot.blockAt(p);
+        // null = unloaded chunk edge; nothing to poison there and no reason
+        // to guess (a later iteration re-reads it anyway).
+        if (b && /_log$/.test(b.name)) {
+          skippedKeys.add(posKey(p));
+          n++;
+        }
+      }
+    }
+  }
+  return n;
+}
+
+// A watchdog stall ABANDONS its step promise (see runTargetWithWatchdog) —
+// the goto/dig it gave up on is still running, still driving this bot's
+// controls, and gotoLoopPf will keep RE-ISSUING its own remaining attempts.
+// Starting the next tree's goto on top of that is how a single stall
+// cascaded into the 3-consecutive-stall task kill: the two loops take turns
+// calling setGoal, each one's promise rejecting with "goal was changed before
+// it could be completed" as the other claims the bot.
+//
+// The step therefore runs against a ctx whose isCancelled() also reports true
+// once its tree has been abandoned — gotoLoopPf/ashfinder both check
+// ctx.isCancelled() between attempts, so the abandoned step unwinds itself
+// instead of fighting the live one. Object.create keeps every other ctx
+// member live through the prototype chain (including ones runner.js mutates
+// later); only isCancelled is shadowed, and the real ctx is still consulted
+// so a genuine /stop still wins.
+function abandonableCtx(ctx, flag) {
+  const wrapped = Object.create(ctx);
+  wrapped.isCancelled = () => flag.abandoned || !!ctx.isCancelled?.();
+  return wrapped;
+}
+
+// Belt to that suspenders: clear whichever movement engine is actually
+// holding the controls (cancelMovement is the single entry point, and is
+// idempotent/safe when nothing is pathing) plus any half-finished dig, then
+// let physics settle before the next attempt.
+async function releaseAfterStall(bot, ctx) {
+  try {
+    movement.cancelMovement(bot);
+  } catch (err) {
+    ctx?.log?.('warn', `releaseAfterStall: cancelMovement failed: ${err?.message ?? err}`);
+  }
+  try {
+    bot.stopDigging?.();
+  } catch {
+    // not digging — nothing to stop, and mineflayer throws rather than no-ops
+  }
+  await sleep(500);
+}
+
 export async function chopTrees(bot, opts = {}, ctx = {}) {
   const count = opts.count ?? 8;
   const maxDistance = opts.maxDistance ?? 48;
@@ -832,15 +1150,20 @@ export async function chopTrees(bot, opts = {}, ctx = {}) {
       continue;
     }
 
+    // Per-tree abandon flag — see abandonableCtx above. Fresh object every
+    // iteration so a previous tree's flag can never mute the current one.
+    const abandonFlag = { abandoned: false };
+    const stepCtx = abandonableCtx(ctx, abandonFlag);
+
     let watchdog;
     try {
-      watchdog = await runTargetWithWatchdog(bot, ctx, 25000, async () => {
-        ctx.setTargetPos?.(basePos);
+      watchdog = await runTargetWithWatchdog(bot, stepCtx, 25000, async () => {
+        stepCtx.setTargetPos?.(basePos);
         await gotoLoop(
           bot,
           new goals.GoalGetToBlock(basePos.x, basePos.y, basePos.z),
           { timeoutMs: 20000, maxAttempts: 3 },
-          ctx
+          stepCtx
         );
 
         const belowPos = basePos.offset(0, -1, 0);
@@ -853,13 +1176,13 @@ export async function chopTrees(bot, opts = {}, ctx = {}) {
           try {
             await bot.tool.equipForBlock(current, { requireHarvest: false });
           } catch (err) {
-            ctx.log?.('warn', `chopTrees: equip axe failed at ${posKey(current.position)}: ${err.message}`);
+            stepCtx.log?.('warn', `chopTrees: equip axe failed at ${posKey(current.position)}: ${err.message}`);
           }
           try {
-            await safeDig(bot, current, ctx);
+            await safeDig(bot, current, stepCtx);
             logsFelled++;
           } catch (err) {
-            ctx.log?.('warn', `chopTrees: dig failed at ${posKey(current.position)}: ${err.message}`);
+            stepCtx.log?.('warn', `chopTrees: dig failed at ${posKey(current.position)}: ${err.message}`);
             break;
           }
           current = bot.blockAt(current.position.offset(0, 1, 0));
@@ -868,24 +1191,45 @@ export async function chopTrees(bot, opts = {}, ctx = {}) {
         if (logsFelled === 0) return { logsFelled: 0, collected: [] };
 
         // Collect drops IMMEDIATELY — rival bots snipe drops within seconds.
-        const collected = await stepOntoAndCollect(bot, basePos, ctx, 6, preDigSnapshot);
+        const collected = await stepOntoAndCollect(bot, basePos, stepCtx, 6, preDigSnapshot);
 
-        await replantSapling(bot, belowPos, ctx).catch((err) => {
-          ctx.log?.('warn', `chopTrees: replant failed: ${err.message}`);
+        await replantSapling(bot, belowPos, stepCtx).catch((err) => {
+          stepCtx.log?.('warn', `chopTrees: replant failed: ${err.message}`);
         });
 
         return { logsFelled, collected };
       });
     } catch (err) {
-      skippedKeys.add(key);
-      ctx.log?.('warn', `chopTrees: could not reach/fell tree at ${key}: ${err.message}`);
+      // Same whole-trunk skip as the stall path below, for the same reason:
+      // pf can throw "No path to the goal!" fast enough to land here instead
+      // of tripping the 25s watchdog, and poisoning one log then leaves the
+      // very next findBlock pick on that same unreachable trunk — a tree
+      // across a ravine got re-ground log-by-log for minutes. Whatever made
+      // this tree unworkable applies to the whole trunk, not one block of it.
+      // (No abandon flag here — reaching this catch means the step promise
+      // already settled with that error; nothing is left in flight to unwind.)
+      const poisoned = markTreeSkipped(bot, basePos, skippedKeys);
+      ctx.log?.(
+        'warn',
+        `chopTrees: could not reach/fell tree at ${key} (${err.message}) — skipping ${poisoned} log position(s) of that trunk`
+      );
       continue;
     }
 
     if (watchdog.stalled) {
-      skippedKeys.add(key);
+      // Skip the whole TREE, not just this one log, and hand the bot's
+      // controls back before the next candidate — see markTreeSkipped /
+      // releaseAfterStall above. Only a third CONSECUTIVE stall (a run of
+      // three separate trees the bot could not work) fails the task; any
+      // successful tree in between resets the counter.
+      abandonFlag.abandoned = true;
+      const poisoned = markTreeSkipped(bot, basePos, skippedKeys);
       consecutiveStalls++;
-      ctx.log?.('warn', `chopTrees: target at ${key} stalled (${consecutiveStalls}/3)`);
+      ctx.log?.(
+        'warn',
+        `chopTrees: tree at ${key} stalled (${consecutiveStalls}/3 consecutive) — skipping ${poisoned} log position(s) of that trunk and moving to the next tree`
+      );
+      await releaseAfterStall(bot, ctx);
       if (consecutiveStalls >= 3) throw new Error('stalled');
       continue;
     }
@@ -1000,8 +1344,14 @@ export async function mineBlocks(bot, opts = {}, ctx = {}) {
   // worked, nearest-first; refilled by pickNextVein() whenever it drains.
   let currentVein = [];
 
+  // (19) DIG LAW — a candidate outside every dedicated mine zone is not a
+  // target, full stop. Zones loaded once here so the whole run sees one
+  // consistent list (and so the "why did it stop" check below can tell a
+  // law refusal apart from an exhausted vein).
+  const digZones = loadDigZones();
+
   const isUsable = (p, silent = false) =>
-    !skippedKeys.has(posKey(p)) && !isPoisoned(ctx, p) && !isInNoGoZone(p, ctx, silent);
+    !skippedKeys.has(posKey(p)) && !isPoisoned(ctx, p) && !isInNoGoZone(p, ctx, silent) && isInDigZone(p, digZones);
 
   while (mined.length < count && iterations < maxIterations) {
     iterations++;
@@ -1012,6 +1362,22 @@ export async function mineBlocks(bot, opts = {}, ctx = {}) {
     if (currentVein.length === 0) {
       currentVein = pickNextVein(bot, block, maxDistance, isUsable);
       if (currentVein.length === 0) {
+        // (19) Tell the two "nothing to mine" cases apart before giving up
+        // quietly: an empty world is a normal end-of-task, but ore sitting in
+        // range that the law forbids is a REFUSAL and has to say so loudly —
+        // otherwise a driver reads "no reachable iron_ore" and goes hunting
+        // for a pathing bug that isn't there.
+        if (digZones.length > 0) {
+          const raw = bot.findBlocks({
+            point: bot.entity.position,
+            matching: (b) => b.name === block,
+            maxDistance,
+            count: 16,
+          });
+          if (raw.length > 0 && !raw.some((p) => isInDigZone(p, digZones))) {
+            throw new Error(`mineBlocks: ${digLawRefusal(raw[0], `nearest of ${raw.length}x ${block}`, digZones)}`);
+          }
+        }
         ctx.log?.('warn', `mineBlocks: no reachable ${block} left within ${maxDistance} blocks`);
         break;
       }
@@ -1370,8 +1736,26 @@ export async function huntAnimals(bot, opts = {}, ctx = {}) {
 // deposit / withdraw
 // ---------------------------------------------------------------------------
 
-async function gotoChestBlock(bot, pos, ctx) {
-  await gotoLoop(bot, new goals.GoalGetToBlock(pos.x, pos.y, pos.z), { timeoutMs: 30000, maxAttempts: 5 }, ctx);
+// (FIELD BUG, UngaBunga 2026-09-01 — FEEDBACK "pf engine 'goal changed'
+// false-fail on short hops") gotoLoop is pathfinder-only, so /deposit and
+// /withdraw had no way to dodge a pf that was failing a 1-2 block hop right
+// after a blink restart — the same target went through first try on
+// engine:"ash". opts.engine (auto|ash|pf, threaded from the HTTP body) routes
+// the chest approach through movement.goTo instead, which owns the ash path
+// and the auto ash->pf fallback. Omitted or "pf" keeps the ORIGINAL gotoLoop
+// call byte-for-byte (GoalGetToBlock + the wedge-detection retry it carries),
+// so nothing changes for any existing caller.
+async function gotoChestBlock(bot, pos, ctx, opts = {}) {
+  const engine = opts.engine;
+  if (engine && engine !== 'pf') {
+    // movement.goTo speaks {x,y,z,range} rather than a pathfinder Goal
+    // object. range 2 lands the bot inside the 4.2-block reach law that
+    // ensureWithinReach/openChest need, without demanding the exact
+    // GoalGetToBlock cell (which is what pf kept fighting over on short hops).
+    await movement.goTo(bot, { x: pos.x, y: pos.y, z: pos.z, range: 2, timeoutMs: 30000, engine }, ctx);
+  } else {
+    await gotoLoop(bot, new goals.GoalGetToBlock(pos.x, pos.y, pos.z), { timeoutMs: 30000, maxAttempts: 5 }, ctx);
+  }
   const block = bot.blockAt(new Vec3(pos.x, pos.y, pos.z));
   if (!block || !/chest|barrel|shulker_box/.test(block.name)) {
     throw new Error(`no chest-like container at ${pos.x},${pos.y},${pos.z} (found ${block ? block.name : 'nothing'})`);
@@ -1385,7 +1769,23 @@ async function gotoChestBlock(bot, pos, ctx) {
 // stack. Mixed arrays work too. Normalizes both shapes to {name, count},
 // count undefined meaning "all of it".
 function normalizeItemSpecs(items) {
-  return items.map((it) => (typeof it === 'string' ? { name: it, count: undefined } : it));
+  return items.map((it) => {
+    if (typeof it === 'string') return { name: it, count: undefined };
+    if (!it || typeof it.name !== 'string' || !it.name) {
+      throw new Error('items entries must be a name string or {name, count}');
+    }
+    // Defensive: /eval callers reach these functions directly, without the
+    // runner's endpoint validation in front of them. A junk count is a
+    // caller bug, not a silent "move nothing" (or worse, a NaN handed to
+    // win.withdraw/win.deposit).
+    if (it.count === undefined || it.count === null) return { name: it.name, count: undefined };
+    // Same floored gate the runner's validateItemsBody uses: 0.9 must not
+    // slip through a bare "> 0" check and floor to a silent zero-item move.
+    if (typeof it.count !== 'number' || !Number.isFinite(it.count) || Math.floor(it.count) < 1) {
+      throw new Error(`items: "count" for ${it.name} must be a number >= 1 (got ${JSON.stringify(it.count)})`);
+    }
+    return { name: it.name, count: Math.floor(it.count) };
+  });
 }
 
 export async function depositToChest(bot, opts = {}, ctx = {}) {
@@ -1393,7 +1793,7 @@ export async function depositToChest(bot, opts = {}, ctx = {}) {
   const items = opts.items;
   if (!pos) throw new Error('depositToChest: "pos" is required');
 
-  const chestBlock = await gotoChestBlock(bot, pos, ctx);
+  const chestBlock = await gotoChestBlock(bot, pos, ctx, { engine: opts.engine });
   ctx.setDetail?.('opening chest to deposit');
   const win = await bot.openChest(chestBlock);
   const deposited = [];
@@ -1440,7 +1840,7 @@ export async function withdrawFromChest(bot, opts = {}, ctx = {}) {
   if (!pos) throw new Error('withdrawFromChest: "pos" is required');
   if (!items || !items.length) throw new Error('withdrawFromChest: "items" is required');
 
-  const chestBlock = await gotoChestBlock(bot, pos, ctx);
+  const chestBlock = await gotoChestBlock(bot, pos, ctx, { engine: opts.engine });
   ctx.setDetail?.('opening chest to withdraw');
   const win = await bot.openChest(chestBlock);
   const withdrawn = [];
@@ -1739,9 +2139,12 @@ export async function safeDescend(bot, opts = {}, ctx = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// (9) ensureTool(kind) — resolution order:
+// (9) ensureTool(kind) — resolution order (the depot step is ALWAYS tried
+// before anything that gathers, never as a post-failure fallback):
 //   (a) inventory already has an adequate tool → equip it
-//   (b) depot chest at (11,89,55) reachable + has one → withdraw + chat ledger
+//   (b) depot chest at (11,89,55) reachable + has one → withdraw + chat ledger;
+//       no tool in there → withdraw craft MATERIALS from the same open window
+//       (see withdrawCraftMaterials) so (c) does not have to gather them
 //   (c) craft chain: logs → planks/sticks → crafting table → wooden_pickaxe
 //       → 3 (shallow, depth-gated) cobblestone → stone_pickaxe/stone_axe
 // Wired into chopTrees (axe, best-effort) and mineBlocks (pickaxe, required).
@@ -1811,9 +2214,86 @@ async function craftWithTable(bot, itemName, amount, ctx) {
   return { item: itemName, amount };
 }
 
+// (FIELD BUG, UngaBunga 2026-09-01 — FEEDBACK "ROOT CAUSE of chop deaths:
+// ensureTool axe craft-chain wedges when totally bare" + its follow-up)
+// Every chop death traced back to here: a bot holding ZERO log/plank/stick,
+// with no crafting table and no depot chest in reach (90+ blocks out in the
+// south wood zone), sat at detail "ensureTool: craft chain for axe" until the
+// 90s wedge watchdog killed it. The chain had nothing to bootstrap the very
+// first log from — and the one thing that always works, punching a log with
+// a bare hand, was never attempted because the only log-gathering path was
+// chopTrees, which is a whole task (ensureTool for an axe, tree checks,
+// replant, watchdogs) rather than "get me one block of wood".
+//
+// So: punch first, task second. Bare-hand oak takes ~3s per log, needs no
+// axe, no table, no depot, and no recursion. Same target filters chopTrees
+// uses (camp quarantine, no-go zones, poisoned spots, natural-tree check) so
+// this can never punch a build or trip the overseer's chop quarantine.
+const BARE_HAND_LOG_MAX_DISTANCE = 32;
+
+async function punchLogsBareHand(bot, ctx, wanted) {
+  const skipped = new Set();
+  let felled = 0;
+  for (let i = 0; i < wanted; i++) {
+    if (ctx.isCancelled?.()) break;
+    const target = bot.findBlock({
+      point: bot.entity.position,
+      maxDistance: BARE_HAND_LOG_MAX_DISTANCE,
+      // Same null-position guard as chopTrees: findBlock runs this matcher
+      // once against a synthetic palette block with position === null.
+      matching: (b) => /_log$/.test(b.name) && (!b.position || !skipped.has(posKey(b.position))),
+    });
+    if (!target) break;
+    const pos = target.position.clone();
+    skipped.add(posKey(pos));
+
+    if (isPoisoned(ctx, pos) || isInNoGoZone(pos, ctx, true)) continue;
+    if (Math.hypot(pos.x - CAMP_PROTECT_CENTER.x, pos.z - CAMP_PROTECT_CENTER.z) < CAMP_PROTECT_RADIUS) continue;
+    if (!hasLeavesAboveTop(bot, pos)) continue; // built structure, not a tree
+
+    try {
+      ctx.setDetail?.(`ensureTool: bare-hand log punch at ${posKey(pos)}`);
+      await gotoLoop(bot, new goals.GoalGetToBlock(pos.x, pos.y, pos.z), { timeoutMs: 20000, maxAttempts: 2 }, ctx);
+      const fresh = bot.blockAt(pos);
+      if (!fresh || !/_log$/.test(fresh.name)) continue;
+      // Equip an axe IF one happens to be in the pouch — this path exists for
+      // the bare case, but a bot with an axe and no logs should not punch
+      // slowly out of principle. Failure here is fine: bare hand still works.
+      try {
+        await bot.tool.equipForBlock(fresh, { requireHarvest: false });
+      } catch {
+        // bare hand it is
+      }
+      const preDig = snapshotInventory(bot);
+      await safeDig(bot, fresh, ctx);
+      await stepOntoAndCollect(bot, pos, ctx, 4, preDig);
+      felled++;
+    } catch (err) {
+      ctx.log?.('warn', `ensureTool: bare-hand punch at ${posKey(pos)} failed: ${err.message}`);
+    }
+  }
+  return felled;
+}
+
 async function ensureLogs(bot, ctx, minLogs) {
   const haveLogs = () => bot.inventory.items().filter((it) => /_log$/.test(it.name)).reduce((s, it) => s + it.count, 0);
   if (haveLogs() >= minLogs) return true;
+
+  // STEP 1 — bare-hand punch. Never more than 2 blocks: this is a bootstrap
+  // to unblock the craft chain, not a wood run.
+  const wanted = Math.min(2, Math.max(1, minLogs - haveLogs()));
+  ctx.log?.('info', `ensureTool: bare-hand bootstrap, punching up to ${wanted} log(s) (have ${haveLogs()}, need ${minLogs})`);
+  const punched = await punchLogsBareHand(bot, ctx, wanted).catch((err) => {
+    ctx.log?.('warn', `ensureTool: bare-hand bootstrap failed: ${err.message}`);
+    return 0;
+  });
+  if (haveLogs() >= minLogs) {
+    ctx.log?.('info', `ensureTool: bare-hand bootstrap got ${punched} log(s) — chain can proceed`);
+    return true;
+  }
+
+  // STEP 2 — only now fall back to the full chop task, for the case where
+  // the punch found nothing within 32 blocks but a wider sweep might.
   ctx.log?.('info', `ensureTool: gathering logs (have ${haveLogs()}, need ${minLogs})`);
   try {
     // _skipEnsureTool: see the matching comment in chopTrees() — without it
@@ -1857,6 +2337,15 @@ async function ensurePlanksAndSticks(bot, ctx) {
 // than recursing into mineBlocks() (which itself calls ensureTool() for its
 // own pickaxe requirement — recursing would loop). Surface stone only, same
 // depth gate as mineBlocks.
+//
+// (19) DIG LAW EXEMPT — deliberately NOT gated on mine zones. This is a
+// 3-block tool bootstrap within ~24 blocks of wherever the bot already
+// stands, and gating it would deadlock the exact bare-handed-far-from-camp
+// case the bootstrap exists to rescue (a bot with no pickaxe cannot walk to
+// the mine zone to earn the pickaxe it needs to be allowed to mine).
+// FLAGGED FOR TEAM-LEAD RULING: if the chief wants zero un-zoned digging at
+// all, the fix is to make ensureTool's depot step carry cobble/tools rather
+// than to gate this function — gating it alone just brings back the wedge.
 async function mineShallowCobble(bot, count, ctx) {
   const collectedAll = [];
   let mined = 0;
@@ -1944,6 +2433,74 @@ async function craftToolChain(bot, kind, ctx) {
   }
 }
 
+// (FIELD BUG, Durk 2026-09-01 — FEEDBACK "ensureTool has no chest-withdraw
+// fallback when no trees nearby") Step (b) below only ever looked for a
+// FINISHED tool in the depot. When chest A held no pickaxe but 70+ oak_planks
+// and 42 oak_log, the bot walked to the chest, found no tool, walked away
+// empty-handed and then failed the whole task in the craft chain with
+// "ensureTool: could not gather any logs for planks" — because its current
+// position had no reachable trees. The materials were sitting right there,
+// one open window away, both times.
+//
+// So while that window is already open, top up whatever the craft chain is
+// about to need. Wants are deliberately small (this is a tool bootstrap, not
+// a resupply run) and expressed as shortfalls against what the bot already
+// carries, so a bot with plenty takes nothing from the shared depot.
+const ENSURE_TOOL_MATERIAL_WANTS = [
+  // 5 planks is ensurePlanksAndSticks's own buffer; 8 leaves room for the
+  // crafting_table (4) that ensureCraftingTableNearby may need to place.
+  { label: 'planks', match: (name) => /_planks$/.test(name), need: 8 },
+  { label: 'stick', match: (name) => name === 'stick', need: 4 },
+  // Logs are ONLY the fallback for planks (2 logs -> 8 planks) — skipped
+  // outright when the planks want came back satisfied. Without that gate
+  // every toolless bootstrap pulled 2 depot logs it was never going to use,
+  // on top of the planks it had just taken: a silent drain on the shared
+  // wood buffer, which is exactly the kind of chest-A leak Durk's original
+  // report was about.
+  { label: 'log', match: (name) => /_log$/.test(name), need: 2, onlyIfShort: 'planks' },
+  // craftToolChain's stone-tier upgrade needs exactly 3.
+  { label: 'cobblestone', match: (name) => name === 'cobblestone', need: 3 },
+];
+
+async function withdrawCraftMaterials(bot, win, contents, ctx) {
+  const taken = [];
+  // label -> true when that want ended with its need still unmet (either the
+  // chest had none, or it ran out mid-fill). Drives the onlyIfShort gate.
+  const stillShort = new Map();
+  for (const want of ENSURE_TOOL_MATERIAL_WANTS) {
+    if (want.onlyIfShort && !stillShort.get(want.onlyIfShort)) continue;
+    const have = bot.inventory
+      .items()
+      .filter((it) => want.match(it.name))
+      .reduce((sum, it) => sum + it.count, 0);
+    let short = want.need - have;
+    if (short <= 0) {
+      stillShort.set(want.label, false);
+      continue;
+    }
+    for (const stack of contents.filter((it) => want.match(it.name))) {
+      if (short <= 0) break;
+      const n = Math.min(short, stack.count);
+      try {
+        await win.withdraw(stack.type, stack.metadata ?? null, n);
+        taken.push({ name: stack.name, count: n });
+        short -= n;
+      } catch (err) {
+        // A single unavailable stack (someone else's concurrent withdraw,
+        // a full inventory) is never fatal here — the craft chain still has
+        // its own gather path, this is a head start, not a requirement.
+        ctx.log?.('warn', `ensureTool: depot withdraw of ${n}x ${stack.name} failed: ${err.message}`);
+        break;
+      }
+    }
+    // Anything left unfilled here (chest empty of it, or a withdraw that
+    // failed part-way) is what makes a dependent want — logs for planks —
+    // worth pulling at all.
+    stillShort.set(want.label, short > 0);
+  }
+  return taken;
+}
+
 export async function ensureTool(bot, opts = {}, ctx = {}) {
   const kind = opts.kind;
   if (kind !== 'pickaxe' && kind !== 'axe') throw new Error('ensureTool: "kind" must be "pickaxe" or "axe"');
@@ -1956,9 +2513,12 @@ export async function ensureTool(bot, opts = {}, ctx = {}) {
     return { source: 'inventory', tool: owned.name };
   }
 
-  // (b) depot chest.
+  // (b) depot chest — ALWAYS attempted before the craft chain (which is what
+  // gathers/chops), never as a post-failure fallback. Two things come out of
+  // it now: the finished tool if it's there, otherwise craft materials.
+  let depotMaterials = [];
   try {
-    const chestBlock = await gotoChestBlock(bot, DEPOT_POS, ctx);
+    const chestBlock = await gotoChestBlock(bot, DEPOT_POS, ctx, { engine: opts.engine });
     ctx.setDetail?.('ensureTool: checking depot chest');
     const win = await bot.openChest(chestBlock);
     let match = null;
@@ -1967,6 +2527,8 @@ export async function ensureTool(bot, opts = {}, ctx = {}) {
       match = contents.find((it) => it.name.endsWith(suffix)) || null;
       if (match) {
         await win.withdraw(match.type, match.metadata ?? null, 1);
+      } else {
+        depotMaterials = await withdrawCraftMaterials(bot, win, contents, ctx);
       }
     } finally {
       try {
@@ -1994,12 +2556,31 @@ export async function ensureTool(bot, opts = {}, ctx = {}) {
     ctx.log?.('warn', `ensureTool: depot chest unavailable/empty (${err.message}), falling back to craft chain`);
   }
 
-  // (c) craft chain.
+  // Same ledger discipline as the tool line above — one DEPOT line per item
+  // pulled, so the depot ledger parser sees material draws too and nothing
+  // leaves chest A unaccounted for.
+  for (const m of depotMaterials) {
+    const depotLine = `DEPOT -${m.count} ${m.name} (chest A)`;
+    if (typeof ctx.sayStatus === 'function') {
+      await ctx.sayStatus(depotLine);
+    } else {
+      bot.chat(depotLine);
+    }
+  }
+  if (depotMaterials.length) {
+    ctx.log?.(
+      'info',
+      `ensureTool: no ${kind} in depot — withdrew craft materials instead (${depotMaterials.map((m) => `${m.count}x ${m.name}`).join(', ')})`
+    );
+  }
+
+  // (c) craft chain — may still gather (chop/mine) for anything the depot
+  // could not supply.
   await craftToolChain(bot, kind, ctx);
   const crafted = bot.inventory.items().find((it) => it.name.endsWith(suffix));
   if (!crafted) throw new Error(`ensureTool: craft chain finished but no ${kind} in inventory`);
   await bot.equip(crafted, 'hand');
-  return { source: 'craft', tool: crafted.name };
+  return { source: 'craft', tool: crafted.name, depotMaterials };
 }
 
 // ---------------------------------------------------------------------------
@@ -2206,7 +2787,8 @@ async function placeTorchHere(bot, ctx) {
     if (!refBlock || refBlock.name === 'air') continue;
     try {
       await bot.equip(torch, 'hand');
-      await safePlaceBlock(bot, refBlock, c.face, ctx, c.ref.plus(c.face));
+      // Probe loop — retry:false, the next candidate face IS the retry.
+      await safePlaceBlock(bot, refBlock, c.face, ctx, c.ref.plus(c.face), { retry: false });
       return true;
     } catch {
       // try the next candidate face
@@ -2241,7 +2823,10 @@ async function sealStairCell(bot, cellPos, ctx) {
       const faceVec = cellPos.minus(refPos);
       try {
         await bot.equip(material, 'hand');
-        await safePlaceBlock(bot, ref, faceVec, ctx, cellPos);
+        // Probe loop over up to 6 neighbor faces — retry:false keeps the
+        // verify but not the second attempt, so a lava-adjacent
+        // emergencySeal isn't spending ~20s working through dud faces.
+        await safePlaceBlock(bot, ref, faceVec, ctx, cellPos, { retry: false });
         return true;
       } catch (err) {
         ctx.log?.('warn', `sealStairCell: place attempt against ${posKey(refPos)} failed: ${err.message}`);
@@ -2434,10 +3019,24 @@ async function advanceIntoStep(bot, stepPos, ctx) {
         return false;
       }
       const target = new Vec3(stepPos.x + 0.5, bot.entity.position.y + 1.62, stepPos.z + 0.5);
+      // (LOOK-WAKE LAW, Thak 2026-09-01 — FEEDBACK "setControlState no-op
+      // without preceding bot.look()") A forced look packet immediately
+      // before the first control toggle of a burst is what makes the toggle
+      // take effect at all: bare setControlState produced ZERO position or
+      // velocity change across 3 full test batches, and a single
+      // bot.look(yaw, pitch, true) in front of it fixed jump AND forward
+      // every time. lookAt(target, true) IS that forced look (force=true is
+      // the same packet), so this loop already satisfies the law — but only
+      // when it succeeds, hence the fallback: never toggle a control without
+      // some look packet having gone out first.
       try {
         await bot.lookAt(target, true);
       } catch {
-        // ignore — still attempt to walk even if look fails
+        try {
+          await bot.look(bot.entity.yaw, bot.entity.pitch, true);
+        } catch {
+          // ignore — still attempt to walk even if both look forms fail
+        }
       }
       bot.setControlState('forward', true);
       if (steppingUp) bot.setControlState('jump', true);
@@ -2547,6 +3146,20 @@ export async function buildStaircase(bot, opts = {}, ctx = {}) {
   const from = toPlainPos(bot.entity.position);
   if (bot.entity.position.y <= toY) {
     return { from, to: from, steps: 0, torches: 0, headings: 1, reason: 'already at or below toY' };
+  }
+
+  // (19) DIG LAW — a staircase is exempt ONLY when it is launched toward a
+  // mine zone: the descending column from where the bot stands down to toY
+  // has to pass through one. That is what separates "cutting the access
+  // shaft into the mine" (legal, and it necessarily starts outside the zone,
+  // up at the surface) from "sinking a private hole in the middle of the
+  // landscape" (not legal). Heading drift moves x/z by a block or two per
+  // step, which cannot walk a shaft out of a zone tens of blocks wide.
+  {
+    const startPos = bot.entity.position.floored();
+    if (!columnEntersDigZone(startPos, startPos.y, toY)) {
+      throw new Error(`buildStaircase: ${digLawRefusal(startPos, `descent to y${toY}`)}`);
+    }
   }
 
   const maxSteps = 120;
@@ -2927,6 +3540,19 @@ export async function branchMine(bot, opts = {}, ctx = {}) {
   // caller is expected to already be at depth, e.g. via buildStaircase) —
   // it's accepted so callers can report/verify the intended depth.
   const y = opts.y ?? 54;
+
+  // (19) DIG LAW — branch mining is the bulk-dig case the decree is aimed at,
+  // so it is exempt only when the y band it will work is inside a zone at the
+  // bot's own x/z. Checked against the START position before ensureTool can
+  // relocate the bot (see the snapshot note below) and before the first
+  // corridor block is touched.
+  {
+    const startPos = bot.entity.position.floored();
+    const band = new Vec3(startPos.x, y, startPos.z);
+    if (!isInDigZone(band)) {
+      throw new Error(`branchMine: ${digLawRefusal(band, `trunk at y${y}`)}`);
+    }
+  }
 
   // (15) branchMine assumes the caller is already standing at the intended
   // staircase-bottom location — but ensureTool()'s depot-chest fallback (see

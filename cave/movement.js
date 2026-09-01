@@ -162,10 +162,21 @@ async function rawWalkTo(bot, goal, range, ctx) {
       if (ctx.isStaleGeneration?.()) throw new Error('rawWalkTo: stale generation');
       const check = goalGroundTruth(bot, goal);
       if (check && check.horizDist <= check.range + 1.0 && check.vertDist <= 1.5) return;
+      // (LOOK-WAKE LAW, Thak 2026-09-01 — FEEDBACK "setControlState no-op
+      // without preceding bot.look()") The forced look packet is what makes
+      // the control toggles below actually take effect; bare setControlState
+      // measured zero movement across 3 test batches until a forced look was
+      // put in front of it. lookAt(pos, true) is that forced look, sent once
+      // per pulse here — the fallback keeps the law satisfied on the pulses
+      // where lookAt itself throws.
       try {
         await bot.lookAt(targetPos, true);
       } catch {
-        // ignore — still attempt to walk even if look fails
+        try {
+          await bot.look(bot.entity.yaw, bot.entity.pitch, true);
+        } catch {
+          // ignore — still attempt to walk even if both look forms fail
+        }
       }
       bot.setControlState('forward', true);
       bot.setControlState('jump', true);
@@ -360,6 +371,19 @@ export async function gotoLoopPf(bot, goal, opts = {}, ctx = {}) {
     }
     try {
       await withTimeout(bot.pathfinder.goto(goal), timeoutMs);
+      // (FIELD BUG, Grog 2026-09-01 — FEEDBACK "goto false-reach reports
+      // IDENTICAL stale distance from different positions") The false-reach
+      // check reported the EXACT same "9.30 blocks horiz / 3.00 vert" from
+      // two genuinely different bot positions, which no live measurement can
+      // do. The position source itself is live (goalGroundTruth reads
+      // bot.entity.position at call time) — what is not live is `bot` after a
+      // mid-task reconnect: the old bot object stops receiving position
+      // updates the moment the runner builds a new one, so every later read
+      // returns the same frozen coordinates. Re-check the generation the
+      // instant goto() settles, BEFORE ground-truthing, so a stale bot's
+      // frozen position can never produce a false-reach verdict (or a retry
+      // burnt against a zombie).
+      if (ctx.isStaleGeneration?.()) throw new Error('gotoLoopPf: stale generation');
       // DRAGON GUARD: goto() resolving is not proof the bot moved (see the
       // goalGroundTruth comment above) — ground-truth it before trusting it.
       // (CALIBRATION) horizontal-only margin vs range+1.0, vertical checked
@@ -402,6 +426,13 @@ export async function gotoLoopPf(bot, goal, opts = {}, ctx = {}) {
   } catch {
     // ignore
   }
+
+  // Same stale guard as inside the loop, and for the same reason: the
+  // rawWalkTo fallback below both READS position (to decide whether the goal
+  // is close enough to be worth hand-walking to) and DRIVES the bot. Neither
+  // is meaningful on a superseded bot instance — its position is frozen, and
+  // its controls belong to a connection the runner has already replaced.
+  if (ctx.isStaleGeneration?.()) throw new Error('gotoLoopPf: stale generation');
 
   // Every retry either false-reached or genuinely failed. If the bot is
   // still ground-truthed as actually close, pathfinder itself is the thing

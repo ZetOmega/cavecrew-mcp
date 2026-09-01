@@ -140,12 +140,12 @@ back". Keep lines short.
   which chest is CAVE's vs FEL's, the `TRADE take X leave Y` chat-line
   format) lives in `TRADE.md` — read it before driving any trade-post
   task, don't improvise the protocol from this file alone.
-- **tp-rescue policy.** If a bot is stuck, lost, or in danger it can't
-  path itself out of (lava-adjacent, walled in, falling through a
-  ravine), the team-lead can `/tp` it to safety via RCON as a last
-  resort. This is a rescue tool, not a shortcut for normal travel — use
-  `/goto` for everything routine, and report the stuck condition per the
-  escalation rule so the underlying pathing bug gets fixed.
+- **tp-rescue policy — SUPERSEDED.** Orchestrator/RCON `/tp` rescues are
+  now **BANNED**. See "HOME SYSTEM (self-rescue)" below — a stuck bot
+  runs `/trigger home` on itself instead of waiting for an admin
+  teleport. `/goto` remains the tool for everything routine; report the
+  stuck condition per the escalation rule so the underlying pathing bug
+  gets fixed regardless of how the bot recovered.
 - **Blink protocol.** A bot that visibly teleports/snaps position in
   chat or logs without a `/tp` rescue in play (position jump with no
   corresponding `/goto` completion or death) is "blinking" — treat it as
@@ -177,7 +177,7 @@ back". Keep lines short.
   default `/chat` style (`"talk"`, or no `style` at all) routes through
   the runner's `smartChat`: a line starting with `!` is stripped of the
   `!` and sent as **important white** real chat; a line starting with a
-  protocol-ledger prefix (`DEPOT `, `TRADE `, `USING `, `FREE `,
+  protocol-ledger prefix (`TRADE `, `USING `, `FREE `,
   `LEASE-BREAK `, `BASE `, `CLAIM `, `HELLO `, `OFFER `) is sent
   **verbatim as real white chat**, unchanged, because other bots/tribes
   parse chat for those exact prefixes; everything else becomes **grey**
@@ -187,12 +187,25 @@ back". Keep lines short.
   `"style":"status"` to force grey regardless of content, or
   `"style":"rainbow"` for tribe-wide proclamations (a goal-ladder
   milestone, a new pact like the trading post no-touch exception).
+- **DEPOT is no longer a white-chat prefix (chief, 2026-09-01).** `DEPOT `
+  was removed from the protocol-ledger list above: depot lines are our own
+  bookkeeping, not an inter-tribe protocol, and at fleet scale they were the
+  loudest thing in public chat. They now classify as ordinary narration, so
+  they ride the **Discord status feed** (grey in-game) instead. Nothing
+  changes for you as a driver — keep sending `DEPOT` lines through `/chat`
+  exactly as documented below; only the destination moved. Every other
+  ledger prefix still goes out as real white chat, unchanged.
 
 ## DEPOT ledger
 
 Once cavecrew has its own chests (goal ladder step 6 in `CIV.md`), every
-deposit or withdrawal against a cavecrew chest gets a chat line so the
-whole tribe can follow the ledger by reading chat:
+deposit or withdrawal against a cavecrew chest gets a ledger line so the
+whole tribe can follow the ledger.
+
+> **2026-09-01 (chief):** these lines go to the **Discord status feed**, not
+> public white chat — see the DEPOT de-chat note under Chat tiers above. You
+> still send them the same way (`/chat`, format unchanged); the runner
+> classifies and routes them.
 
 ```
 DEPOT +N item (chest X)
@@ -478,10 +491,11 @@ curl.exe -s -X POST http://127.0.0.1:3201/chat `
 
 Body: `{message, style?}`. `style` defaults to `"talk"`, which now
 auto-classifies via the runner's `smartChat` — see Chat tiers above:
-`!`-prefixed and protocol-ledger-prefixed (`DEPOT `/`TRADE `/`USING `/
+`!`-prefixed and protocol-ledger-prefixed (`TRADE `/`USING `/
 `FREE `/`LEASE-BREAK `/`BASE `/`CLAIM `/`HELLO `/`OFFER `) lines go out
 as real white chat verbatim, everything else becomes grey narration
-automatically. Pass `"style":"status"` to force grey, `"fancy"` for a
+automatically (`DEPOT ` included since 2026-09-01 — see Chat tiers).
+Pass `"style":"status"` to force grey, `"fancy"` for a
 gold accent, or `"rainbow"` for a tribe-wide proclamation.
 
 ### `POST /autoeat`
@@ -533,6 +547,59 @@ curl.exe -s "http://127.0.0.1:3201/events?since=0"
 Response: `{"events":[{"seq":1,"ts":"...","type":"chat","msg":"..."}],
 "last":42}`. Pass the last `seq` you've seen as `since` next time to get
 only what's new.
+
+## HOME SYSTEM (self-rescue)
+
+A server-side datapack (`cavehome`, installed in the world's
+`datapacks/` folder — not part of this repo) gives every player two
+legit `/trigger` commands, no admin involvement needed:
+
+- `/trigger sethome` — saves the runner's current position as *their
+  own* home. Per-player automatically (scoreboard-backed, keyed by
+  username — 8+ bots sharing the server each get their own home, no
+  collision).
+- `/trigger home` — teleports the runner back to their saved home. If
+  no home was ever set, it sends a grey hint instead of erroring:
+  `[cavehome] no home set yet - run /trigger sethome first.`
+
+Drive it exactly like any other chat command, through `/eval` (not
+`/chat`, since `/trigger` is a raw slash-command, not a talk line):
+
+```powershell
+curl.exe -s -X POST http://127.0.0.1:3201/eval `
+  -H "Content-Type: application/json" `
+  -d '{"code":"bot.chat(\"/trigger sethome\")"}'
+```
+
+```powershell
+curl.exe -s -X POST http://127.0.0.1:3201/eval `
+  -H "Content-Type: application/json" `
+  -d '{"code":"bot.chat(\"/trigger home\")"}'
+```
+
+**Doctrine:**
+
+1. **Set home at the camp yard** — around **(12, 93, 50)** — on spawn
+   and whenever you're back at camp for a while. A stale home (deep in
+   a mine you've since left) is still safer to return to than nowhere,
+   but refresh it when you can.
+2. **Try the FEEDBACK.md stuck-taxonomy self-rescues first** — the
+   wedge-detection nuisance-block clear, a `/stop` + re-`/goto`, digging
+   out by hand via `/eval`. `/trigger home` is the **escalation**, not
+   the first move, for a bot that's step-snagged, full-wedged, or sealed
+   in a pocket it can't path or dig out of in reasonable time.
+3. **This replaces orchestrator/RCON teleports**, which are now BANNED
+   (see the superseded tp-rescue policy above) — the bot rescues
+   *itself* with a command any regular player can run, not an admin
+   backdoor.
+4. Still narrate it in chat and report the stuck condition per the
+   Escalation rule — `/trigger home` gets you out, it doesn't excuse
+   skipping the report that gets the underlying pathing bug fixed.
+
+Live-tested round trip on TestRock (2026-09-01): home saved at
+`(18.97, 102, 120.92)`, bot walked/displaced ~12 blocks to
+`(24.66, 103.42, 131.70)`, `/trigger home` returned it to
+`(18.95, 102, 120.93)` — within 0.02 blocks of the saved home.
 
 ## More info
 

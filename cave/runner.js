@@ -175,14 +175,28 @@ async function announce(style, text) {
 // Classification, in order:
 //   1. starts with "!" -> IMPORTANT WHITE: strip the "!" and send verbatim
 //      real chat — an announcement worth every bot/player noticing.
-//   2. matches a protocol-ledger prefix (DEPOT/TRADE/USING/FREE/LEASE-BREAK/
+//   2. matches a protocol-ledger prefix (TRADE/USING/FREE/LEASE-BREAK/
 //      BASE/CLAIM/HELLO/OFFER) -> REAL WHITE, sent verbatim, UNCHANGED —
 //      other bots/tribes/parsers grep real chat for these exact prefixes, so
 //      they must never be recolored or routed through tellraw.
 //   3. anything else -> routine narration, routed through announce('status',
 //      ...) (grey, team-colored name, falls back to bot.chat on any rconchat
 //      trouble — see announce() above).
-const PROTOCOL_PREFIX = /^(DEPOT |TRADE |USING |FREE |LEASE-BREAK |BASE |CLAIM |HELLO |OFFER )/;
+//
+// DEPOT DE-CHAT (chief decree, 2026-09-01): "DEPOT " was removed from this
+// list. Depot ledger lines are OUR OWN bookkeeping, not an inter-tribe
+// protocol — nobody outside the crew ever needed to read them off public
+// chat, and at fleet scale they were the loudest thing in the channel. They
+// now fall through to case 3, which means they ride announce('status') into
+// the Discord status feed (grey in-game, if rconchat is up at all) instead of
+// spamming white chat. Everything else in FEEDBACK's "ledger lines must stay
+// REAL white chat" entry is unchanged and still enforced above; drivers keep
+// sending DEPOT lines exactly as before, via /chat — only the destination
+// moved. KNOWN CONSEQUENCE, flagged to team-lead: cave/scoreboard.mjs parses
+// "DEPOT " out of the server's latest.log CHAT lines (its CHAT_RE only
+// matches real `<[CAVE] Name> ...` chat), so its depot ledger accounting goes
+// silent until it is repointed at the new feed.
+const PROTOCOL_PREFIX = /^(TRADE |USING |FREE |LEASE-BREAK |BASE |CLAIM |HELLO |OFFER )/;
 
 async function smartChat(text) {
   const msg = String(text);
@@ -286,6 +300,16 @@ function removePidFile() {
 
 writePidFile();
 process.on('exit', removePidFile);
+
+// DIG-LAW VISIBILITY (team-lead ruling, 2026-09-01): a missing zones.json
+// means the dig law is fail-open (see skills.js loadDigZones — deliberate, a
+// fail-closed law would brick fleet mining on any box without the file), and
+// that state must never be silent. One loud boot line makes it visible.
+try {
+  fs.accessSync(path.join(CAVE_DIR, 'zones.json'));
+} catch {
+  logLine('warn', 'cave/zones.json absent — dig law NOT in force on this runner (fail-open)');
+}
 
 function shutdown(signal) {
   logLine('info', `received ${signal}, shutting down`);
@@ -420,19 +444,68 @@ let lastPanicAt = 0;
 const EVENTS_MAX = 500;
 const eventsBuf = [];
 let eventSeq = 0;
+
+// RING FILTER (FEEDBACK "event ring flooded by FEL join/leave spam — useless
+// for forensics", team-lead 2026-09-01) — Ook's ring at seq 10k+ was almost
+// entirely "[FEL] X joined/left the game" from their reconnect storms, and a
+// task-replacement sequence could not be reconstructed because the real
+// events had already been shifted out of a 500-entry buffer. Join/leave of
+// OUR OWN bots stays (that IS forensics — a crew bot relogging mid-task is
+// exactly what you need to see); everyone else's is dropped at the two
+// handler sites below, deliberately NOT inside pushEvent, so every other
+// caller keeps writing to the ring unconditionally and nothing else can be
+// silently swallowed by a filter it never asked for.
+const OUR_BOTS = /^(Grog|UngaBunga|Zug|Bonk|Thak|Ook|Durk|Mog|TestRock|BariBrute)$/;
+const JOIN_LEAVE_RE = /(?:^|\s)(\S+) (?:joined|left) the game$/;
+
+function isForeignJoinLeave(text) {
+  const m = JOIN_LEAVE_RE.exec(String(text).trim());
+  if (!m) return false;
+  // Names arrive tagged in this world ("[FEL] Friedrich", "[CAVE] Grog") —
+  // strip any bracketed tribe prefix before matching the roster.
+  const who = m[1].replace(/^\[[^\]]*\]/, '');
+  return !OUR_BOTS.test(who);
+}
+
 function pushEvent(type, msg) {
   eventSeq++;
   eventsBuf.push({ seq: eventSeq, ts: new Date().toISOString(), type, msg: String(msg) });
   if (eventsBuf.length > EVENTS_MAX) eventsBuf.shift();
 }
 
+// TASK SOURCE (FEEDBACK "UPDATE on force task silently replaced: may be
+// TWO-COMMANDERS problem", team-lead 2026-09-01) — a forced goto on Ook was
+// replaced within 45s by a hunt task while OokDriver was independently
+// running his own meat-run chain. Nobody could prove afterwards WHO issued
+// the replacement: orchestrator, driver, and idle-guard all looked identical
+// in the log. The adopted doctrine fix is one-commander-per-bot, but that is
+// unenforceable without evidence, so every task now carries who asked for it
+// and every replacement names both sides. Free-form on purpose (drivers
+// invent their own labels: "OokDriver", "orchestrator", "bench") — sanitized
+// to a short slug so a task field can never carry an injection payload into
+// the status JSON or the log.
+const TASK_SOURCE_MAX = 24;
+function sanitizeSource(raw, fallback = 'http') {
+  if (typeof raw !== 'string') return fallback;
+  const slug = raw.trim().replace(/[^A-Za-z0-9-]/g, '').slice(0, TASK_SOURCE_MAX);
+  return slug || fallback;
+}
+
 let taskCounter = 0;
-function newTask(kind) {
-  return { id: `task-${++taskCounter}`, kind, state: 'running', detail: null, result: null, finishedAt: null };
+function newTask(kind, source = 'http') {
+  return { id: `task-${++taskCounter}`, kind, source, state: 'running', detail: null, result: null, finishedAt: null };
 }
 function taskToJSON(t) {
   if (!t) return null;
-  return { id: t.id, kind: t.kind, state: t.state, detail: t.detail, result: t.result, finishedAt: t.finishedAt };
+  return {
+    id: t.id,
+    kind: t.kind,
+    source: t.source ?? null,
+    state: t.state,
+    detail: t.detail,
+    result: t.result,
+    finishedAt: t.finishedAt,
+  };
 }
 
 // Marks a task done/failed/cancelled: stamps finishedAt (STATUS-HOLD: the
@@ -477,9 +550,11 @@ function makeCtx(task) {
       return mcData;
     },
     // Grey narration passthrough for skills.js's own routine chat lines (e.g.
-    // ensureTool's DEPOT ledger line on an automatic depot withdrawal — see
-    // announce() above, which already falls back to bot.chat internally on
-    // any rconchat failure). Optional on ctx by design: a bare ctx built by
+    // ensureTool's DEPOT ledger line on an automatic depot withdrawal, which
+    // since the DEPOT de-chat decree rides this path into the Discord status
+    // feed — see PROTOCOL_PREFIX and announce() above, which already falls
+    // back to bot.chat internally on any rconchat failure). Optional on ctx
+    // by design: a bare ctx built by
     // /eval or a test has no runner to route through, and skills.js falls
     // back to plain bot.chat itself when this isn't present.
     sayStatus: (text) => smartChat(text),
@@ -581,11 +656,78 @@ function inventoryTotalCount(b) {
   }
 }
 
+// SEALED-POCKET RESCUE (FEEDBACK "mine/collect wedge-detector false-positives
+// on tight ore pockets", Thak 2026-09-01) — a /mine and a /collect both died
+// on the wedge error at the exact spot a coal_ore vein had just been dug out.
+// Ground-truthing showed no engine wedge at all: the bot had simply sealed
+// itself into a 1x1 mined-out pocket, every horizontal neighbor at foot level
+// solid, nothing to walk into regardless of facing. That is the NORMAL
+// end-state of finishing a vein, and the stuck-taxonomy ladder (raw-control
+// test, then tp + hard restart) is enormous overkill for it — Thak freed it
+// both times by digging one side wall and walking out.
+//
+// So: before declaring a wedge, look for that exact signature, and if it's
+// there, dig one exit and give the task its window back. Only a rescue that
+// fails (or a non-pocket stall) falls through to the loud failure.
+const POCKET_DIRS = [
+  { x: 1, z: 0 },
+  { x: -1, z: 0 },
+  { x: 0, z: 1 },
+  { x: 0, z: -1 },
+];
+
+function isSealedPocket(b) {
+  const feet = b.entity.position.floored();
+  return POCKET_DIRS.every((d) => {
+    const blk = b.blockAt(feet.offset(d.x, 0, d.z));
+    // A null read is an unloaded/unknown cell, not a confirmed wall — never
+    // claim the pocket signature on missing data.
+    return !!blk && blk.boundingBox === 'block';
+  });
+}
+
+// Digs one foot-level exit. Preference order matches Thak's manual fix:
+// a neighbor whose HEAD-level cell is already air (so one dig opens a
+// walkable 1x2 gap), else any diggable neighbor. skills.safeDig carries the
+// protected-block guard and the reach law, so this can never eat furniture.
+async function digPocketExit(b) {
+  const feet = b.entity.position.floored();
+  const rescueCtx = { log: (level, msg) => logLine(level, `pocket rescue: ${msg}`) };
+  const candidates = [];
+  for (const d of POCKET_DIRS) {
+    const footBlk = b.blockAt(feet.offset(d.x, 0, d.z));
+    const headBlk = b.blockAt(feet.offset(d.x, 1, d.z));
+    if (!footBlk || !footBlk.diggable) continue;
+    const headClear = !!headBlk && headBlk.boundingBox === 'empty';
+    candidates.push({ block: footBlk, headClear });
+  }
+  candidates.sort((a, c) => Number(c.headClear) - Number(a.headClear));
+  for (const c of candidates) {
+    try {
+      await b.tool?.equipForBlock?.(c.block, { requireHarvest: false });
+    } catch {
+      // bare hand is fine — dirt/gravel/stone all break eventually
+    }
+    try {
+      await skills.safeDig(b, c.block, rescueCtx);
+      return c.block.position;
+    } catch (err) {
+      logLine('warn', `pocket rescue: dig at ${c.block.position} failed: ${err?.message ?? err}`);
+    }
+  }
+  return null;
+}
+
 function startWedgeWatchdog(task) {
   if (!WEDGE_WATCHDOG_KINDS.has(task.kind)) return null;
   let baselinePos = null;
   let baselineInv = -1;
   let baselineAt = Date.now();
+  // Guards against a second rescue starting while the first is mid-dig: the
+  // interval keeps firing every WEDGE_TICK_MS regardless of what the previous
+  // tick started, and two concurrent digs on one bot is how you get a
+  // half-broken block and a confused task.
+  let rescueInProgress = false;
   return setInterval(() => {
     if (task.state !== 'running') return; // finally-clause clears us shortly
     const b = bot;
@@ -608,6 +750,48 @@ function startWedgeWatchdog(task) {
     // this tick was queued, and failActiveTask only ever fails the CURRENT one.
     if (state.currentTask !== task) return;
     const posStr = `${pos.x.toFixed(1)},${pos.y.toFixed(1)},${pos.z.toFixed(1)}`;
+
+    // SEALED-POCKET FIRST — a self-dug pocket is not a wedge, so try the
+    // cheap real fix before spending a task failure on it. The rescue is
+    // async while this callback is not, so it runs detached: the task stays
+    // alive meanwhile (that is the point), and either outcome is resolved on
+    // its own promise. The next tick sees rescueInProgress and stands down.
+    if (rescueInProgress) return;
+    if (isSealedPocket(b)) {
+      rescueInProgress = true;
+      logLine('warn', `wedge watchdog: task ${task.id} looks SEALED-POCKET at ${posStr} — attempting self-rescue dig before failing`);
+      pushEvent('quirk', `sealed-pocket rescue attempt at ${posStr} (${task.kind})`);
+      Promise.race([
+        digPocketExit(b),
+        sleep(15000).then(() => {
+          throw new Error('rescue exceeded 15s');
+        }),
+      ])
+        .then((dugAt) => {
+          if (!dugAt) throw new Error('no diggable exit found');
+          // Give the task its full window back — it now has somewhere to go,
+          // and the very next tick would otherwise re-fire on the same stale
+          // baseline and fail it anyway.
+          baselinePos = null;
+          baselineAt = Date.now();
+          logLine('info', `pocket rescue: opened exit at ${dugAt} — task ${task.id} continues`);
+          pushEvent('quirk', `sealed-pocket rescue opened exit at ${dugAt}, task ${task.id} continues`);
+        })
+        .catch((err) => {
+          // Rescue failed — this really is (or is indistinguishable from) a
+          // wedge, so fall through to the original loud failure.
+          if (state.currentTask !== task || task.state !== 'running') return;
+          logLine('warn', `pocket rescue failed (${err?.message ?? err}) — falling through to wedge failure`);
+          failActiveTask(
+            `wedge: zero progress over ${WEDGE_WINDOW_MS / 1000}s at ${posStr}, sealed-pocket self-rescue failed (${err?.message ?? err}) — escalate per stuck-taxonomy (raw-control test, then tp+restart)`
+          );
+        })
+        .finally(() => {
+          rescueInProgress = false;
+        });
+      return;
+    }
+
     logLine('warn', `wedge watchdog: task ${task.id} (${task.kind}) zero progress for ${WEDGE_WINDOW_MS / 1000}s at ${posStr}`);
     pushEvent('quirk', `wedge watchdog fired: ${task.kind} zero progress ${WEDGE_WINDOW_MS / 1000}s at ${posStr}`);
     failActiveTask(
@@ -616,7 +800,8 @@ function startWedgeWatchdog(task) {
   }, WEDGE_TICK_MS);
 }
 
-async function startTask(kind, fn, { force = false } = {}) {
+async function startTask(kind, fn, { force = false, source = 'http' } = {}) {
+  const src = sanitizeSource(source);
   if (state.currentTask && state.currentTask.state === 'running') {
     // IDLE-GUARD auto-preemption: idle-guard is a runner-self-issued filler
     // task (see idleGuardCycle below), never something a driver asked for.
@@ -629,6 +814,16 @@ async function startTask(kind, fn, { force = false } = {}) {
       err.busy = true;
       throw err;
     }
+    // TWO-COMMANDERS EVIDENCE — every replacement, forced or idle-guard
+    // preemption, names both sides with their sources. This is the line that
+    // settles "who ate my task" without anyone having to correlate three
+    // separate driver transcripts by timestamp.
+    const prev = state.currentTask;
+    const replaceLine =
+      `task ${prev.id} (${prev.kind}, source ${prev.source ?? 'unknown'}) replaced by ${kind} (source ${src})` +
+      (preemptingIdleGuard ? ' [idle-guard preemption]' : ' [force]');
+    logLine('warn', replaceLine);
+    pushEvent('task', replaceLine);
     await cancelCurrentTask(preemptingIdleGuard ? 'preempted by driver task' : `superseded by new ${kind} task (force)`);
     // Re-check after the await: another request may have claimed the mutex
     // while we were cancelling. Exactly one caller may install a task.
@@ -639,10 +834,10 @@ async function startTask(kind, fn, { force = false } = {}) {
     }
   }
 
-  const task = newTask(kind);
+  const task = newTask(kind, src);
   state.currentTask = task;
-  logLine('info', `task ${task.id} (${kind}) started`);
-  pushEvent('task', `task ${task.id} (${kind}) started`);
+  logLine('info', `task ${task.id} (${kind}) started by ${src}`);
+  pushEvent('task', `task ${task.id} (${kind}) started by ${src}`);
   const ctx = makeCtx(task);
 
   // Run in the background — the caller gets an immediate ack and polls /status.
@@ -727,7 +922,7 @@ async function triggerPanic(b) {
         );
         return { fled: true, to: PANIC_CAMP_POS };
       },
-      { force: true }
+      { force: true, source: 'panic' }
     );
   } catch (err) {
     logLine('error', `panic response task failed to start: ${err?.message ?? err}`);
@@ -978,6 +1173,10 @@ function wireBot(b) {
 
   b.on('chat', (username, message) => {
     if (username === b.username) return;
+    // Ring filter (see isForeignJoinLeave): a server that routes join/leave
+    // announcements as chat-position messages would otherwise flood the ring
+    // through this handler too.
+    if (isForeignJoinLeave(message)) return;
     pushEvent('chat', `${username}: ${message}`);
   });
 
@@ -997,6 +1196,9 @@ function wireBot(b) {
     } catch {
       text = String(jsonMsg);
     }
+    // Ring filter — this is the handler FEL's reconnect storms actually came
+    // through (join/leave are system-position messages, not player chat).
+    if (isForeignJoinLeave(text)) return;
     pushEvent('system', `[${position}] ${text}`);
   });
 }
@@ -1132,12 +1334,12 @@ async function idleGuardCycle(task, ctx) {
         const result = await skills.depositToChest(bot, { pos: IDLE_GUARD_DEPOT_POS, items: names }, ctx);
         const deposited = result.deposited || [];
         if (deposited.length) {
-          // PROTOCOL LEDGER, not narration: other bots parse DEPOT lines from
-          // REAL white chat (tellraw system msgs never fire chat events — see
-          // FEEDBACK "ledger lines must stay REAL white chat"), so these go
-          // through smartChat's protocol branch verbatim, one line per item
-          // per the DRIVER_GUIDE DEPOT format. The old "(idle-guard) DEPOT
-          // ..." status line was invisible to every ledger parser.
+          // DEPOT ledger, one line per item, in the DRIVER_GUIDE DEPOT format.
+          // Still emitted through smartChat and still worded identically —
+          // but since the DEPOT de-chat decree (2026-09-01, see
+          // PROTOCOL_PREFIX above) "DEPOT " no longer matches the protocol
+          // branch, so these now route through announce('status') to the
+          // Discord status feed instead of public white chat.
           for (const d of deposited) {
             await smartChat(`DEPOT +${d.count} ${d.name} (chest A)`);
           }
@@ -1161,7 +1363,7 @@ function maybeStartIdleGuard() {
   const isIdle = !state.currentTask || state.currentTask.state !== 'running';
   if (!isIdle) return;
   if (Date.now() - idleSince < IDLE_GUARD_THRESHOLD_MS) return;
-  startTask('idle-guard', idleGuardCycle).catch((err) => {
+  startTask('idle-guard', idleGuardCycle, { source: 'idle-guard' }).catch((err) => {
     if (!err?.busy) logLine('error', `idle-guard: failed to self-start: ${err?.message ?? err}`);
   });
 }
@@ -1390,7 +1592,10 @@ function taskEndpoint(kind, runner) {
           const b = requireBot();
           return runner(b, body, ctx);
         },
-        { force: !!body.force }
+        // Optional body.source: who is commanding this bot right now
+        // ("OokDriver", "orchestrator", "bench"). Sanitized in startTask;
+        // absent means a plain HTTP caller that did not identify itself.
+        { force: !!body.force, source: body.source }
       );
       sendJson(res, 200, { ok: true, task: taskToJSON(task) });
     } catch (err) {
@@ -1402,6 +1607,61 @@ function taskEndpoint(kind, runner) {
 
 function requireNumber(body, field) {
   if (typeof body[field] !== 'number') throw new Error(`requires numeric "${field}"`);
+}
+
+// (FIELD GAP, Durk 2026-09-01 — FEEDBACK "HTTP /withdraw and /deposit take an
+// `items` name list but no count — they always grab/dump the ENTIRE matching
+// stack", which cost chest A's whole wood buffer and forced drivers into
+// hand-rolled /eval chest.withdraw calls.) skills.js's normalizeItemSpecs
+// already understands both shapes; this is the endpoint-side gate so a
+// malformed body fails the task with a named, readable lastError (same place
+// requireNumber's errors surface — inside the task body, per taskEndpoint)
+// instead of reaching win.withdraw()/win.deposit() as a NaN count.
+//   items: ["oak_planks", ...]                → whole stack (unchanged)
+//   items: [{name:"oak_planks", count:16}, …] → exact count
+// Mixed arrays are fine. Returns the array to hand to skills.js.
+function validateItemsBody(items, label) {
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new Error(`${label} requires a non-empty "items" array`);
+  }
+  return items.map((it) => {
+    if (typeof it === 'string') {
+      if (!it) throw new Error(`${label}: item names must be non-empty strings`);
+      return it;
+    }
+    if (!it || typeof it !== 'object' || typeof it.name !== 'string' || !it.name) {
+      throw new Error(`${label}: each item must be a name string or {name, count}`);
+    }
+    if (it.count === undefined || it.count === null) return { name: it.name };
+    // Gate on the FLOORED value, not the raw one: count 0.9 passes a bare
+    // "> 0" test and then floors to 0, which is a silent no-op withdraw the
+    // bot only discovers after a 30s walk to the chest — the failure then
+    // surfaces far from its cause. Reject anything that cannot move at
+    // least one item, at the endpoint, before a task is even started.
+    if (typeof it.count !== 'number' || !Number.isFinite(it.count) || Math.floor(it.count) < 1) {
+      throw new Error(`${label}: "count" for ${it.name} must be a number >= 1 (got ${JSON.stringify(it.count)})`);
+    }
+    return { name: it.name, count: Math.floor(it.count) };
+  });
+}
+
+// (FIELD GAP, UngaBunga 2026-09-01 — FEEDBACK "pf engine 'goal changed'
+// false-fail on short hops": /deposit "always uses pf internally, no engine
+// param", so a bot whose pf was failing a 1-2 block hop had to bypass the
+// endpoint entirely and drive bot.openChest by hand through /eval.) Same
+// auto|ash|pf vocabulary as /goto; omitted means the chest goto keeps its
+// original pathfinder path, so no existing caller changes behavior. Note
+// this deliberately does NOT fall back to defaultEngine — the historical
+// behavior of these two endpoints is pf-only, and silently switching every
+// fleet deposit to the process-wide default is not this fix's job.
+const MOVEMENT_ENGINES = new Set(['auto', 'ash', 'pf']);
+
+function validateEngineBody(body, label) {
+  if (body.engine === undefined || body.engine === null) return undefined;
+  if (!MOVEMENT_ENGINES.has(body.engine)) {
+    throw new Error(`${label}: "engine" must be one of auto|ash|pf (got ${JSON.stringify(body.engine)})`);
+  }
+  return body.engine;
 }
 
 const taskRoutes = {
@@ -1437,14 +1697,21 @@ const taskRoutes = {
     requireNumber(body, 'x');
     requireNumber(body, 'y');
     requireNumber(body, 'z');
-    return skills.depositToChest(b, { pos: { x: body.x, y: body.y, z: body.z }, items: body.items }, ctx);
+    // "items" stays OPTIONAL here — omitting it (or sending an empty array,
+    // which depositToChest has always read the same way) keeps the original
+    // deposit-everything-non-tool behavior.
+    const noItems = body.items === undefined || body.items === null || (Array.isArray(body.items) && body.items.length === 0);
+    const items = noItems ? undefined : validateItemsBody(body.items, '/deposit');
+    const engine = validateEngineBody(body, '/deposit');
+    return skills.depositToChest(b, { pos: { x: body.x, y: body.y, z: body.z }, items, engine }, ctx);
   }),
   '/withdraw': taskEndpoint('withdraw', async (b, body, ctx) => {
     requireNumber(body, 'x');
     requireNumber(body, 'y');
     requireNumber(body, 'z');
-    if (!body.items || !body.items.length) throw new Error('/withdraw requires "items"');
-    return skills.withdrawFromChest(b, { pos: { x: body.x, y: body.y, z: body.z }, items: body.items }, ctx);
+    const items = validateItemsBody(body.items, '/withdraw');
+    const engine = validateEngineBody(body, '/withdraw');
+    return skills.withdrawFromChest(b, { pos: { x: body.x, y: body.y, z: body.z }, items, engine }, ctx);
   }),
   '/craft': taskEndpoint('craft', async (b, body, ctx) => {
     if (!body.item) throw new Error('/craft requires "item"');
@@ -1594,7 +1861,7 @@ async function handleEval(req, res) {
         const evalLog = (msg) => ctx.log('info', typeof msg === 'string' ? msg : JSON.stringify(msg));
         return runEvalCode(b, mcData, skills, evalLog, body.code);
       },
-      { force: !!body.force }
+      { force: !!body.force, source: body.source }
     );
   } catch (err) {
     if (err?.busy) return sendJson(res, 409, { error: 'busy', currentTask: taskToJSON(state.currentTask) });

@@ -1,0 +1,23 @@
+{
+  "zones": [
+    {
+      "name": "mine_stair",
+      "box": { "x1": 12, "y1": 50, "z1": 54, "x2": 55, "y2": 92, "z2": 60 },
+      "note": "grand staircase corridor: entrance (15,89,57) east, toY 54 lands ~x50"
+    },
+    {
+      "name": "mine_grid",
+      "box": { "x1": 14, "y1": 45, "z1": 35, "x2": 80, "y2": 62, "z2": 80 },
+      "note": "branchmine layer y54: trunk east from stair bottom, branches north-south"
+    },
+    {
+      "name": "rescue_ramp",
+      "box": { "x1": 8, "y1": 84, "z1": 56, "x2": 15, "y2": 91, "z2": 58 },
+      "note": "TEMP 2026-09-01: six-bot pocket rescue ramp (issue #5). Remove after terrain-heal fills it."
+    },
+    {
+      "name": "test_yard",
+      "box": { "x1": -4, "y1": 40, "z1": 304, "x2": 28, "y2": 110, "z2": 336 }
+    }
+  ]
+}
