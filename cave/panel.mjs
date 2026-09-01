@@ -732,7 +732,13 @@ function renderPage() {
   main { display: grid; grid-template-columns: minmax(0,1fr) 320px; gap: 20px; padding: 20px 22px 40px; align-items: start; }
   @media (max-width: 1080px) { main { grid-template-columns: minmax(0,1fr); } }
 
-  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
+  /* align-items:start — default grid stretch would make every OTHER card in
+     the same row grow to match whichever one just expanded its event log,
+     leaving dead space under their shorter content. Cards below the row
+     still reflow when one grows (unavoidable in a static grid without a
+     measured-height overlay), but same-row neighbours no longer visibly
+     stretch for it. */
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; align-items: start; }
 
   .card {
     position: relative;
@@ -808,12 +814,30 @@ function renderPage() {
   /* Per-card event log — collapsed by default (density: most of the time
      nobody needs it), toggled by the .ev-toggle chip in .meta. Capped height
      + its own scrollbar so an eventful bot can't stretch the whole card past
-     its neighbours. */
-  .ev-list { margin-top: 8px; max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; padding-right: 2px; }
+     its neighbours. Animated via max-height/opacity rather than [hidden] so
+     expand/collapse eases in instead of snapping the card's height in one
+     frame — that abrupt snap was the actual "jump", not the row reflow below
+     it (which a static grid can't avoid without a measured-height overlay;
+     see #grid's align-items:start above for the other half of that fix). */
+  .ev-list {
+    margin-top: 0; max-height: 0; opacity: 0; overflow: hidden;
+    display: flex; flex-direction: column; gap: 5px; padding-right: 2px;
+    transition: max-height .22s ease, opacity .18s ease, margin-top .22s ease;
+  }
+  .ev-list.open { margin-top: 8px; max-height: 140px; opacity: 1; overflow-y: auto; }
   .ev-item { font-size: 10px; color: var(--dim); display: flex; gap: 7px; }
-  .ev-item .et { flex: none; font-variant-numeric: tabular-nums; }
+  /* Monospace + tabular-nums: a column of "12s ago" / "3m 4s ago" reads as a
+     ledger, not a paragraph — same reasoning as the delta/health numerals
+     elsewhere on the card. */
+  .ev-item .et { flex: none; font-variant-numeric: tabular-nums; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; }
   .ev-item .em { color: var(--muted); word-break: break-word; }
   .ev-item.warn .em { color: #ffb3ae; }
+  /* Rate-cap rollup lines ("...suppressed N similar X event(s)", runner.js's
+     RING RATE CAP) are log housekeeping, not a real thing the bot did —
+     italicized so they read as a footnote about the log itself, distinct
+     from the events around them even when the type they're rolling up
+     happens to also be alert-worthy (.warn still applies its own colour). */
+  .ev-item.suppressed .em { font-style: italic; }
   .ev-empty { font-size: 10px; color: var(--dim); font-style: italic; }
 
   .inv { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 5px; }
@@ -950,10 +974,18 @@ function renderPage() {
   // compete with the Alerts column for the same "something's wrong" job,
   // where this is closer to "what has this bot actually been doing lately."
   var ALERT_EVENT_TYPES = { death: 1, error: 1, panic: 1, kicked: 1, disconnect: 1 };
+  // Matches runner.js's RING RATE CAP rollup line verbatim
+  // ("...suppressed N similar <type> event(s)") — detected by message shape
+  // since the rollup keeps the original type, not a type of its own.
+  // NOTE: doubled backslashes — this whole page is one outer template
+  // literal (renderPage()'s return value), so a single \ here would be
+  // consumed by THAT literal before the client ever sees the regex (same
+  // reason the timestamp-trim regex near paintAlerts uses \\. \\d too).
+  var SUPPRESSED_RE = /^\\.\\.\\.suppressed \\d+ similar/;
   function renderEvToggle(toggleEl, listEl, state) {
     var n = state.count || 0;
     setText(toggleEl, (state.expanded ? '▾' : '▸') + ' events' + (n ? ' (' + n + ')' : ''));
-    listEl.hidden = !state.expanded;
+    setCls(listEl, 'ev-list' + (state.expanded ? ' open' : ''));
   }
   // Movement delta colouring. Red is the wedge flag — under half a block of
   // travel in the window means the bot is very likely stuck, which pairs with
@@ -1025,7 +1057,6 @@ function renderPage() {
     var evState = { expanded: false, count: 0 };
     var evToggle = el('span', 'ev-toggle');
     var evList = el('div', 'ev-list');
-    evList.hidden = true;
     evToggle.addEventListener('click', function () {
       evState.expanded = !evState.expanded;
       renderEvToggle(evToggle, evList, evState);
@@ -1230,7 +1261,8 @@ function renderPage() {
         c.evList.appendChild(el('div', 'ev-empty', 'no events yet'));
       } else {
         events.slice().reverse().forEach(function (e) {
-          var row = el('div', 'ev-item' + (ALERT_EVENT_TYPES[e.type] ? ' warn' : ''));
+          var cls = 'ev-item' + (ALERT_EVENT_TYPES[e.type] ? ' warn' : '') + (SUPPRESSED_RE.test(e.msg) ? ' suppressed' : '');
+          var row = el('div', cls);
           var et = el('span', 'et');
           et.dataset.ts = e.ts;
           var em = el('span', 'em', e.msg);

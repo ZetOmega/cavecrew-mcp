@@ -258,7 +258,16 @@ Not built unless marked DONE below.
   list itself hasn't changed (same honesty-over-shortcuts rule the movement
   deltas and task age already follow); the list only rebuilds its DOM when
   the underlying event set actually changes, so an open/scrolled log doesn't
-  jump on an empty poll.
+  jump on an empty poll. Timestamps render in the card's monospace stack
+  (ledger, not prose). Expand/collapse animates via max-height/opacity
+  instead of snapping, and `#grid` sets `align-items: start` so a card that
+  grows no longer stretches its same-row neighbours' backgrounds into dead
+  space — a static grid still reflows rows below it, which isn't the "jump"
+  a measured-height overlay would be needed to fully avoid. `runner.js`'s
+  rate-cap rollup lines (`...suppressed N similar <type> event(s)`, RING
+  RATE CAP fix) render italicized to read as a footnote about the log
+  itself rather than a real event, detected by message shape since the
+  rollup keeps its original event type.
 - **Driver states** — show which bot has a driver attached and what that driver
   currently believes it is doing, so the panel distinguishes "idle" from
   "between driver steps".
