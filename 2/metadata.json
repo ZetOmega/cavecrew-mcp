@@ -1,0 +1,115 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "01M1EH80XCPVFZMKXQ4MGYAD5H",
+  "session_id": "952b8146-8aa4-4409-997b-890cd344ce7a",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-01T13:06:29.903184323Z",
+  "branch": "main",
+  "checkpoints_count": 9,
+  "save_step_count": 10,
+  "files_touched": [
+    "cave/CIV.md",
+    "cave/TODO.md",
+    "cave/schematics/convert-v3-to-v2.mjs",
+    "cave/schematics/github_samurai-house.schem",
+    "cave/schematics/github_samurai-house.v3-original.schem",
+    "cave/schematics/github_v2_house.schem",
+    "cave/schematics/sites_classic-village-house.schem",
+    "cave/schematics/sites_classic-village-house.v3-original.schem",
+    "cave/schematics/sites_cozy-cabin.schem",
+    "cave/schematics/sites_cozy-cabin.v3-original.schem",
+    "cave/schematics/sites_rustic-farmhouse.schem",
+    "cave/schematics/sites_rustic-farmhouse.v3-original.schem"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-sonnet-5",
+  "turn_id": "0744f14a9288",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 1872,
+    "cache_creation_tokens": 1081763,
+    "cache_read_tokens": 434527760,
+    "output_tokens": 449723,
+    "api_call_count": 936
+  },
+  "session_metrics": {
+    "turn_count": 36
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-01T13:06:29.646851384Z",
+    "agent_lines": 136,
+    "agent_removed": 5,
+    "human_added": 2,
+    "human_modified": 2,
+    "human_removed": 0,
+    "total_committed": 140,
+    "total_lines_changed": 145,
+    "agent_percentage": 97.24137931034483,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 78,
+      "agent_lines_removed": 14
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 78,
+      "agent_lines_removed": 14
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 78,
+      "agent_lines_removed": 14
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 78,
+      "agent_lines_removed": 14
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 78,
+      "agent_lines_removed": 14
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 86,
+      "agent_lines_removed": 16
+    },
+    {
+      "checkpoint_number": 9,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 86,
+      "agent_lines_removed": 16
+    },
+    {
+      "checkpoint_number": 10,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 86,
+      "agent_lines_removed": 16
+    }
+  ]
+}
