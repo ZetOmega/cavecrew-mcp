@@ -26,11 +26,21 @@ const TYPE_RESPONSE = 0; // eslint-disable-line no-unused-vars -- documents the 
 function loadRconConfig(cfg) {
   if (cfg?.rcon) return cfg.rcon;
   try {
-    const raw = fs.readFileSync(path.join(__dirname, 'local.json'), 'utf8');
+    // Strip a leading UTF-8 BOM before parsing — found live: a PowerShell-saved
+    // local.json (`Out-File`/`Set-Content` default to BOM-prefixed UTF-8, see the
+    // PowerShell tool notes) makes JSON.parse throw, which this function's own
+    // catch then swallows silently, falling all the way through to the empty-
+    // password default. That is a real "bad password" RCON failure wearing a
+    // graceful-fallback costume — nothing here ever surfaced it because every
+    // caller (smartChat/announce) treats rconchat trouble as non-fatal and drops
+    // to bot.chat. Bench-tooling (cave/bench.mjs) hits this path directly with no
+    // such fallback, which is how it was actually found.
+    let raw = fs.readFileSync(path.join(__dirname, 'local.json'), 'utf8');
+    if (raw.charCodeAt(0) === 0xfeff) raw = raw.slice(1);
     const parsed = JSON.parse(raw);
     if (parsed?.rcon) return parsed.rcon;
   } catch {
-    // no local.json (or unreadable) — fall through to defaults
+    // no local.json (or unreadable/unparseable) — fall through to defaults
   }
   return { host: '127.0.0.1', port: 25575, password: '' };
 }
