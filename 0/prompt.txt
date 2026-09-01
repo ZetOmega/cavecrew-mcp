@@ -209,3 +209,7 @@ naja dann amch legitmine aus, das nutzt ja der mineflayer auch ned
 ---
 
 HARVEST LOOP (recurring, standing farm rhythm): SendMessage to ZugDriver: run a harvest round on farm_1 (17 tiles) — age==7 only via getProperties().age, dig+collect+replant SAME VISIT, no /collect near plot until Engineer's Movements fix ships, bank wheat/seeds chest C with DEPOT lines, keep 14-seed buffer. When chest C wheat ≥30 again: bake another 10-loaf batch (single-craft law) and bank. Report tile ages + yield + C tally (summed stacks). Skip round silently if fewer than 4 tiles ripe (tell me "thin round, skipped"). Guard off while driving, on after. If fleet priorities changed, use judgment.
+
+---
+
+DIPLOMACY CYCLE: SendMessage to Diplomat: "Run a relations cycle — sweep felcrew-mcp/botnet-tasks/tribes-common for new FEL activity, answer anything owed same-cycle, advance one standing duty (script exchange / claims registry / trade convention) if a natural next move exists, report only if something happened." If Diplomat does not exist/respond, do the sweep yourself per the old routine.
