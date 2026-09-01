@@ -14,6 +14,12 @@
 //   node -e "import('./panel-data.mjs').then(m => console.log(m.getVault()))"
 // panel.mjs imports named exports from here and stays HTTP server + routing
 // only. See cave/PANEL_V3_SPEC.md and cave/PANEL.md for the full contract.
+//
+// readDeathFiles/readFelRelation, once "remain UNWIRED" per the paragraph
+// below, are now both wired too — into getStatWall() (right after
+// readFelRelation's own definition), which composes them plus a mission-log
+// day-count reader into the Tribe Stat Wall's five tiles (PANEL_V3_SPEC.md
+// §3.3), served via GET /api/statwall.
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -105,6 +111,19 @@ export const TEAM_HEX = {
 // from base" against. Consumed by distanceFromBase() below, wired into
 // Mission Control's per-card distance badge (PANEL_V3_SPEC.md §3.1).
 export const BASE_ANCHOR = { x: 11, y: 89, z: 55 };
+
+// The single authoritative "relaunch" instant — Tribe Stat Wall's
+// deaths-free streak (§3.3) needs one when cave/deaths/ has no records at
+// all, so "0 Tode seit Relaunch" has a real date next to it instead of a
+// fabricated one. Same "declare it once, source it honestly" treatment as
+// BASE_ANCHOR above: sourced from cave/REBUILD.md's own R1 section header
+// ("REWRITTEN 2026-09-01 ~08:50Z: chief ordered a ONE-TIME sanctioned
+// teleport... + logout" — the actual relaunch decree this session's fleet
+// booted under), not a guess. Update this by hand the next time a real
+// full-fleet relaunch happens; nothing derives it automatically because
+// there is no single machine-readable "relaunch happened" event anywhere in
+// this codebase today.
+const RELAUNCH_TS = '2026-09-01T08:50:00Z';
 
 // ---------------------------------------------------------------------------
 // Distance from base — Mission Control wall state (PANEL_V3_SPEC.md §3.1,
@@ -1034,6 +1053,119 @@ export async function readFelRelation() {
   } catch (err) {
     return { ok: false, missing: false, error: `fel-relation.json corrupt JSON: ${err?.message ?? err}` };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Tribe Stat Wall (PANEL_V3_SPEC.md §3.3) — five glance-readable big-number
+// tiles, composed here from readDeathFiles/readMissionEntries/readFelRelation
+// above plus getVault() (round 7). Wired into GET /api/statwall (panel.mjs),
+// consumed by panel-client.js's #statwall section, rendered above the fleet
+// grid per the launch brief's layout ask. Same tolerant contract as every
+// other v3 reader: a tile with no honest data source reports missing:true
+// (client hides it) rather than a fabricated zero — EXCEPT the deaths tile,
+// which per spec never hides ("no deaths ever" is exactly the good-news
+// state this wall exists to show).
+// ---------------------------------------------------------------------------
+
+// Deaths-free streak — days/hours since the most recent lastDeath.ts across
+// every bot that has ever died. No records anywhere (today's real state,
+// cave/deaths/ empty since the 2026-09-01 relaunch) is the honest "0 Tode
+// seit Relaunch" case, anchored to RELAUNCH_TS above rather than a fabricated
+// start date.
+export async function getDeathsStreak() {
+  const { records } = await readDeathFiles();
+  let maxTs = null;
+  let maxBot = null;
+  for (const r of records) {
+    const ts = r && r.lastDeath && typeof r.lastDeath.ts === 'string' ? r.lastDeath.ts : null;
+    if (!ts || !Number.isFinite(Date.parse(ts))) continue;
+    if (!maxTs || Date.parse(ts) > Date.parse(maxTs)) {
+      maxTs = ts;
+      maxBot = typeof r.name === 'string' ? r.name : null;
+    }
+  }
+  if (!maxTs) return { ok: true, everDied: false, sinceTs: RELAUNCH_TS };
+  return { ok: true, everDied: true, sinceTs: maxTs, lastBot: maxBot };
+}
+
+// Missions today — count of cave/missions/*.jsonl lines with counts !== false
+// whose ts falls within the current UTC calendar day, across all bots. No
+// mission files at all (G2 never shipped, or a fresh checkout) reports
+// missing:true rather than a 0 — 0 would otherwise be ambiguous between
+// "shipped, quiet day so far" and "not built yet" (mirrors Mission Control's
+// own per-card rule for the exact same reason, PANEL_V3_SPEC.md §3.1).
+export async function getMissionsToday() {
+  const { entries, files } = await readMissionEntries();
+  if (!files.length) return { ok: true, missing: true };
+  const now = new Date();
+  const dayStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  let count = 0;
+  for (const e of entries) {
+    if (!e || e.counts === false) continue;
+    const t = typeof e.ts === 'string' ? Date.parse(e.ts) : NaN;
+    if (Number.isFinite(t) && t >= dayStart) count++;
+  }
+  return { ok: true, missing: false, count };
+}
+
+// Ore/bread tiles both read the same Vault snapshot, just summed against a
+// different item-name allowlist — factored once here rather than duplicated
+// per tile. missing:true when Vault has never run (no ground truth exists,
+// same rule the #vault section itself already follows); ok:false when the
+// snapshot exists but failed to read/parse (a real failure worth surfacing,
+// distinct from "never audited"); otherwise the summed total plus Vault's own
+// freshly-computed ageMs/staleMs so the client can flag a stale snapshot the
+// same way #vault's own age line does.
+//
+// A chest with a read error (__error-shaped, see buildVaultChests) is
+// excluded from the sum rather than guessed at — the honest total is "what
+// we could actually confirm", which can under-count vs. reality when a chest
+// goto/eval failed, same tradeoff Vault's own per-chest error display makes.
+function vaultTile(vault, names) {
+  if (!vault || vault.missing) return { ok: true, missing: true };
+  if (vault.ok === false) return { ok: false, missing: false, error: vault.error };
+  let total = 0;
+  for (const chest of vault.chests || []) {
+    if (chest.error) continue;
+    for (const it of chest.items || []) {
+      if (names.includes(it.name)) total += it.count;
+    }
+  }
+  return { ok: true, missing: false, total, ageMs: vault.ageMs, staleMs: vault.staleMs };
+}
+
+// Explicit allowlist (task brief's own four items), deliberately narrower
+// than PANEL_V3_SPEC.md §3.3's optional 5-item suggestion (drops
+// copper_ingot) — a declared list either way, never implicit "whatever looks
+// like ore". cobblestone/cobbled_deepslate stay excluded per the spec's own
+// reasoning: building material in the tribe's vocabulary, not banked wealth.
+export const ORE_ITEMS = ['iron_ingot', 'raw_iron', 'raw_copper', 'coal'];
+
+// "Brot-Vorrat" per the launch brief: audit-snapshot bread only. This is
+// deliberately narrower than PANEL_V3_SPEC.md §3.3's "banked + carried" full
+// recommendation (which would sum in every bot's live /status.inventory too)
+// — the brief asked for the vault-only number, so unlike ore this tile hides
+// on a missing Vault rather than falling back to a carried-only partial
+// figure; getFleet()'s inventory data is available if a future round wants
+// the fuller sum.
+const BREAD_ITEMS = ['bread'];
+
+export async function getStatWall() {
+  const [vault, deaths, missionsToday, fel] = await Promise.all([
+    getVault(),
+    getDeathsStreak(),
+    getMissionsToday(),
+    readFelRelation(),
+  ]);
+  return {
+    ok: true,
+    ts: new Date().toISOString(),
+    deaths,
+    ore: vaultTile(vault, ORE_ITEMS),
+    bread: vaultTile(vault, BREAD_ITEMS),
+    missionsToday,
+    fel,
+  };
 }
 
 // ---------------------------------------------------------------------------

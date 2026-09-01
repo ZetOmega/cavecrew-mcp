@@ -37,6 +37,7 @@ import {
   getVault,
   getEconomy,
   getMissionsForBot,
+  getStatWall,
   doWake,
   doStop,
 } from './panel-data.mjs';
@@ -222,6 +223,16 @@ async function handle(req, res) {
   // history, fetched lazily when a card's drilldown is opened, deliberately
   // NOT part of /api/fleet's fast 3s payload (no reason to ship 8 bots' worth
   // of history on every poll when at most one card is expanded at a time).
+  // Tribe Stat Wall (PANEL_V3_SPEC.md §3.3) — the five big-number tiles above
+  // the fleet grid. One combined endpoint (deaths streak, Vault-derived ore/
+  // bread, missions-today, FEL relation all read from disk, no runner poll)
+  // rather than splitting across the fast/slow cadences §3.3 sketches — none
+  // of these five sources changes sub-minute, so panel-client.js rides this
+  // on the same slower timer as /api/economy instead of adding a third tier.
+  if (m === 'GET' && p === '/api/statwall') {
+    return sendJson(res, 200, await getStatWall());
+  }
+
   if (m === 'GET' && p === '/api/missions') {
     const bot = url.searchParams.get('bot');
     if (!bot) {
@@ -309,6 +320,22 @@ function renderPage() {
     --econ-bread: #c98a52;
     --econ-oak: #a97c4f;
     --econ-cobble: #9aa4b2;
+    /* Tribe Stat Wall (v3, §3.3) — big-number typography, sized well past
+       every other numeral on the page (the quota pill's 15px, a vital's
+       11px) since this row's entire job is "readable from across the room."
+       FEL relation's five-state enum (G4) each gets its own accent, kept
+       visually distinct from the red/amber/green severity ladder used
+       everywhere else EXCEPT allied, which deliberately reuses --green
+       verbatim per chief's own instruction (allied = the same "good" green
+       a driver already reads on every card's connected-dot). */
+    --sw-num-size: 32px;
+    --sw-unit-size: 13px;
+    --sw-label-size: 10px;
+    --fel-allied: var(--green);
+    --fel-trading: #5fb3f2;
+    --fel-neutral: var(--muted);
+    --fel-tense: var(--amber);
+    --fel-disputed: var(--red);
     --radius: 12px;
     --radius-sm: 8px;
     --radius-xs: 7px;
@@ -356,6 +383,38 @@ function renderPage() {
   .quota .fill { height: 100%; background: linear-gradient(90deg, var(--quota-grad-start), var(--quota-grad-end)); transition: width .4s ease; }
   .tick { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); transition: background .3s; }
   .tick.live { background: var(--green); box-shadow: 0 0 8px rgba(var(--green-rgb), .6); }
+
+  /* Tribe Stat Wall (v3, §3.3) — five glance-readable tiles between the
+     header and the fleet grid, deliberately the FIRST thing under the
+     sticky header (chief's own layout ask: "prominent big-number row at
+     top"). Deaths never hides (see panel-client.js paintStatWall) so it
+     starts visible in the markup below; the other four start [hidden] and
+     are only revealed once their one honest data source actually exists —
+     same "no ground truth, no tile" rule #vault already follows, not a
+     fabricated zero standing in for "not built yet." */
+  #statwall { margin: 16px 22px 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+  .sw-tile { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: var(--radius); padding: 14px 16px; transition: border-color .3s; }
+  .sw-tile.sw-warn { border-left-color: var(--amber); }
+  .sw-label { font-size: var(--sw-label-size); letter-spacing: .1em; text-transform: uppercase; color: var(--dim); margin-bottom: 6px; }
+  .sw-num { font-size: var(--sw-num-size); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; color: var(--text); white-space: nowrap; }
+  .sw-num .unit { font-size: var(--sw-unit-size); font-weight: 600; color: var(--muted); margin-left: 5px; }
+  /* FEL's tile shows a status WORD, not a numeral (G4's five-state enum) —
+     same slot in the layout, smaller font since a word needs more horizontal
+     room than two or three digits ever do. */
+  .sw-num.sw-word { font-size: 22px; text-transform: capitalize; }
+  .sw-sub { margin-top: 6px; font-size: 11px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* One accent colour per FEL status (G4) — allied deliberately reuses
+     --green verbatim (chief's own instruction), the other four get their own
+     tokens declared in :root above rather than a literal here. */
+  .sw-tile.fel-allied { border-left-color: var(--fel-allied); }
+  .sw-tile.fel-allied .sw-word { color: var(--fel-allied); }
+  .sw-tile.fel-trading { border-left-color: var(--fel-trading); }
+  .sw-tile.fel-trading .sw-word { color: var(--fel-trading); }
+  .sw-tile.fel-neutral { border-left-color: var(--fel-neutral); }
+  .sw-tile.fel-tense { border-left-color: var(--fel-tense); }
+  .sw-tile.fel-tense .sw-word { color: var(--fel-tense); }
+  .sw-tile.fel-disputed { border-left-color: var(--fel-disputed); }
+  .sw-tile.fel-disputed .sw-word { color: var(--fel-disputed); }
 
   main { display: grid; grid-template-columns: minmax(0,1fr) 320px; gap: 20px; padding: 20px 22px 40px; align-items: start; }
   @media (max-width: 1080px) { main { grid-template-columns: minmax(0,1fr); } }
@@ -640,6 +699,34 @@ function renderPage() {
     <div class="stat"><span class="tick" id="tick"></span><span id="s-when">connecting</span></div>
   </div>
 </header>
+
+<section id="statwall">
+  <div class="sw-tile" id="sw-deaths">
+    <div class="sw-label">Ohne Tod</div>
+    <div class="sw-num"><span id="sw-deaths-num">–</span><span class="unit" id="sw-deaths-unit"></span></div>
+    <div class="sw-sub" id="sw-deaths-sub"></div>
+  </div>
+  <div class="sw-tile" id="sw-ore" hidden>
+    <div class="sw-label">Erz gebankt</div>
+    <div class="sw-num"><span id="sw-ore-num">–</span><span class="unit">Items</span></div>
+    <div class="sw-sub" id="sw-ore-sub"></div>
+  </div>
+  <div class="sw-tile" id="sw-bread" hidden>
+    <div class="sw-label">Brot-Vorrat</div>
+    <div class="sw-num"><span id="sw-bread-num">–</span><span class="unit">Brot</span></div>
+    <div class="sw-sub" id="sw-bread-sub"></div>
+  </div>
+  <div class="sw-tile" id="sw-missions" hidden>
+    <div class="sw-label">Missionen heute</div>
+    <div class="sw-num"><span id="sw-missions-num">–</span></div>
+    <div class="sw-sub">seit 00:00 UTC</div>
+  </div>
+  <div class="sw-tile" id="sw-fel" hidden>
+    <div class="sw-label">FEL-Status</div>
+    <div class="sw-num sw-word" id="sw-fel-status">–</div>
+    <div class="sw-sub" id="sw-fel-sub"></div>
+  </div>
+</section>
 
 <main>
   <div id="grid"></div>

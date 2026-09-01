@@ -869,6 +869,117 @@
     items.forEach(function (it) { economyItemsEl.appendChild(renderEconomyRow(it)); });
   }
 
+  // Tribe Stat Wall (v3, §3.3) — /api/statwall's five tiles. Simple text/
+  // visibility updates on static, single-instance elements (unlike
+  // paintBoard/paintVault/paintEconomy's list rebuilds) so this always
+  // repaints on every poll, same as paint(bot) itself — no signature gate
+  // needed since there's no scroll position or expanded state a rebuild
+  // could disturb, and the ageMs field on ore/bread changes every call
+  // anyway (getVault() computes it fresh, never cached), so a gate would
+  // never actually skip anything.
+  var swEls = {
+    deaths: { tile: document.getElementById('sw-deaths'), num: document.getElementById('sw-deaths-num'), unit: document.getElementById('sw-deaths-unit'), sub: document.getElementById('sw-deaths-sub') },
+    ore: { tile: document.getElementById('sw-ore'), num: document.getElementById('sw-ore-num'), sub: document.getElementById('sw-ore-sub') },
+    bread: { tile: document.getElementById('sw-bread'), num: document.getElementById('sw-bread-num'), sub: document.getElementById('sw-bread-sub') },
+    missions: { tile: document.getElementById('sw-missions'), num: document.getElementById('sw-missions-num') },
+    fel: { tile: document.getElementById('sw-fel'), status: document.getElementById('sw-fel-status'), sub: document.getElementById('sw-fel-sub') }
+  };
+  function fmtShortDate(ts) {
+    var d = ts ? new Date(ts) : null;
+    if (!d || isNaN(d.getTime())) return '';
+    var dd = String(d.getDate()).padStart(2, '0');
+    var mm = String(d.getMonth() + 1).padStart(2, '0');
+    return dd + '.' + mm + '.' + d.getFullYear();
+  }
+  // Deaths tile's number+unit is re-derived from the last statwall payload on
+  // every 1s tick too (see the age-ticker interval below) — same "every
+  // relative clock on this page keeps counting between polls" rule
+  // taskAge/refreshTimestamps/econ-last already follow, even though at
+  // day/hour granularity a 20s poll gap would rarely be visible either way.
+  var lastStatWall = null;
+  function tickDeathsTile() {
+    if (!lastStatWall) return;
+    var dt = lastStatWall.deaths || {};
+    var since = dt.sinceTs ? Date.parse(dt.sinceTs) : NaN;
+    if (!isFinite(since)) { setText(swEls.deaths.num, '—'); setText(swEls.deaths.unit, ''); return; }
+    var ms = Math.max(0, Date.now() - since);
+    var days = Math.floor(ms / 86400000);
+    if (days >= 1) {
+      setText(swEls.deaths.num, String(days));
+      setText(swEls.deaths.unit, days === 1 ? 'Tag' : 'Tage');
+    } else {
+      setText(swEls.deaths.num, String(Math.floor(ms / 3600000)));
+      setText(swEls.deaths.unit, 'Std');
+    }
+  }
+  function paintStatWall(data) {
+    // A transient fetch failure (network hiccup, panel restart mid-poll)
+    // keeps whatever was last painted rather than blanking a wall built
+    // specifically to be glanceable — a flicker to dashes would be worse
+    // than one stale poll.
+    if (!data || data.ok === false) return;
+    lastStatWall = data;
+
+    var dt = data.deaths || {};
+    tickDeathsTile();
+    setText(swEls.deaths.sub, dt.everDied
+      ? ('letzter Tod' + (dt.lastBot ? ' (' + dt.lastBot + ')' : '') + ' — Zähler läuft seitdem')
+      : ('0 Tode seit Relaunch (' + fmtShortDate(dt.sinceTs) + ')'));
+
+    var ore = data.ore || {};
+    swEls.ore.tile.hidden = !!ore.missing;
+    if (!ore.missing) {
+      var oreErr = ore.ok === false;
+      setText(swEls.ore.num, oreErr ? '—' : String(ore.total));
+      var oreStale = !oreErr && typeof ore.ageMs === 'number' && typeof ore.staleMs === 'number' && ore.ageMs > ore.staleMs;
+      setText(swEls.ore.sub, oreErr ? (ore.error || 'audit unavailable') : ('Snapshot ' + fmtDur(ore.ageMs) + ' alt'));
+      setCls(swEls.ore.tile, 'sw-tile' + (oreErr || oreStale ? ' sw-warn' : ''));
+    }
+
+    // Bread — same Vault source/staleness as ore (audit-snapshot only, per
+    // the launch brief; see panel-data.mjs's vaultTile()/BREAD_ITEMS comment
+    // for how this differs from PANEL_V3_SPEC.md §3.3's fuller "banked +
+    // carried" recommendation).
+    var bread = data.bread || {};
+    swEls.bread.tile.hidden = !!bread.missing;
+    if (!bread.missing) {
+      var breadErr = bread.ok === false;
+      setText(swEls.bread.num, breadErr ? '—' : String(bread.total));
+      var breadStale = !breadErr && typeof bread.ageMs === 'number' && typeof bread.staleMs === 'number' && bread.ageMs > bread.staleMs;
+      setText(swEls.bread.sub, breadErr ? (bread.error || 'audit unavailable') : ('Snapshot ' + fmtDur(bread.ageMs) + ' alt'));
+      setCls(swEls.bread.tile, 'sw-tile' + (breadErr || breadStale ? ' sw-warn' : ''));
+    }
+
+    var missions = data.missionsToday || {};
+    swEls.missions.tile.hidden = !!missions.missing;
+    if (!missions.missing) setText(swEls.missions.num, String(missions.count));
+
+    // FEL relation — hidden when the hand-maintained file (G4) has never
+    // been written, or on a genuine read/parse error (both distinct from "a
+    // real status exists"). Status word drives the tile's accent colour via
+    // a fel-<status> class (tokens in :root); an unrecognised status string
+    // still renders (no CSS match = default border, never a broken tile).
+    var fel = data.fel || {};
+    var felHide = !!fel.missing || fel.ok === false || !fel.data;
+    swEls.fel.tile.hidden = felHide;
+    if (!felHide) {
+      var status = fel.data.status || 'unknown';
+      setText(swEls.fel.status, status);
+      setCls(swEls.fel.tile, 'sw-tile fel-' + status);
+      setText(swEls.fel.sub, fel.data.headline || '');
+    }
+  }
+  // Rides the same slower cadence as Economy (§3.2/§3.3's own cadence note:
+  // none of these five sources changes sub-minute — deaths/missions files
+  // only get written on a death/task-finish event, Vault only on an audit
+  // run, fel-relation.json only by hand).
+  function refreshStatWall() {
+    return fetch('/api/statwall')
+      .then(function (r) { return r.json(); })
+      .catch(function () { return null; })
+      .then(paintStatWall);
+  }
+
   var tick = document.getElementById('tick');
   var lastBots = [];
 
@@ -908,11 +1019,14 @@
   }
 
   // Age labels tick locally between polls so "running 1m 4s" keeps counting.
+  // The deaths tile's day/hour counter rides the same 1s tick for the same
+  // reason (see tickDeathsTile's own comment).
   setInterval(function () {
     lastBots.forEach(function (b) {
       var c = cards[String(b.port)];
       if (c && !b.offline) setText(c.age, taskAge(b));
     });
+    tickDeathsTile();
   }, 1000);
 
   // Economy rides its own, slower timer (architecture note, §3.2's cadence
@@ -930,4 +1044,6 @@
   setInterval(refresh, 3000);
   refreshEconomy();
   setInterval(refreshEconomy, 20000);
+  refreshStatWall();
+  setInterval(refreshStatWall, 20000);
 })();

@@ -24,13 +24,13 @@ architecture note — split from one 1840-line file, phase 1, 2026-09-01):
   all share. Zero dependency on `req`/`res` — each function is independently
   testable without booting the HTTP server, e.g.
   `node -e "import('./cave/panel-data.mjs').then(m => console.log(m.getVault()))"`.
-  Also carries the newer v3 primitives (`BASE_ANCHOR`, ledger/deaths/missions
-  readers, the FEL relation reader). `BASE_ANCHOR`/`distanceFromBase()` and
-  the per-bot mission reader are wired into Mission Control (see `## Mission
-  Control drilldown` below); `getEconomy()` (built on the ledger reader) is
-  wired into the `## Economy` section below. The deaths-streak and FEL
-  relation readers remain unwired, waiting on the Tribe Stat Wall section —
-  see `cave/PANEL_V3_SPEC.md` for what will consume them.
+  Also carries the newer v3 primitives (`BASE_ANCHOR`/`RELAUNCH_TS`,
+  ledger/deaths/missions readers, the FEL relation reader). `BASE_ANCHOR`/
+  `distanceFromBase()` and the per-bot mission reader are wired into Mission
+  Control (see `## Mission Control drilldown` below); `getEconomy()` (built
+  on the ledger reader) is wired into the `## Economy` section below;
+  `getDeathsStreak()`/`getMissionsToday()`/`readFelRelation()` plus Vault are
+  composed by `getStatWall()` into the `## Tribe Stat Wall` section below.
 - **`cave/panel-client.js`** — the entire client-side script, served as a real
   static file via `GET /panel.js` and loaded with
   `<script src="/panel.js"></script>`. This is what used to be an inline
@@ -306,6 +306,7 @@ there is no persistence by design.
 | `GET` | `/api/vault` | `cave/audit-snapshot.json`'s per-chest ledger, joined with hand-synced chest coords/labels; cached on the file's mtime, snapshot age always computed fresh |
 | `GET` | `/api/economy` | (v3) per-item, time-bucketed net-flow series over `cave/ledger/*.jsonl` for a fixed six-item allowlist, last 6h in 10-min buckets; entries cached on the ledger directory's newest mtime, buckets recomputed fresh every call (the window is relative to "now"). Fetched by the client on its own ~20s timer, decoupled from the 3s fleet poll — see `## Economy` below. |
 | `GET` | `/api/missions?bot=<name-or-port>` | one bot's mission history (v3, `cave/missions/<bot>.jsonl`), newest first, capped at 30 — see `## Mission Control drilldown` above. `bot` accepts the same name/port shapes as `wake`/`stop`. Fetched by the client only while that card's drilldown is open, not on the main poll. |
+| `GET` | `/api/statwall` | (v3) the Tribe Stat Wall's five tiles in one payload — deaths-free streak, Vault-derived ore/bread totals, missions-today count, FEL relation status — see `## Tribe Stat Wall` below. Fetched by the client on the same ~20s timer as `/api/economy`. |
 | `POST` | `/api/wake` | `{bot}` — push the role-default task, `force: false` |
 | `POST` | `/api/stop` | `{bot}` — forward `POST /stop` |
 
@@ -486,6 +487,72 @@ hit or not, so "2h 15m ago" always means what it says.
   chest with a "+N more" trailing chip past that (not needed by today's
   real chests — chest A currently sits at 23 distinct stacks — but a static
   page shouldn't quietly render an unbounded chip wall if that ever grows).
+
+## Tribe Stat Wall
+
+Five glance-readable big-number tiles, `#statwall`, sitting between the
+sticky header and the fleet grid — the very first thing under the header per
+the launch brief's layout ask. `/api/statwall` composes all five from disk
+reads only (no runner poll): `getDeathsStreak()`, `getVault()`'s chest totals
+under two allowlists, `getMissionsToday()`, and `readFelRelation()`
+(`panel-data.mjs`). Rides the same ~20s client timer as `/api/economy` — none
+of the five sources changes sub-minute (a death/mission file only gets
+written on a death/task-finish event, Vault only on an audit run,
+`fel-relation.json` only by hand), so a third poll tier would be waste, not
+diligence.
+
+Four of the five tiles hide outright (`hidden`) when their one honest source
+has never produced anything — same "no ground truth, no tile" rule Vault's
+own section already follows, never a fabricated zero standing in for "not
+built yet." The deaths tile is the one exception: it never hides, since
+"no deaths ever" is exactly the good-news state this wall exists to show.
+
+- **Ohne Tod** (`sw-deaths`) — days (or hours, under 1 day) since the most
+  recent `lastDeath.ts` across every `cave/deaths/<bot>.json` that exists
+  (`getDeathsStreak()`). No death files at all — today's real state — reports
+  `everDied:false` and anchors the count to `RELAUNCH_TS`
+  (`panel-data.mjs`, hand-declared and sourced from `REBUILD.md`'s own R1
+  section, same "declare it once" treatment `BASE_ANCHOR` gets), rendering
+  "0 Tode seit Relaunch (dd.mm.yyyy)". A real death instead renders "letzter
+  Tod (`<bot>`)". The number+unit re-derives every second off the same
+  `sinceTs` field (the shared 1s age-ticker interval also drives this tile),
+  same "every relative clock on this page keeps counting between polls"
+  rule `taskAge`/`refreshTimestamps` already follow.
+- **Erz gebankt** (`sw-ore`) — `iron_ingot` + `raw_iron` + `raw_copper` +
+  `coal` summed across every readable Vault chest (`ORE_ITEMS`,
+  `panel-data.mjs` — deliberately narrower than `PANEL_V3_SPEC.md` §3.3's
+  optional 5-item suggestion, drops `copper_ingot`). A chest with a read
+  error (`__error`-shaped) is excluded from the sum, not guessed at.
+- **Brot-Vorrat** (`sw-bread`) — Vault's `bread` count only. Deliberately
+  narrower than `PANEL_V3_SPEC.md` §3.3's "banked + carried" full
+  recommendation (which would also sum every bot's live
+  `/status.inventory`) — the launch brief asked for the audit-snapshot
+  number specifically, so unlike the fuller spec this tile hides on a
+  missing Vault rather than falling back to a carried-only partial figure.
+- Both Vault-sourced tiles share one `vaultTile()` helper
+  (`panel-data.mjs`) and Vault's own three states: missing snapshot → tile
+  hidden; snapshot exists but fails to read/parse → tile shows, with the
+  error text where the total normally goes; snapshot reads clean → total +
+  Vault's own freshly-computed `ageMs`/`staleMs`, tinting the tile's left
+  border amber past the same 2h staleness threshold `#vault`'s own age line
+  uses.
+- **Missionen heute** (`sw-missions`) — count of `cave/missions/*.jsonl`
+  lines with `counts !== false` whose `ts` falls in the current UTC
+  calendar day, across all bots (`getMissionsToday()`). Zero mission files
+  anywhere hides the tile — a rendered `0` would otherwise be ambiguous
+  between "shipped, quiet day so far" and "not built yet", the same
+  ambiguity Mission Control's own per-card mission line already avoids.
+- **FEL-Status** (`sw-fel`) — a direct render of `cave/fel-relation.json`'s
+  `status` + `headline` (G4; hand-maintained, updated by the orchestrator
+  when something relation-worthy happens). Missing file hides the tile
+  (matches Vault's own missing-snapshot rule exactly). `status` drives the
+  tile's accent colour via a `fel-<status>` CSS class against the five-state
+  enum (`allied`/`trading`/`neutral`/`tense`/`disputed`) — `allied` reuses
+  `--green` verbatim (chief's own instruction: the same "good" green a
+  driver already reads off a card's connected-dot); the other four get their
+  own `--fel-*` tokens (`panel.mjs` `:root`). An unrecognised status string
+  still renders in plain text with the default border — no CSS class match
+  is a cosmetic miss, never a broken tile.
 
 ## Keeping it in sync
 
