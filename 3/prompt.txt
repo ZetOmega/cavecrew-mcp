@@ -668,3 +668,12 @@ RELOG_SETTLED {"name":"BariBrute","position":{"x":20,"y":90,"z":60},"positionSou
 RELOG_WATCH_END</event>
 If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
 </task-notification>
+
+---
+
+<task-notification>
+<task-id>b0dzs3rrv</task-id>
+<summary>Monitor event: "Short final-approach goto to coal-zone start (32,52,72): watch arrival"</summary>
+<event>t+20s task="task":{"kind":"goto","x":32,"y":52,"z":72,"at":1788268544664} "lastBaritoneLine":"Finished finding a path from BetterBlockPos{x=32,y=44,z=72} to GoalBlock{x=32,y=52,z=72}. 117292 nodes considered"</event>
+If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one.
+</task-notification>
