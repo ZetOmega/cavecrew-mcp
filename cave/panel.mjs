@@ -601,6 +601,92 @@ async function getTodoBoard() {
 }
 
 // ---------------------------------------------------------------------------
+// Vault — round 7 (team-lead's ask): renders cave/audit-snapshot.json, the
+// ground-truth depot ledger `cave/audit.mjs` writes after a read-only chest
+// walk. Same mtime-cache shape as the TODO board above, with one addition:
+// snapshot AGE must never be baked into the cached object, since the whole
+// point of "cache until the file changes" is that the file can go stale for
+// a long time between audit runs while this endpoint keeps getting polled —
+// so age is computed fresh on every call, cache hit or not.
+//
+// CHEST_META (id -> x/y/z/label) is mirrored from audit.mjs's own CHESTS
+// list (~line 36) — audit.mjs is a one-shot CLI script with no module
+// exports (it calls main() directly), so this is a hand-synced copy, same
+// contract as the BOTS/TEAM_HEX tables above. Keep in sync when a chest
+// moves, gets added, or is removed from BASE.md's registry.
+// ---------------------------------------------------------------------------
+const VAULT_PATH = path.join(HERE, 'audit-snapshot.json');
+const VAULT_STALE_MS = 2 * 60 * 60 * 1000;
+let vaultCache = { mtimeMs: -1, result: null };
+
+const CHEST_META = {
+  chest_a_materials: { x: 11, y: 89, z: 55, label: 'chest A (wood/materials depot)' },
+  chest_b_tools: { x: 12, y: 90, z: 54, label: 'chest B (building/torch supplies)' },
+  chest_c_food: { x: 16, y: 89, z: 54, label: 'chest C (food, Mine House)' },
+  chest_d_ore: { x: 14, y: 89, z: 57, label: 'chest D (ore, Mine House)' },
+};
+
+function buildVaultChests(rawChests) {
+  return Object.entries(rawChests ?? {}).map(([id, counts]) => {
+    const meta = CHEST_META[id] ?? null;
+    const pos = meta ? { x: meta.x, y: meta.y, z: meta.z } : null;
+    const label = meta?.label ?? id;
+    // audit.mjs's __error shape: a chest it failed to read (goto/eval error,
+    // chest missing/moved, timeout) — never a valid count map, so checked
+    // first and rendered as a distinct failure, not garbage item chips.
+    if (counts && typeof counts.__error === 'string') {
+      return { id, label, pos, error: counts.__error, items: [], total: 0 };
+    }
+    const items = Object.entries(counts ?? {})
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+    const total = items.reduce((sum, it) => sum + it.count, 0);
+    return { id, label, pos, error: null, items, total };
+  });
+}
+
+async function getVault() {
+  let stat;
+  try {
+    stat = await fsp.stat(VAULT_PATH);
+  } catch (err) {
+    // ENOENT (audit.mjs has simply never been run yet) is the normal,
+    // expected case — distinct from any other stat failure (permissions,
+    // etc.), which IS worth surfacing rather than quietly treating as
+    // "nothing to show".
+    if (err?.code === 'ENOENT') return { ok: true, missing: true };
+    return { ok: false, missing: false, error: `audit-snapshot.json unreadable (${err?.code ?? err?.message ?? err})` };
+  }
+
+  let cached = vaultCache.result;
+  if (!cached || vaultCache.mtimeMs !== stat.mtimeMs) {
+    let raw;
+    try {
+      raw = await fsp.readFile(VAULT_PATH, 'utf8');
+    } catch (err) {
+      return { ok: false, missing: false, error: err?.message ?? String(err) };
+    }
+    let snapshot;
+    try {
+      snapshot = JSON.parse(raw);
+    } catch (err) {
+      return { ok: false, missing: false, error: `audit-snapshot.json corrupt JSON: ${err?.message ?? err}` };
+    }
+    cached = {
+      ok: true,
+      missing: false,
+      ts: typeof snapshot.ts === 'string' ? snapshot.ts : null,
+      botName: snapshot.botName ?? null,
+      chests: buildVaultChests(snapshot.chests),
+    };
+    vaultCache = { mtimeMs: stat.mtimeMs, result: cached };
+  }
+
+  const ageMs = cached.ts ? Date.now() - Date.parse(cached.ts) : null;
+  return { ...cached, ageMs, staleMs: VAULT_STALE_MS };
+}
+
+// ---------------------------------------------------------------------------
 // Write actions — the only two, both narrow.
 // ---------------------------------------------------------------------------
 
@@ -795,6 +881,10 @@ async function handle(req, res) {
 
   if (m === 'GET' && p === '/api/todo') {
     return sendJson(res, 200, await getTodoBoard());
+  }
+
+  if (m === 'GET' && p === '/api/vault') {
+    return sendJson(res, 200, await getVault());
   }
 
   if (m === 'POST' && (p === '/api/wake' || p === '/api/stop')) {
@@ -1071,6 +1161,24 @@ function renderPage() {
     .board-who, .board-status { grid-column: 1 / -1; }
   }
 
+  /* Vault (round 7) — cave/audit-snapshot.json, the ground-truth depot
+     ledger, same card shell as #board. Hidden outright (not an empty-state
+     message) when the file has never been written — "audit never ran" is a
+     normal state, not a broken one. Chip look is deliberately identical to
+     a bot card's own inventory chips (.chip, reused as-is) — same "what's
+     actually in there" language for a chest as for a bot. */
+  #vault { margin: 0 22px 24px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 18px 16px; }
+  .vault-age { font-size: 11px; color: var(--dim); }
+  .vault-age.stale { color: var(--amber); }
+  #vault-chests { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin-top: 4px; }
+  .vault-chest { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; }
+  .vault-chest.err { border-color: rgba(242,176,53,.45); }
+  .vault-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .vault-label { font-size: 12px; font-weight: 600; color: var(--text); }
+  .vault-pos { font-size: 10px; color: var(--dim); font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; }
+  .vault-total { margin-left: auto; font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .vault-error { font-size: 11px; color: var(--amber); font-style: italic; }
+
   footer { padding: 0 22px 28px; font-size: 11px; color: var(--dim); }
   footer code { color: var(--muted); }
 </style>
@@ -1110,6 +1218,15 @@ function renderPage() {
   <div class="board-rows" id="bd-todo"></div>
   <div class="board-label toggle" id="bd-done-toggle"><span id="bd-done-arrow">▸ DONE</span> <b id="bd-done-n">0</b></div>
   <div class="board-rows" id="bd-done"></div>
+</section>
+
+<section id="vault" hidden>
+  <div class="board-head">
+    <h2>Vault</h2>
+    <span class="board-sub">audit-snapshot.json —</span>
+    <span class="vault-age" id="vault-age"></span>
+  </div>
+  <div id="vault-chests"></div>
 </section>
 
 <footer>Read-mostly panel. WAKE pushes the bot's role-default task with <code>force:false</code> (never preempts a driver); STOP cancels the running task. Docs: <code>cave/PANEL.md</code></footer>
@@ -1585,6 +1702,71 @@ function renderPage() {
     renderBoardRows(boardDoneRows, done, 'none pruned yet');
   }
 
+  // Vault (round 7) — /api/vault carries missing:true when audit.mjs has
+  // never run; that's the ONE case that hides the whole section outright
+  // rather than showing an empty/error state, since "never audited yet" is
+  // normal, not broken. Every other non-ok response still shows the
+  // section, with the failure reason where the age would be.
+  var vaultSection = document.getElementById('vault');
+  var vaultAgeEl = document.getElementById('vault-age');
+  var vaultChestsEl = document.getElementById('vault-chests');
+  var vaultSig = '';
+  function paintVault(data) {
+    if (!data || data.missing) {
+      vaultSection.hidden = true;
+      return;
+    }
+    vaultSection.hidden = false;
+    var sig = JSON.stringify(data);
+    if (sig === vaultSig) return;
+    vaultSig = sig;
+
+    if (data.ok === false) {
+      setText(vaultAgeEl, data.error || 'unavailable');
+      setCls(vaultAgeEl, 'vault-age stale');
+    } else {
+      var stale = typeof data.ageMs === 'number' && typeof data.staleMs === 'number' && data.ageMs > data.staleMs;
+      var ageText = typeof data.ageMs === 'number' ? fmtDur(data.ageMs) + ' ago' : 'age unknown';
+      setText(vaultAgeEl, ageText);
+      setCls(vaultAgeEl, 'vault-age' + (stale ? ' stale' : ''));
+    }
+
+    vaultChestsEl.textContent = '';
+    var chests = data.chests || [];
+    if (!chests.length) {
+      vaultChestsEl.appendChild(el('div', 'board-empty', 'snapshot has no chests'));
+      return;
+    }
+    var ITEM_CAP = 30;
+    chests.forEach(function (c) {
+      var block = el('div', 'vault-chest' + (c.error ? ' err' : ''));
+      var head = el('div', 'vault-head');
+      head.appendChild(el('span', 'vault-label', c.label));
+      if (c.pos) head.appendChild(el('span', 'vault-pos', c.pos.x + ',' + c.pos.y + ',' + c.pos.z));
+      if (!c.error) head.appendChild(el('span', 'vault-total', c.total + ' items'));
+      block.appendChild(head);
+      if (c.error) {
+        block.appendChild(el('div', 'vault-error', 'read failed: ' + c.error));
+      } else if (!(c.items || []).length) {
+        block.appendChild(el('div', 'board-empty', 'empty'));
+      } else {
+        var items = el('div', 'inv');
+        var list = c.items;
+        list.slice(0, ITEM_CAP).forEach(function (it) {
+          var chip = el('span', 'chip');
+          chip.appendChild(el('span', 'n', it.name));
+          chip.appendChild(el('span', 'c', String(it.count)));
+          items.appendChild(chip);
+        });
+        if (list.length > ITEM_CAP) {
+          items.appendChild(el('span', 'chip', '+' + (list.length - ITEM_CAP) + ' more'));
+        }
+        block.appendChild(items);
+      }
+      vaultChestsEl.appendChild(block);
+    });
+  }
+
   var tick = document.getElementById('tick');
   var lastBots = [];
 
@@ -1592,9 +1774,10 @@ function renderPage() {
     return Promise.all([
       fetch('/api/fleet').then(function (r) { return r.json(); }),
       fetch('/api/alerts').then(function (r) { return r.json(); }).catch(function () { return { alerts: [] }; }),
-      fetch('/api/todo').then(function (r) { return r.json(); }).catch(function () { return { ok: false, error: 'unreachable', doing: [], todo: [], done: [] }; })
+      fetch('/api/todo').then(function (r) { return r.json(); }).catch(function () { return { ok: false, error: 'unreachable', doing: [], todo: [], done: [] }; }),
+      fetch('/api/vault').then(function (r) { return r.json(); }).catch(function () { return { ok: false, missing: false, error: 'unreachable' }; })
     ]).then(function (out) {
-      var fleet = out[0], al = out[1], td = out[2];
+      var fleet = out[0], al = out[1], td = out[2], vt = out[3];
       lastBots = fleet.bots || [];
       lastBots.forEach(paint);
 
@@ -1608,6 +1791,7 @@ function renderPage() {
       if (al.file) setText(document.getElementById('alert-src'), al.file.split(/[\\\\/]/).slice(-2).join('/') + ' + live bot errors');
       paintAlerts(al.alerts || [], lastBots);
       paintBoard(td);
+      paintVault(vt);
 
       tick.classList.add('live');
       setTimeout(function () { tick.classList.remove('live'); }, 450);

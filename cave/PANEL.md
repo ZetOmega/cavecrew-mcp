@@ -152,6 +152,19 @@ cell) is counted and skipped rather than guessed at or thrown on; the count
 shows in the board's subtitle when non-zero. See `## TODO board` below for
 the parsing rules in full.
 
+**Vault** — below the tribe board, full width: `cave/audit-snapshot.json`'s
+ground-truth depot ledger (written by `cave/audit.mjs`'s read-only chest
+walk). One card per chest — label, coords, item chips in the same style as
+a bot's own inventory, total item count — plus the whole snapshot's age up
+top, amber past 2 hours. A chest `audit.mjs` failed to read (its `__error`
+shape) renders as "read failed: `<message>`" instead of empty/garbage item
+chips, with the chest's card border tinted amber. The section is hidden
+outright — not shown empty — when the snapshot file has never been written;
+"audit never ran yet" is a normal state, not a broken one. Any other read
+failure (permissions, corrupt JSON) DOES show the section, with the failure
+message where the age would be, since that IS worth noticing. See `## Vault`
+below for the field-by-field detail.
+
 Auto-refresh is every 3s and updates the DOM in place — no page reload, no
 flicker. Task ages tick locally each second between polls.
 
@@ -205,6 +218,7 @@ there is no persistence by design.
 | `GET` | `/api/fleet` | every runner's `/status` polled in parallel (3s timeout each), with the last ~10 `/events` merged per bot and `delta30`/`delta60` movement figures; whole aggregate cached 2s |
 | `GET` | `/api/alerts` | last ~50 lines of the alerts log |
 | `GET` | `/api/todo` | `cave/TODO.md`'s markdown tables, parsed and bucketed into `doing`/`todo`/`done`; cached on the file's mtime |
+| `GET` | `/api/vault` | `cave/audit-snapshot.json`'s per-chest ledger, joined with hand-synced chest coords/labels; cached on the file's mtime, snapshot age always computed fresh |
 | `POST` | `/api/wake` | `{bot}` — push the role-default task, `force: false` |
 | `POST` | `/api/stop` | `{bot}` — forward `POST /stop` |
 
@@ -279,18 +293,64 @@ file being hand-edited:
   renders as a chip, just uncoloured — the parser never tries to guess
   which words in freeform prose are "really" a bot name.
 
+## Vault
+
+`/api/vault` reads `cave/audit-snapshot.json` — the file `cave/audit.mjs`
+writes after walking every registered chest with a live bot and reading its
+real contents over HTTP (`/goto` + `/eval` openChest, read-only end to end).
+Same mtime-cache shape as `/api/todo`, with one deliberate difference: the
+snapshot's **age** is never part of the cached value. The whole point of
+caching on mtime is that the file can sit unchanged — and therefore
+increasingly stale — for a long time between audit runs while this endpoint
+keeps getting polled every 3s; baking a relative age into the cached object
+would freeze it at whatever it was when the cache was last built. Age is
+computed fresh from the raw timestamp on every single call instead, cache
+hit or not, so "2h 15m ago" always means what it says.
+
+- A chest ID (e.g. `chest_a_materials`) is joined against `CHEST_META`, a
+  hand-synced copy of `audit.mjs`'s own `CHESTS` list (coords + label) —
+  `audit.mjs` is a one-shot CLI script with no module exports, so this can't
+  be imported, same contract as the `BOTS`/`TEAM_HEX` tables. Keep it in
+  sync when a chest moves, or gets added/removed from BASE.md's registry.
+- A chest whose value is the `{ __error: "<message>" }` shape (audit.mjs's
+  own failure marker for a chest it couldn't reach or read) renders as "read
+  failed: `<message>`" with an amber-tinted card border — amber, not red:
+  a failed *read* is a data-collection problem worth a glance, not
+  necessarily a fleet emergency the way a panic-response task is.
+- Snapshot age past `VAULT_STALE_MS` (2 hours) tints amber in the section
+  header. The threshold ships from the server (`staleMs` in the response),
+  not hardcoded twice.
+- Missing file (`ENOENT` — `audit.mjs` has simply never been run) returns
+  `{ ok: true, missing: true }` and the whole section hides via the `hidden`
+  attribute, not an empty-state message — this is the one case in the whole
+  panel where "nothing to show" means "hide the section" rather than "show
+  it saying so", because unlike an empty inventory or a quiet alerts log,
+  "never audited" isn't really a state of the *fleet* at all. Any OTHER
+  failure (permissions, corrupt JSON) still shows the section, with the
+  failure message where the age normally goes, since that IS a problem
+  worth surfacing.
+- Item chips reuse the exact same `.chip` markup/style a bot card's own
+  inventory uses — deliberately: a chest's contents and a bot's inventory
+  are the same kind of fact, so they read the same way. Capped at 30 per
+  chest with a "+N more" trailing chip past that (not needed by today's
+  real chests — chest A currently sits at 23 distinct stacks — but a static
+  page shouldn't quietly render an unbounded chip wall if that ever grows).
+
 ## Keeping it in sync
 
-`panel.mjs` carries its own copy of two tables, because neither source can be
-imported (`overseer.mjs` starts its supervision loop on import; `runner.js` is a
-per-bot process):
+`panel.mjs` carries its own copy of three tables, because none of their
+sources can be imported (`overseer.mjs` starts its supervision loop on
+import; `runner.js` is a per-bot process; `audit.mjs` is a one-shot CLI
+script that calls `main()` directly with no module exports):
 
 - the roster + role-default tasks, from `overseer.mjs`'s `BOTS` (~line 34)
 - the team colours, from `runner.js`'s `TEAM_COLORS` (~line 78), lifted to hex
   values that stay readable on a dark card (`blue` and `dark_aqua` are
   brightened off their literal chat colours; the rest are palette values)
+- the chest coords + labels, from `audit.mjs`'s `CHESTS` (~line 36), as
+  `CHEST_META`
 
-If either changes upstream, update `panel.mjs` by hand.
+If any of these change upstream, update `panel.mjs` by hand.
 
 ## Phase 2 ideas
 
