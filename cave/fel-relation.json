@@ -1,0 +1,13 @@
+{
+  "status": "allied",
+  "headline": "Pakt v2 aktiv · tribes-common live",
+  "detail": "Fair-play pact v2 confirmed both sides (cavecrew#3 closed). Shared repo monkeorg/tribes-common seeded, felsenuboot accepted maintainer invite. Doctrine-exchange round 1 proposed (tribes-common#1). Trade convention post-de-chat pending negotiation.",
+  "openItems": [
+    "FEL: real claims file + schema feedback (botnet-tasks#6)",
+    "FEL: chat-clean field reconfirmation (felcrew#1)",
+    "CAVE: claims-registry consumption in dig-guard",
+    "both: trade-logging convention to replace TRADE chat lines"
+  ],
+  "updatedBy": "CaveLead",
+  "updatedAt": "2026-09-01T11:24:00Z"
+}
